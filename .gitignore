@@ -1,0 +1,31 @@
+# 开发工具与私钥（请勿上传）
+.tools/
+tools/
+.screenshots/
+.trae-html-share-packages/
+
+# 开发过程中的旧版本与截图
+dashboard/*.png
+dashboard/backups/
+openwrt/backups/
+mmdvm-dashboard-optimization/
+
+# 调试脚本
+openwrt/probe*.uc
+openwrt/t2.uc
+openwrt/test.uc
+openwrt/foo
+
+# 设备专用跳转页（写死了内网地址，不入库）
+openwrt/root-redirect.html
+openwrt/luci-redirect.html
+
+# 旧单文件原型（非部署文件）
+/index.html
+
+# 通用
+*.bak
+*.bak-*
+*~
+.DS_Store
+Thumbs.db

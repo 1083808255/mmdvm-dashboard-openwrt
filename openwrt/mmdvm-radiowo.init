@@ -1,0 +1,16 @@
+#!/bin/sh /etc/rc.common
+# 开机后自动同步 radiowo 呼号库（地址信息）
+START=95
+STOP=10
+
+start() {
+	( sleep 20; /usr/bin/mmdvm-radiowo-sync ) >/dev/null 2>&1 &
+}
+
+boot() {
+	start
+}
+
+stop() {
+	:
+}

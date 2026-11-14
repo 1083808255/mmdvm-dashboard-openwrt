@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MMDVM Dashboard</title>
+<style>
+html,body{height:100%;margin:0;background:#0b0f14;color:#aab6c2;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  display:flex;align-items:center;justify-content:center;font-size:15px}
+</style>
+</head>
+<body>
+<div>正在加载最新界面…</div>
+<script>
+/* 入口跳板：走 /api/page（CGI 输出 HTML 并强制 no-store），彻底绕过缓存 */
+location.replace('/api/page?v=' + Date.now() + (location.hash || ''));
+</script>
+</body>
+</html>
