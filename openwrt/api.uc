@@ -10,8 +10,12 @@ const STATUS_CACHE = "/tmp/dashboard_status.cache";
 const LIVE_CACHE   = "/tmp/dashboard_live.cache";
 const PING_CACHE   = "/tmp/dashboard_ping.json";
 const CONN_CACHE   = "/tmp/dashboard_conn.cache";
-/* 短缓存有效期（秒）：仅用于 status / live 这类高频接口 */
-const SHORT_TTL = 2;
+const GPS_CACHE    = "/tmp/dashboard_gps.json";
+const GEO_CACHE    = "/tmp/dashboard_geo.json";
+/* 逆地理结果缓存：成功的存 7 天，失败的只存 5 分钟 */
+const GEO_TTL      = 604800;
+/* 短缓存有效期（秒）：仅用于 status / live 这类高频接口，需小于前端轮询周期 */
+const SHORT_TTL = 1;
 
 /* ---------- 基础工具 ---------- */
 function sh(cmd) {
@@ -79,6 +83,7 @@ function state() {
 	return (type(v) == "object") ? v : {};
 }
 function saveState(o) { FS.writefile(STATE, sprintf("%J", o) + "\n"); }
+
 /* 文件签名：路径+大小+修改时间，用于判断日志/数据库是否变化 */
 function fileSig(file) {
 	if (!length(file)) return "";
@@ -111,6 +116,37 @@ function shortPut(path, body, file) {
 	}));
 	FS.rename(tmp, path);
 }
+/* 呼号/地址查询结果短缓存：同一批呼号的 grep / awk 结果 60 秒内不再重复 fork。
+   这类数据一天内基本不变，实时性只影响新出现的呼号，60 秒足够 */
+const MEMO = "/tmp/dashboard_memo.json";
+function keyOf(prefix, a, b) {
+	let s = prefix;
+	if (a != null) for (let x in a) s += x + ",";
+	if (b != null) { s += "|"; for (let x in b) s += x + ","; }
+	return s;
+}
+function memoGet(k, ttl) {
+	let d = FS.readfile(MEMO);
+	if (d == null) return null;
+	let m = json(d);
+	if (type(m) != "object" || m == null) return null;
+	let e = m[k];
+	if (e == null || type(e) != "object") return null;
+	if (time() - (e.t ?? 0) > ttl) return null;
+	return e.v;
+}
+function memoPut(k, v) {
+	let d = FS.readfile(MEMO);
+	let m = (d != null) ? json(d) : null;
+	if (type(m) != "object" || m == null) m = {};
+	let now = time(), out = {}, n = 0;
+	for (let x in m) {
+		let e = m[x];
+		if (type(e) == "object" && e != null && now - (e.t ?? 0) <= 300 && n < 40) { out[x] = e; n++; }
+	}
+	out[k] = { t: now, v: v };
+	writeCache(MEMO, out);
+}
 function hostname() {
 	let h = trim(sh("uci get system.@system[0].hostname 2>/dev/null"));
 	if (!length(h)) h = trim(FS.readfile("/proc/sys/kernel/hostname") ?? "");
@@ -140,6 +176,15 @@ function logFileFor(prefix) {
 /* 直连模式下 MMDVMHost 与 master 的连接状态。
    日志可能上百 KB/小时，登录事件常在文件前部，按增量读取：
    只解析上次记录偏移之后新增的内容，避免每次重复扫描整份日志 */
+/* 屏幕端口所在的 ini 段随屏幕类型变化：[Nextion] / [OLED] / [TFT Serial]；
+   HD44780 用 Pins 定义、None 不需要端口，均返回 null */
+function dispSectionFor(t) {
+	let s = trim(t ?? "");
+	if (s == "Nextion") return "Nextion";
+	if (s == "OLED" || s == "OLED Type3" || s == "OLED Type6") return "OLED";
+	if (s == "TFT Serial") return "TFT Serial";
+	return null;
+}
 function directConnected(file) {
 	if (!length(file)) return false;
 	let st = FS.stat(file);
@@ -200,29 +245,251 @@ function epochOf(t) {
 	let doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy;
 	return (era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + se;
 }
+/* ---------- 内嵌 GPS / 逆地理 ---------- */
+/* MMDVMHost 会把对端语音头里的内嵌 GPS 打成两行：
+   “DMR Slot N, Embedded GPS Info” 紧跟 “GPS position [lat, lon]”
+   按槽位记录最后一次坐标，增量读取日志避免整份重扫 */
+function gpsBySlot(file) {
+	if (!length(file)) return {};
+	let st = FS.stat(file);
+	if (st == null) return {};
+	let sig = file + "|" + st.size + "|" + st.mtime;
+	let c = null;
+	try { c = json(FS.readfile(GPS_CACHE) ?? ""); } catch (e) { c = null; }
+	let same = (c != null && c.file == file && type(c.slots) == "object");
+	if (same && c.sig == sig) return c.slots;
+	let slots = same ? c.slots : {};
+	let lastSlot = same ? (c.lastSlot ?? null) : null;
+	let from = 0;
+	if (same && type(c.off) == "int" && c.off > 0 && c.off <= st.size) from = c.off;
+	if (from > 300) from -= 300;
+	let chunk = (from > 0) ? sh("tail -c +" + (from + 1) + " " + file) : (FS.readfile(file) ?? "");
+	for (let l in split(chunk, "\n")) {
+		if (index(l, "Embedded GPS Info") >= 0) {
+			let sl = slotOf(l);
+			if (sl != null) lastSlot = sl;
+			continue;
+		}
+		let gi = index(l, "GPS position [");
+		if (gi < 0 || lastSlot == null) continue;
+		let rest = substr(l, gi + 14);
+		let ci = index(rest, ",");
+		if (ci <= 0) continue;
+		let la = trim(substr(rest, 0, ci));
+		let tail = substr(rest, ci + 1);
+		let ei = index(tail, "]");
+		let lo = (ei > 0) ? trim(substr(tail, 0, ei)) : "";
+		if (!length(la) || !length(lo)) continue;
+		slots[lastSlot] = { lat: +la, lon: +lo, ts: epochOf(tsOf(l)) };
+	}
+	try { FS.writefile(GPS_CACHE, sprintf("%J", { file: file, sig: sig, off: from + length(chunk), lastSlot: lastSlot, slots: slots })); } catch (e) {}
+	return slots;
+}
+/* 逆地理缓存键：0.01° 网格 */
+function geoKey(lat, lon) { return sprintf("%.2f,%.2f", +lat, +lon); }
+/* 只读缓存，不发网络请求 —— 实时接口靠它保持毫秒级响应 */
+function addrCached(lat, lon) {
+	let key = geoKey(lat, lon), c = {};
+	try { c = json(FS.readfile(GEO_CACHE) ?? "") ?? {}; } catch (e) { c = {}; }
+	if (type(c) != "object" || c == null) return "";
+	let e = c[key];
+	if (e == null || !length(e.addr ?? "")) return "";
+	if (time() - (e.t ?? 0) >= GEO_TTL) return "";
+	return e.addr;
+}
+/* 后台进程查地址，不阻塞实时接口；同一网格 60 秒内只触发一次 */
+function addrPrefetch(lat, lon) {
+	let mk = "/tmp/dashboard_geo_" + replace(geoKey(lat, lon), ",", "_");
+	let st = FS.stat(mk);
+	if (st != null && time() - (st.mtime ?? 0) < 60) return;
+	try { FS.writefile(mk, ""); } catch (e) {}
+	sh("(SCRIPT_NAME=/api/geo QUERY_STRING='lat=" + (+lat) + "&lon=" + (+lon) + "' ucode /www-dash/api/api.uc >/dev/null 2>&1) &");
+}
+/* 逆地理：高德网页版接口无需 key，返回省/市/区县；按 0.01°（约 1km）网格缓存 */
+function addrOf(lat, lon) {
+	let key = sprintf("%.2f,%.2f", lat, lon);
+	let now = time(), c = {};
+	try { c = json(FS.readfile(GEO_CACHE) ?? "") ?? {}; } catch (e) { c = {}; }
+	if (type(c) != "object") c = {};
+	let e = c[key];
+	if (e != null && now - (e.t ?? 0) < ((length(e.addr ?? "") ? GEO_TTL : 300))) return e.addr ?? "";
+	let u = "https://ditu.amap.com/service/regeo?longitude=" + lon + "&latitude=" + lat + "&lang=zh_cn";
+	let o = sh("uclient-fetch -q -O - --timeout=4 '" + u + "' 2>/dev/null");
+	let addr = "";
+	try {
+		let j = json(o);
+		let d = (type(j) == "object") ? (j.data ?? null) : null;
+		if (type(d) == "object" && d != null) {
+			let pv = trim(d.province ?? ""), ct = trim(d.city ?? ""), dt = trim(d.district ?? "");
+			if (pv != "0") addr = pv;
+			if (length(ct) && ct != "0" && ct != pv) addr += ct;
+			if (length(dt) && dt != "0" && dt != ct) addr += dt;
+		}
+	} catch (ex) {}
+	c[key] = { t: now, addr: addr };
+	try { FS.writefile(GEO_CACHE, sprintf("%J", c)); } catch (ex2) {}
+	return addr;
+}
+/* 两点距离（km）：球面半正矢公式，sin/cos/asin 用泰勒展开、开方用牛顿迭代，
+   避免依赖本机 ucode 构建里缺失的数学函数 */
+function cosDeg(d) {
+	let r = d * 0.0174532925199433, r2 = r * r;
+	return 1 - r2 / 2 + r2 * r2 / 24 - r2 * r2 * r2 / 720;
+}
+function sinDeg(d) {
+	let r = d * 0.0174532925199433, r2 = r * r, r3 = r2 * r;
+	return r - r3 / 6 + r3 * r2 / 120 - r3 * r2 * r2 / 5040;
+}
+function asinX(x) {
+	let x3 = x * x * x;
+	return x + x3 / 6 + 3 * x3 * x * x / 40;
+}
+function fsqrt(x) {
+	if (x <= 0) return 0;
+	let g = x;
+	for (let i = 0; i < 24; i++) g = (g + x / g) / 2;
+	return g;
+}
+function distKm(la1, lo1, la2, lo2) {
+	let a = sinDeg((la2 - la1) / 2), b = sinDeg((lo2 - lo1) / 2);
+	let t = a * a + cosDeg(la1) * cosDeg(la2) * b * b;
+	if (t < 0) t = 0;
+	if (t > 1) t = 1;
+	return 2 * 6371.0 * asinX(fsqrt(t));
+}
+
 function parseQso(logfile) {
 	let file = logfile ?? logFileFor("MMDVM");
 	let recs = [], pend = {}, rt = {};
-	if (!length(file)) return { recs: recs, pend: pend, rt: rt };
-	/* 日志未变化时直接复用上次解析结果，避免每秒重复扫描 150KB 日志 */
-	let sig = fileSig(file);
-	let c = FS.readfile(QSO_CACHE);
-	if (length(sig) && c != null && substr(trim(c), 0, 1) == "{") {
-		let v = json(c);
-		if (type(v) == "object" && v.sig == sig && type(v.recs) == "array" && type(v.pend) == "object")
-			return { recs: v.recs, pend: v.pend, rt: (type(v.rt) == "object") ? v.rt : {} };
+	/* 逐突发误码累计器：errs/total 为比特级计数，frames 为突发数。
+	   跨轮询累计，前端用相邻两次的快照做差分，既不漏帧也不重复计数。
+	   jumps/jsum 为跳变统计：相邻突发错误比特数变化 ≥3 记一次，jsum 为跳变量总和 */
+	let cal = { errs: 0, total: 0, frames: 0, jumps: 0, jsum: 0, ts: "" };
+	/* 每个时隙上一突发的错误比特数；跨发射段重置，避免首尾相接被算成跳变 */
+	let calp = {};
+	/* “Embedded GPS Info” 行带时隙，紧随的 “GPS position” 行不带，用它补上 */
+	let gpsSlot = null;
+	if (!length(file)) return { recs: recs, pend: pend, rt: rt, cal: cal };
+	let st = FS.stat(file);
+	if (st == null) return { recs: recs, pend: pend, rt: rt, cal: cal };
+	let sig = file + "|" + st.size + "|" + st.mtime;
+	let c = null;
+	try {
+		let d = FS.readfile(QSO_CACHE);
+		if (d != null && substr(trim(d), 0, 1) == "{") c = json(d);
+	} catch (e) { c = null; }
+	/* 日志未变化时直接复用上次解析结果 */
+	if (type(c) == "object" && c != null && c.sig == sig && type(c.recs) == "array" && type(c.pend) == "object")
+		return { recs: c.recs, pend: c.pend, rt: (type(c.rt) == "object") ? c.rt : {},
+			cal: (type(c.cal) == "object" && c.cal != null) ? c.cal : cal };
+	/* 增量解析：只读上次偏移之后的新内容。
+	   整份日志每小时上百 KB，发射时每 60ms 一行音频统计，若固定只读末尾窗口，
+	   长通话的 voice header 会被挤出窗口，导致「正在发射」被误判为空闲 */
+	let from = 0;
+	if (type(c) == "object" && c != null && c.file == file && type(c.off) == "int") {
+		if (c.off > 0 && c.off <= st.size) {
+			from = c.off;
+			recs = (type(c.recs) == "array") ? c.recs : [];
+			pend = (type(c.pend) == "object" && c.pend != null) ? c.pend : {};
+			rt = (type(c.rt) == "object" && c.rt != null) ? c.rt : {};
+			if (type(c.cal) == "object" && c.cal != null) {
+				cal = c.cal;
+				if (cal.frames == null) cal.frames = 0;
+				if (cal.jumps == null) cal.jumps = 0;
+				if (cal.jsum == null) cal.jsum = 0;
+			}
+			calp = (type(c.calp) == "object" && c.calp != null) ? c.calp : {};
+			gpsSlot = (type(c.gpsSlot) == "int") ? c.gpsSlot : null;
+		}
 	}
-	let data = FS.readfile(file);
-	if (data == null) return { recs: recs, pend: pend, rt: rt };
-	/* 只解析日志尾部，避免整天日志全量扫描 */
-	if (length(data) > 150000) data = substr(data, length(data) - 150000);
+	let data = "", base = from;
+	if (from > 0) {
+		data = sh("tail -c +" + (from + 1) + " " + file);
+	} else {
+		data = FS.readfile(file) ?? "";
+		/* 首次或换文件：只解析末尾一段，base 记录被丢弃的字节数，保证偏移可续 */
+		if (length(data) > 400000) {
+			base = length(data) - 400000;
+			data = substr(data, length(data) - 400000);
+		}
+	}
+	/* 只处理到最后一个完整行，剩下的半行留到下次 */
+	let nl = rindex(data, "\n");
+	let consumed = 0;
+	if (nl >= 0) {
+		consumed = nl + 1;
+		data = substr(data, 0, consumed);
+	} else {
+		data = "";
+	}
+	if (!length(data) && from <= 0) {
+		return { recs: recs, pend: pend, rt: rt, cal: cal };
+	}
 	for (let line in split(data, "\n")) {
 		let slot = slotOf(line);
+		/* 内嵌 GPS：先出现带时隙的“Embedded GPS Info”，紧跟一行不带时隙的“GPS position [lat, lon]” */
+		if (index(line, "Embedded GPS Info") >= 0) { gpsSlot = slot; continue; }
+		let gi = index(line, "GPS position [");
+		if (gi >= 0) {
+			let sl = (gpsSlot != null) ? gpsSlot : slot;
+			let rest = substr(line, gi + 14);
+			let ci = index(rest, ",");
+			if (ci > 0 && sl != null) {
+				let la = trim(substr(rest, 0, ci));
+				let tail = substr(rest, ci + 1);
+				let ei = index(tail, "]");
+				let lo = (ei > 0) ? trim(substr(tail, 0, ei)) : "";
+				if (length(la) && length(lo) && sl != null) {
+					let g = { lat: +la, lon: +lo, ts: tsOf(line) };
+					let gts = epochOf(g.ts);
+					/* GPS 行常在通话结束后才落盘：先挂到当前呼叫，否则回填刚结束的那条记录，
+					   避免被算到下一个呼叫上 */
+					if (pend[sl] != null && (!gts || gts >= epochOf(pend[sl].ts) - 2)) {
+						pend[sl].gps = g;
+					} else {
+						for (let i = length(recs) - 1; i >= 0; i--) {
+							let q = recs[i];
+							if (q.slot != sl) continue;
+							let qs = epochOf(q.ts);
+							if (!gts || !qs || (gts >= qs - 2 && gts <= qs + (+q.dur) + 5)) q.gps = g;
+							break;
+						}
+					}
+				}
+			}
+			gpsSlot = null;
+			continue;
+		}
 		if (slot == null) continue;
-		/* 发射中每个超帧的实时误码率：DMR Slot 1, audio sequence no. 2, errs: 22/141 (15.6%) */
+		/* 发射中每个超帧的实时误码率：DMR Slot 1, audio sequence no. 2, errs: 22/141 (15.6%)
+		   每行是单突发（60ms）统计：errs 为本突发修复的错误比特数，total 恒为 141 比特 */
 		if (index(line, "audio sequence no.") >= 0) {
 			let pct = between(line, "(", "%)");
-			if (pct != null) rt[slot] = { pct: +pct, ts: tsOf(line) };
+			let es = between(line, "errs: ", "/");
+			let tt = between(line, "/", " (");
+			let sq = between(line, "audio sequence no. ", ",");
+			let ts = tsOf(line);
+			if (pct != null) rt[slot] = {
+				pct: +pct,
+				errs: (es != null) ? +es : 0,
+				total: (tt != null) ? +tt : 141,
+				seq: (sq != null) ? +sq : -1,
+				ts: ts
+			};
+			if (es != null && tt != null) {
+				let e = +es;
+				let pv = calp[slot];
+				if (pv != null) {
+					let d = e - pv;
+					if (d < 0) d = -d;
+					if (d >= 3) { cal.jumps += 1; cal.jsum += d; }
+				}
+				calp[slot] = e;
+				cal.errs += e;
+				cal.total += +tt;
+				cal.frames += 1;
+				cal.ts = ts;
+			}
 			continue;
 		}
 		if (index(line, "voice header from ") >= 0) {
@@ -237,6 +504,7 @@ function parseQso(logfile) {
 				dir: (index(line, "received RF") >= 0) ? "TX" : "RX",
 				ts: tsOf(line)
 			};
+			delete calp[slot];   /* 新发射段：跳变从本段第一个突发重新起算 */
 			continue;
 		}
 		if (index(line, "end of voice transmission") >= 0) {
@@ -257,19 +525,35 @@ function parseQso(logfile) {
 				slot: slot, ts: p.ts,
 				dur: dur,
 				ber: (ber != null) ? +ber : 0,
-				rssi: (rssi != null) ? +rssi : null
+				rssi: (rssi != null) ? +rssi : null,
+				gps: (p.gps != null) ? p.gps : null
 			});
 			delete pend[slot];
+			delete calp[slot];
+		} else if (index(line, "network watchdog has expired") >= 0) {
+			/* 网络侧通话可能没有 end of voice transmission，靠看门狗超时收尾。
+			   只清理网络收到的通话：本机 RF 发射期间若混入别的时隙残留看门狗行，会把正在发射的状态误清掉 */
+			let p = pend[slot];
+			if (p != null && p.dir == "RX") delete pend[slot];
 		}
 	}
-	if (length(sig)) writeCache(QSO_CACHE, { sig: sig, recs: recs, pend: pend, rt: rt });
-	return { recs: recs, pend: pend, rt: rt };
+	/* 历史记录只保留最近 300 条，防止缓存无限增长 */
+	if (length(recs) > 300) {
+		let cut = [];
+		for (let i = length(recs) - 300; i < length(recs); i++) push(cut, recs[i]);
+		recs = cut;
+	}
+	if (length(sig)) writeCache(QSO_CACHE, { sig: sig, file: file, off: base + consumed, recs: recs, pend: pend, rt: rt, cal: cal, calp: calp, gpsSlot: gpsSlot });
+	return { recs: recs, pend: pend, rt: rt, cal: cal };
 }
 
 /* ---------- 呼号 <-> DMR ID ---------- */
 function idFor(calls) {
 	let res = {};
 	if (!length(calls)) return res;
+	let mkey = keyOf("id:", calls, null);
+	let hit = memoGet(mkey, 60);
+	if (hit != null) return hit;
 	let pat = "/tmp/dashboard_calls";
 	let s = "";
 	for (let c in calls) s += c + "\n";
@@ -281,6 +565,7 @@ function idFor(calls) {
 		if (length(p) < 2) p = split(trim(l), " ");
 		if (length(p) >= 2) res[p[1]] = p[0];
 	}
+	memoPut(mkey, res);
 	return res;
 }
 /* 本地 DMRIds.dat 太旧时，用缓存 + RadioID API 异步补全呼号 */
@@ -350,6 +635,9 @@ function csvLookup(csvPath, idlist, clist, stateCol, cityCol, remarkCol) {
 	let out = { call: {}, addrId: {}, addrCall: {}, call2id: {} };
 	if (!length(idlist) && !length(clist)) return out;
 	if (!length(trim(FS.readfile(csvPath) ?? ""))) return out;
+	let ckey = keyOf("cv:" + csvPath + ":", idlist, clist);
+	let chit = memoGet(ckey, 60);
+	if (chit != null) return chit;
 	let ip = "/tmp/dashboard_csvids", cp = "/tmp/dashboard_csvcalls";
 	let files = "";
 	if (length(idlist)) {
@@ -379,6 +667,7 @@ function csvLookup(csvPath, idlist, clist, stateCol, cityCol, remarkCol) {
 		else if (p[0] == "A" && length(p) >= 5) out.addrId[p[1]] = fmtAddr(p[2], p[3], p[4]);
 		else if (p[0] == "B" && length(p) >= 5) out.addrCall[p[1]] = fmtAddr(p[2], p[3], p[4]);
 	}
+	memoPut(ckey, out);
 	return out;
 }
 /* radiowo 格式: ID,CALLSIGN,NAME,CITY,STATE,COUNTRY,REMARKS → STATE=5,CITY=4,REMARKS=7 */
@@ -409,6 +698,9 @@ function cmdStatus() {
 	let dmr = m["DMR"] ?? {};
 	let dmrN = m["DMR Network"] ?? {};
 	let disp = m["Display"] ?? {};
+	/* 屏幕端口按屏幕类型落在不同段（[Nextion] / [OLED] ...），旧版本误写在 [Display] 段的仍兼容读取 */
+	let dispSec = dispSectionFor(g.Display);
+	let dispPort = (dispSec == null) ? (disp.Port ?? "") : ((m[dispSec] ?? {}).Port ?? "");
 	let nw = ini(INI_DIR + "DMRGateway.ini") ?? {};
 	let st = state();
 	/* 直连服务器默认 BrandMeister 4602（未保存过时使用；自定义服务器未填名称时用地址显示） */
@@ -448,8 +740,17 @@ function cmdStatus() {
 	   直连模式：只显示 MMDVM.ini 当前连接的服务器，状态看 MMDVMHost 日志 */
 	let dmrType = lc(trim(dmrN.Type ?? "Gateway"));
 	let mmdvmRunning = length(trim(sh("pidof MMDVMHost 2>/dev/null"))) > 0;
+	let gwRunning = length(trim(sh("pidof DMRGateway 2>/dev/null"))) > 0;
 	let mlog = length(lf) ? (FS.readfile(lf) ?? "") : "";
 	if (length(mlog) > 120000) mlog = substr(mlog, length(mlog) - 120000);
+	/* MMDVMHost 是否真的就绪：最后一次 “Opening the MMDVM” 之后要能走到
+	   “Starting protocol handlers”；若只出现读固件失败，说明射频板没起来 */
+	let mmOk = mmdvmRunning;
+	if (mmOk && length(mlog)) {
+		let segs = split(mlog, "Opening the MMDVM");
+		let after = (length(segs) > 1) ? segs[length(segs) - 1] : "";
+		if (index(after, "Unable to read the firmware") >= 0 && index(after, "Starting protocol handlers") < 0) mmOk = false;
+	}
 	let nets = [], netAddr = {};
 	if (dmrType == "direct") {
 		let nm = srvName;
@@ -459,7 +760,7 @@ function cmdStatus() {
 		push(nets, { name: nm, connected: false, ping: null });
 		let ra = trim(dmrN.RemoteAddress ?? "");
 		netAddr[nm] = length(ra) ? ra : srvAddr;
-		if (mmdvmRunning) nets[0].connected = directConnected(lf);
+		if (mmOk) nets[0].connected = directConnected(lf);
 	} else {
 		for (let i = 1; i <= 5; i++) {
 			let sec = nw["DMR Network " + i] ?? {};
@@ -485,6 +786,10 @@ function cmdStatus() {
 				else if (index(l, "Opening DMR Network") >= 0) n.connected = false;
 			}
 		}
+	}
+	/* 网关模式下，MMDVMHost 未就绪或网关没在运行，日志里残留的登录记录不代表当前在线 */
+	if (dmrType != "direct" && (!mmOk || !gwRunning)) {
+		for (let n in nets) n.connected = false;
 	}
 	/* 各网络 ping 值：仅在已连接时测试；10 秒缓存（电脑版每 10 秒刷新一次） */
 	let pingNow = time(), pc = {};
@@ -543,7 +848,7 @@ function cmdStatus() {
 			modemAddress: mod.ModemAddress ?? "",
 			modemPort: mod.ModemPort ?? "",
 			screenType: g.Display ?? "",
-			screenPort: disp.Port ?? "",
+			screenPort: dispPort,
 			rxFreq: +inf.RXFrequency || 0,
 			txFreq: +inf.TXFrequency || 0,
 			power: +inf.Power || 0,
@@ -563,8 +868,6 @@ function cmdStatus() {
 			dmrServerAddress: srvAddr,
 			dmrServerPort: srvPort,
 			dmrServerPassword: srvPass,
-			aprsServer: st.aprsServer ?? "china.aprs2.net",
-			aprsEnable: (st.aprsEnable != null) ? (st.aprsEnable ? 1 : 0) : 1,
 			version: ver
 		}
 	};
@@ -676,10 +979,22 @@ function cmdLastheard() {
 	for (let k in bg.call2id) call2id[k] = bg.call2id[k];
 	for (let k in rw.call2id) call2id[k] = rw.call2id[k];
 	let r = [];
+	/* 通联记录里的内嵌 GPS：地址只读缓存，未命中交给后台进程查，下一次刷新补上 */
+	let inf = (ini(INI_DIR + "MMDVM.ini")["Info"] ?? {});
+	let myLat = +trim(inf.Latitude ?? ""), myLon = +trim(inf.Longitude ?? "");
+	let hasMe = ((myLat < 0 ? -myLat : myLat) > 0.0001 || (myLon < 0 ? -myLon : myLon) > 0.0001);
 	for (let q in slice) {
 		let call = q.callsign, id = "";
 		if (q.isId) { call = id2call[q.callsign] ?? ""; id = q.callsign; }
 		else id = ids[q.callsign] ?? call2id[q.callsign] ?? "";
+		let g4 = null;
+		if (q.gps != null && q.gps.lat && q.gps.lon) {
+			let a = addrCached(q.gps.lat, q.gps.lon);
+			if (!length(a)) addrPrefetch(q.gps.lat, q.gps.lon);
+			let km = hasMe ? distKm(myLat, myLon, q.gps.lat, q.gps.lon) : null;
+			g4 = { lat: q.gps.lat, lon: q.gps.lon, addr: a,
+				dist: (km != null) ? ((km < 10) ? (rnd(km * 10) / 10) : rnd(km)) : null };
+		}
 		push(r, {
 			callsign: call,
 			id: id,
@@ -692,7 +1007,8 @@ function cmdLastheard() {
 			ber: sprintf("%.1f%%", q.ber),
 			dur: sprintf("%.1f", q.dur),
 			time: hhmmss(q.ts),
-			ts: epochOf(q.ts)
+			ts: epochOf(q.ts),
+			gps: g4
 		});
 	}
 	writeCache(LH_CACHE, { sig: sig, body: r });
@@ -714,17 +1030,24 @@ function cmdLive() {
 	let q = parseQso(file);
 	let now = time();
 	let slots = { "1": { active: false }, "2": { active: false } };
-	let act = {};
+	let act = {}, startTs = {};
 
 	/* 正在发射/接收（有 header 尚未 end） */
 	for (let k in q.pend) {
 		let p = q.pend[k];
 		let ts = epochOf(p.ts);
 		if (!ts || now - ts > 600) continue;
+		/* 日志偶发缺 end 行时，靠“最后一个突发”判断是否已经松手：
+		   超过 5 秒没有新突发就当作已结束，避免一直显示发射中并计时 */
+		let rtk = q.rt[k];
+		if (rtk != null) {
+			let rts = epochOf(rtk.ts);
+			if (rts && now - rts > 5) continue;
+		}
 		act[k] = { p: p, ts: ts };
 	}
 
-	/* 若刚结束（3 秒内）仍展示最后一笔，避免界面闪断 */
+	/* 刚结束的通话再展示 8 秒，避免一松 PTT 就什么都看不到 */
 	let last = {};
 	let recs = q.recs;
 	for (let i = length(recs) - 1; i >= 0; i--) {
@@ -732,7 +1055,9 @@ function cmdLive() {
 		let key = r.slot ?? "1";
 		if (act[key] || last[key]) continue;
 		let ts = epochOf(r.ts);
-		if (!ts || now - ts > 3) break;
+		/* 用「结束时刻」判断新旧：长通话的开始时间可能早于窗口起点，用开始时间会把刚结束的通话丢掉 */
+		let ets = ts + (r.dur ?? 0);
+		if (!ts || now - ets > 8) break;
 		last[key] = { r: r, ts: ts };
 	}
 
@@ -776,6 +1101,7 @@ function cmdLive() {
 
 	for (let k in act) {
 		let p = act[k].p, ts = act[k].ts;
+		startTs[k] = ts;
 		let cs = p.isId ? (id2call[p.callsign] ?? "") : p.callsign;
 		let did = p.isId ? p.callsign : (ids[p.callsign] ?? "");
 		/* 发射中：取当前这次通联最近一个超帧的实时误码率（无数据时为 null） */
@@ -793,10 +1119,11 @@ function cmdLive() {
 	}
 	for (let k in last) {
 		let r = last[k].r;
+		startTs[k] = epochOf(r.ts);
 		let cs = r.isId ? (id2call[r.callsign] ?? "") : r.callsign;
 		let did = r.isId ? r.callsign : (ids[r.callsign] ?? "");
 		slots[k] = {
-			active: true, state: r.dir,
+			active: true, ended: true, state: r.dir,
 			callsign: cs,
 			id: did,
 			addr: (length(did) && addrMap[did]) ? addrMap[did] : (addrCall[cs] ?? ""),
@@ -804,9 +1131,40 @@ function cmdLive() {
 			rssi: (r.dir == "TX" && r.rssi != null) ? r.rssi : null, ber: r.ber, dur: r.dur
 		};
 	}
+	/* 这次通联里对端上报的内嵌 GPS（APRS）：解析出坐标、逆地理地址、与我这里的距离 */
+	let gpss = gpsBySlot(file);
+	let inf = m["Info"] ?? {};
+	let myLat = +trim(inf.Latitude ?? ""), myLon = +trim(inf.Longitude ?? "");
+	let hasMe = ((myLat < 0 ? -myLat : myLat) > 0.0001 || (myLon < 0 ? -myLon : myLon) > 0.0001);
+	for (let k in slots) {
+		let g = gpss[k];
+		if (g == null || !g.lat || !g.lon) continue;
+		let st = startTs[k] ?? 0;
+		if (st > 0 && g.ts > 0 && g.ts < st) continue;       /* 上一次通联留下的旧坐标 */
+		if (g.ts > 0 && now - g.ts > 300) continue;          /* 5 分钟前的坐标不再显示 */
+		let d = null;
+		if (hasMe) {
+			let km = distKm(myLat, myLon, g.lat, g.lon);
+			d = (km < 10) ? (rnd(km * 10) / 10) : rnd(km);
+		}
+		/* 地址只读缓存，未命中就丢给后台进程去查，避免实时接口被网络请求拖慢 */
+		let a = addrCached(g.lat, g.lon);
+		if (!length(a)) addrPrefetch(g.lat, g.lon);
+		slots[k].gps = { lat: g.lat, lon: g.lon, addr: a, dist: d };
+	}
 	let body = { duplex: duplex, mode: length(modes) ? modes[0] : "DMR", slots: slots };
 	shortPut(LIVE_CACHE, body, file);
 	return body;
+}
+
+/* 由 addrPrefetch 在后台调用：查逆地理并写入缓存，供下一次 /api/live 读取 */
+function cmdGeo() {
+	let q = qs();
+	let la = +(q.lat ?? 0), lo = +(q.lon ?? 0);
+	if (!la && !lo) return;
+	addrOf(la, lo);
+	let mk = "/tmp/dashboard_geo_" + replace(geoKey(la, lo), ",", "_");
+	sh("rm -f '" + mk + "'");
 }
 
 function cmdCalGet() {
@@ -842,6 +1200,12 @@ function cmdCalGet() {
 		rxFrequency: +inf.RXFrequency || 0, txFrequency: +inf.TXFrequency || 0,
 		rssi: rssi,
 		ber: ber,
+		/* 逐突发累计：前端按相邻快照差分，避免漏帧与重复计数 */
+		errs: q.cal.errs,
+		total: q.cal.total,
+		frames: q.cal.frames,
+		jumps: q.cal.jumps,
+		jsum: q.cal.jsum,
 		active: active,
 		rf: rf
 	});
@@ -997,6 +1361,8 @@ if (name == "status") {
 	cmdLastheard();
 } else if (name == "live") {
 	out(cmdLive());
+} else if (name == "geo") {
+	cmdGeo();
 } else if (name == "calibration") {
 	if (method == "POST") {
 		let d = body() ?? {};
@@ -1064,6 +1430,12 @@ if (name == "status") {
 			/* 服务器地址/端口校验（直连模式使用） */
 			if (length(srvAddr) && match(srvAddr, /^[A-Za-z0-9._:-]+$/) == null) { fail("服务器地址不合法"); return; }
 			if (length(srvPort) && (match(srvPort, /^[0-9]{1,5}$/) == null || +srvPort < 1 || +srvPort > 65535)) { fail("端口不合法"); return; }
+			/* 频率按 MHz 提交，限制在 1~2000MHz，防止误填 Hz 把 ini 写坏（MMDVMHost 会异常） */
+			for (let k in ["rxFreq", "txFreq"]) {
+				let fv = trim(d[k] ?? "");
+				if (!length(fv)) continue;
+				if (match(fv, /^[0-9]{1,4}(\.[0-9]{1,6})?$/) == null || +fv < 1 || +fv > 2000) { fail("频率应在 1~2000 MHz（单位 MHz，如 434.500）"); return; }
+			}
 			setIniSec(f, "General", "Callsign", cs);
 			setIniSec(f, "General", "Id", id);
 			let rh = rnd((+d.rxFreq || 0) * 1000000);
@@ -1097,14 +1469,24 @@ if (name == "status") {
 			if (length(udpPort) && match(udpPort, /^[0-9]{1,5}$/))
 				setIniSec(f, "Modem", "ModemPort", udpPort);
 
-			/* 屏幕类型 → [General] Display；屏幕端口 → [Display] Port */
+			/* 屏幕类型 → [General] Display；屏幕端口 → 对应屏幕段的 Port（[Nextion]/[OLED]/[TFT Serial]） */
 			if (length(screenType) && match(screenType, /^(Nextion|HD44780|OLED Type3|OLED Type6|None)$/))
 				setIniSec(f, "General", "Display", screenType);
 			else if (length(screenType)) fail("屏幕类型不合法");
-			if (length(screenPort) && match(screenPort, /^\/[A-Za-z0-9._\/-]+$/))
-				setIniSec(f, "Display", "Port", screenPort);
-			else if (!length(screenPort))
-				delIniSec(f, "Display", "Port");
+			let portSec = dispSectionFor(length(screenType) ? screenType : (ini(f)["General"] ?? {}).Display);
+			/* Modem：屏幕接在调制解调器的第二串口，MMDVMHost 只认小写 modem */
+			let sp = trim(screenPort ?? "");
+			let spModem = (lc(sp) == "modem");
+			if (length(sp) && (spModem || match(sp, /^\/[A-Za-z0-9._\/-]+$/))) {
+				if (portSec == null) fail("当前屏幕类型没有端口可写");
+				setIniSec(f, portSec, "Port", spModem ? "modem" : sp);
+			} else if (length(sp)) {
+				fail("屏幕端口格式不合法");
+			} else if (portSec != null) {
+				delIniSec(f, portSec, "Port");
+			}
+			/* 旧版本写错的 [Display] 段一并清理 */
+			delIniSec(f, "Display", "Port");
 
 			/* DMR ID 1~5（含 ESSID）保存到 dashboard.json；只把 DMR ID 1 写入 MMDVM.ini */
 			setIniSec(f, "DMR", "Id", ids[0].id + ids[0].essid);
@@ -1142,8 +1524,6 @@ if (name == "status") {
 			st.dmrServerAddress = srvAddr;
 			st.dmrServerPort = srvPort;
 			st.dmrServerPassword = srvPass;
-			if (length(d.aprsServer ?? "")) st.aprsServer = d.aprsServer;
-			if (d.aprsEnable != null) st.aprsEnable = d.aprsEnable ? 1 : 0;
 			saveState(st);
 			/* 配置变更后立即失效短缓存与 ping 缓存，避免右上角/电台信息仍显示旧服务器 */
 			try { FS.writefile(STATUS_CACHE, ""); } catch (e) {}

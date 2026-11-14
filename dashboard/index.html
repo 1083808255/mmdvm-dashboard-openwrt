@@ -58,7 +58,9 @@ header{
 /* ping 值：电脑版显示在状态点后面，数字按 4 位预留右对齐 */
 .net-item .net-ping{display:none}
 @media (min-width:861px){
-  .net-item .net-ping{display:inline-block;color:var(--green);font-size:10px;font-family:var(--mono);white-space:nowrap}
+  /* 电脑版：服务器状态与 ping 值字体放大，便于远距离查看 */
+  .net-item{font-size:14px;gap:8px}
+  .net-item .net-ping{display:inline-block;color:var(--green);font-size:12.5px;font-family:var(--mono);white-space:nowrap}
   .net-item .net-ping .pn{display:inline-block;width:4ch;text-align:right;font-style:normal}
   .net-item .net-ping.warn{color:var(--amber)}
 }
@@ -364,7 +366,7 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 @media (max-width:860px){
   #view-radio .sys-table{table-layout:fixed;width:100%}
   #view-radio .sys-table td{font-size:14px;padding:8px 2px}
-  #view-radio .sys-table td:first-child{width:96px;white-space:nowrap}
+  #view-radio .sys-table td:first-child{width:128px;white-space:nowrap}
   #view-radio .sys-table td:last-child{word-break:break-word;overflow-wrap:anywhere}
   /* 网络名称上下排列，窄屏内允许换行 */
   .radio-nets{row-gap:4px}
@@ -396,9 +398,6 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 /* 误码率进度条：满格=5% 误码率（与折线图 Y 轴上限一致） */
 .berbar{position:relative;height:20px;background:var(--card2);border:1px solid var(--border2);border-radius:999px;overflow:hidden;margin-top:8px}
 .berbar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),#0ea5e9);border-radius:999px;transition:width .5s}
-.berbar-inline{display:inline-block;position:relative;width:250px;height:16px;background:var(--card2);border:1px solid var(--border2);border-radius:999px;overflow:hidden;vertical-align:-3px;margin-left:40px}
-.berbar-inline>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),#0ea5e9);border-radius:999px;transition:width .5s}
-.berbar-inline>em{position:absolute;left:0;right:0;top:0;bottom:0;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:11px;color:#e6edf3;font-family:var(--mono);text-shadow:0 1px 2px rgba(0,0,0,.7)}
 .bernone{font-family:var(--mono);font-size:18px;color:var(--muted);line-height:20px;margin-top:8px}
 #cal-mon-time,#cal-ber-val,#cal-ber-avg-val{font-size:18px;color:var(--muted)}
 input.num{background:var(--card2);border:1px solid var(--border2);border-radius:8px;color:var(--text);
@@ -454,7 +453,14 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .lh-mode-pc{grid-column:8;width:100%;font-family:var(--mono);font-size:11.5px;color:var(--faint);white-space:nowrap;text-align:center}
 .lh-meta{font-family:var(--mono);font-size:12px;color:var(--faint);white-space:nowrap;text-align:right}
 .lh-dur{grid-column:9;width:100%;font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--text);white-space:nowrap;text-align:center}
-.lh-time{grid-column:10;width:100%;font-family:var(--mono);font-size:12px;color:var(--faint);text-align:right}
+.lh-time{grid-column:10;width:100%;font-family:var(--mono);font-size:12px;color:var(--faint);text-align:right;display:flex;align-items:center;justify-content:flex-end}
+.lh-geo{background:none;border:0;padding:0;margin-left:3px;color:var(--accent);cursor:pointer;line-height:1;opacity:.9;display:inline-flex;align-items:center}
+.lh-geo:hover{opacity:1;color:var(--cyan)}
+.lh-geo svg{width:16px;height:16px}
+.lh-geo-slot{flex:0 0 19px;width:19px;display:inline-flex;align-items:center;justify-content:center;margin-right:-10px}
+.lh-geo-tip{position:fixed;z-index:9999;display:none;max-width:520px;padding:18px 22px;border-radius:14px;background:var(--card2);border:1px solid var(--border2);box-shadow:0 16px 44px rgba(0,0,0,.55);font-size:16px;line-height:1.75;color:var(--text);white-space:normal;text-align:left}
+.lh-geo-tip.show{display:block}
+.lh-geo-tip .k{color:var(--faint);font-size:13px;margin-right:6px}
 .lh-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--faint);font-size:14px}
 
 /* --- PC 专用覆盖值 --- */
@@ -479,7 +485,7 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .slot .live-id{font-size:22px }
 .slot .live-addr{font-size:18px }
 .slot .live-target{font-size:18px }
-.slot-metrics{display:flex ;gap:24px ;margin-top:18px ;padding-top:14px ;border-top:1px solid var(--border) ;justify-content:flex-start }
+.slot-metrics{display:flex ;gap:24px ;margin-top:18px ;padding-top:14px ;border-top:1px solid var(--border) ;justify-content:flex-start ;flex-wrap:wrap ;row-gap:6px }
 .sm{font-size:17px ;color:var(--muted) ;font-family:var(--mono) }
 .slot .sm{font-size:17px }
 .sm b{font-weight:600;color:var(--faint);margin-right:4px}
@@ -515,7 +521,8 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .lh-ber-v.bad,.sm span.bad{color:var(--red) !important}
 .lh-rssi{display:none }
 .lh-dur{grid-column:10 ;width:100% ;font-family:var(--mono) ;font-size:17px ;font-weight:700 ;color:var(--text) ;white-space:nowrap ;text-align:center ;margin-left:-123px }
-.lh-time{grid-column:11 ;width:100% ;font-family:var(--mono) ;font-size:17px ;color:var(--faint) ;text-align:right ;margin-left:-138px }
+.lh-time{grid-column:11 ;width:100% ;font-family:var(--mono) ;font-size:17px ;color:var(--faint) ;text-align:right ;margin-left:-138px ;display:flex ;align-items:center ;justify-content:flex-end }
+.lh-time .lh-geo-slot{margin-right:-60px }
 /* 固定所有列在第 1 行：dur(col9) 在 DOM 中先于 addr(col5)，auto-placement 会把后续列挤到第 2 行 */
 .lh-flag,.lh-call,.lh-id,.lh-dir,.lh-addr,.lh-tg,.lh-slot,.lh-mode-pc,.lh-ber,.lh-dur,.lh-time{grid-row:1 }
 
@@ -606,7 +613,14 @@ th{font-size:12px}
 .lh-meta{font-family:var(--mono);font-size:12px;color:var(--faint);white-space:nowrap;text-align:right}
 .lh-ber,.lh-rssi{display:none}
 .lh-dur{grid-column:9;width:100%;font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--text);white-space:nowrap;text-align:center}
-.lh-time{grid-column:10;width:100%;font-family:var(--mono);font-size:12px;color:var(--faint);text-align:right}
+.lh-time{grid-column:10;width:100%;font-family:var(--mono);font-size:12px;color:var(--faint);text-align:right;display:flex;align-items:center;justify-content:flex-end}
+.lh-geo{background:none;border:0;padding:0;margin-left:3px;color:var(--accent);cursor:pointer;line-height:1;opacity:.9;display:inline-flex;align-items:center}
+.lh-geo:hover{opacity:1;color:var(--cyan)}
+.lh-geo svg{width:16px;height:16px}
+.lh-geo-slot{flex:0 0 19px;width:19px;display:inline-flex;align-items:center;justify-content:center;margin-right:-10px}
+.lh-geo-tip{position:fixed;z-index:9999;display:none;max-width:520px;padding:18px 22px;border-radius:14px;background:var(--card2);border:1px solid var(--border2);box-shadow:0 16px 44px rgba(0,0,0,.55);font-size:16px;line-height:1.75;color:var(--text);white-space:normal;text-align:left}
+.lh-geo-tip.show{display:block}
+.lh-geo-tip .k{color:var(--faint);font-size:13px;margin-right:6px}
 .lh-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--faint);font-size:14px}
 
 /* --- 手机专用覆盖值 --- */
@@ -638,7 +652,7 @@ th{font-size:12px}
   .slot .live-id{font-size:15px }
   .slot .live-addr{font-size:14px }
   .slot .live-target{font-size:14px }
-  .slot-metrics{display:flex ;gap:14px ;margin-top:10px ;padding-top:8px ;border-top:1px solid var(--border) ;justify-content:flex-start }
+  .slot-metrics{display:flex ;gap:14px ;margin-top:10px ;padding-top:8px ;border-top:1px solid var(--border) ;justify-content:flex-start ;flex-wrap:wrap ;row-gap:4px }
   .slot .sm{font-size:12px }
   .slot.idle .slot-main{justify-content:center ;min-height:90px }
   .slot.idle .live-flag{display:none }
@@ -1113,8 +1127,9 @@ th{font-size:12px}
             </div>
           </div>
           <div class="slot-metrics" id="slot1-metrics">
-            <span class="sm"><b>误码率</b><span id="slot1-ber">—</span></span>
+            <span class="sm" id="slot1-berw"><b>误码率</b><span id="slot1-ber">—</span></span>
             <span class="sm"><b>时长</b><span id="slot1-dur">00:00</span></span>
+            <span class="sm" id="slot1-geow" style="display:none"><b>位置</b><span id="slot1-geo">—</span></span>
           </div>
         </div>
         <div class="slot" id="slot-2">
@@ -1131,8 +1146,9 @@ th{font-size:12px}
             </div>
           </div>
           <div class="slot-metrics" id="slot2-metrics">
-            <span class="sm"><b>误码率</b><span id="slot2-ber">—</span></span>
+            <span class="sm" id="slot2-berw"><b>误码率</b><span id="slot2-ber">—</span></span>
             <span class="sm"><b>时长</b><span id="slot2-dur">00:00</span></span>
+            <span class="sm" id="slot2-geow" style="display:none"><b>位置</b><span id="slot2-geo">—</span></span>
           </div>
         </div>
       </div>
@@ -1325,22 +1341,6 @@ th{font-size:12px}
         </div>
       </div>
     </div>
-    <div class="card" style="margin-bottom:14px">
-      <h2 class="basic-sec-title">APRS</h2>
-      <div class="field" style="display:flex;gap:14px;align-items:center;flex-wrap:nowrap">
-        <label style="display:inline-flex;align-items:center;gap:8px;font-size:15px;color:var(--text);cursor:pointer;white-space:nowrap;margin:0;flex:0 0 auto">
-          <input type="checkbox" id="basic-aprs-enable" style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer">
-          APRS 启用
-        </label>
-        <select id="basic-aprs" class="inp" style="flex:1 1 220px;min-width:0;width:auto;max-width:340px">
-          <option value="china.aprs2.net">china.aprs2.net</option>
-          <option value="rotate.aprs2.net">rotate.aprs2.net</option>
-          <option value="asia.aprs2.net">asia.aprs2.net</option>
-          <option value="euro.aprs2.net">euro.aprs2.net</option>
-          <option value="noam.aprs2.net">noam.aprs2.net</option>
-        </select>
-      </div>
-    </div>
     <div style="margin-top:14px"><button class="btn primary" id="basic-save">保存</button></div>
   </section>
 
@@ -1379,11 +1379,9 @@ th{font-size:12px}
       <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:8px;flex-wrap:wrap">
         <span class="badge warn" id="adv-dirty" style="display:none">● 未保存</span>
         <button class="btn sm" id="adv-edit">编辑</button>
+        <button class="btn primary sm" id="adv-save">保存</button>
       </div>
       <textarea id="adv-text" class="cfg-sec-text" spellcheck="false" readonly style="min-height:180vh"></textarea>
-      <div style="display:flex;justify-content:flex-end;margin-top:12px">
-        <button class="btn primary" id="adv-save">保存</button>
-      </div>
     </div>
   </section>
 
@@ -1435,12 +1433,14 @@ th{font-size:12px}
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
           <span class="badge tag" id="cal-auto-state"><span class="bdot"></span>准备中</span>
           <span class="cal-auto-detail" id="cal-auto-detail"></span>
-          <span style="flex:1"></span>
-          <button class="btn sm danger" id="cal-auto-stop">停止并恢复</button>
         </div>
-        <div class="bar" style="height:8px;margin-bottom:10px"><i id="cal-auto-bar" style="width:0%"></i></div>
+        <div class="cal-off-title" style="margin:18px 0 10px">校准进度</div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+          <div class="bar" style="flex:1;height:14px;margin:0"><i id="cal-auto-bar" style="width:0%"></i></div>
+          <button class="btn sm danger" id="cal-auto-stop" style="flex:0 0 auto">停止并恢复</button>
+        </div>
         <div style="max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:10px">
-          <table id="cal-auto-table" style="min-width:0"><thead><tr><th>RX 偏移</th><th>中位误码率</th><th>样本数</th><th>结果</th></tr></thead><tbody></tbody></table>
+          <table id="cal-auto-table" style="min-width:0"><thead><tr><th>RX 偏移</th><th>均值</th><th>中位数</th><th>比特数</th><th>跳变</th><th>±2σ</th><th>结果</th></tr></thead><tbody></tbody></table>
         </div>
       </div>
       <p class="cal-foot">打开监测开关后，收到信号即开始计时并按设定周期采样误码率；当前 RX <span class="mono" id="cal-frx">434.500</span> MHz / TX <span class="mono" id="cal-ftx">439.500</span> MHz</p>
@@ -1489,7 +1489,6 @@ const MOCK = {
       running: true, mode: "DMR", state: "Idle", callsign: "BH8GLN",
       dmrId: "4612447", rxFreq: 434500000, txFreq: 439500000, power: 1,
       dmrIds: [{id:"4612447",essid:""},{id:"",essid:""},{id:"",essid:""},{id:"",essid:""},{id:"",essid:""}],
-      aprsServer: "china.aprs2.net",
       version: "MMDVMHost-20250828"
     }
   },
@@ -1735,6 +1734,49 @@ function uiClose(v){
 $('#umOk').addEventListener('click', ()=>uiClose(true));
 $('#umCancel').addEventListener('click', ()=>uiClose(false));
 $('#uiModal').addEventListener('click', e=>{ if(e.target.id === 'uiModal') uiClose(false); });
+/* 通联日志里的 GPS 定位图标：在图标旁弹出地址悬浮窗（悬停显示，点击切换） */
+let lhTipEl = null, lhTipTimer = null;
+function lhTipBox(){
+  if(lhTipEl) return lhTipEl;
+  lhTipEl = document.createElement('div');
+  lhTipEl.className = 'lh-geo-tip';
+  document.body.appendChild(lhTipEl);
+  return lhTipEl;
+}
+function showLhTip(btn){
+  clearTimeout(lhTipTimer);
+  const t = lhTipBox();
+  const addr = btn.dataset.addr || '地址还在解析，稍后自动补上';
+  const dist = btn.dataset.dist;
+  t.innerHTML =
+    `<div><span class="k">地址</span> ${esc(addr)}</div>` +
+    `<div><span class="k">坐标</span> ${(+btn.dataset.lat).toFixed(5)}, ${(+btn.dataset.lon).toFixed(5)}</div>` +
+    (dist ? `<div><span class="k">距离</span> ${esc(dist)} km</div>` : '');
+  t.classList.add('show');
+  const r = btn.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
+  let left = r.right - w; if(left < 8) left = 8;
+  let top = r.top - h - 8; if(top < 8) top = r.bottom + 8;
+  t.style.left = left + 'px';
+  t.style.top = top + 'px';
+}
+function hideLhTip(delay){
+  clearTimeout(lhTipTimer);
+  lhTipTimer = setTimeout(()=>{ if(lhTipEl) lhTipEl.classList.remove('show'); }, delay == null ? 140 : delay);
+}
+document.addEventListener('click', e=>{
+  const b = (e.target && e.target.closest) ? e.target.closest('.lh-geo') : null;
+  if(b){ e.preventDefault(); showLhTip(b); return; }
+  if(lhTipEl && !(e.target.closest && e.target.closest('.lh-geo-tip'))) hideLhTip(0);
+});
+document.addEventListener('mouseover', e=>{
+  const b = (e.target && e.target.closest) ? e.target.closest('.lh-geo') : null;
+  if(b) showLhTip(b);
+});
+document.addEventListener('mouseout', e=>{
+  const b = (e.target && e.target.closest) ? e.target.closest('.lh-geo') : null;
+  if(b && !b.contains(e.relatedTarget)) hideLhTip();
+});
+window.addEventListener('scroll', ()=>{ if(lhTipEl) lhTipEl.classList.remove('show'); }, true);
 document.addEventListener('keydown', e=>{
   if(!umResolve) return;
   if(e.key === 'Escape'){ e.preventDefault(); uiClose(false); }
@@ -1864,10 +1906,14 @@ $('#overlay').addEventListener('click', closeSidebar);
 
 /* ---------- 时钟（页面隐藏或时钟不可见时不写 DOM） ---------- */
 const clockEl = $('#clock');
+let clockLast = '';
 setInterval(()=>{
   if(document.hidden) return;
   if(!clockEl || clockEl.offsetWidth === 0) return;
-  clockEl.textContent = new Date().toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'});
+  const t = new Date().toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'});
+  if(t === clockLast) return;      /* 只显示到分钟，值没变就不写 DOM */
+  clockLast = t;
+  clockEl.textContent = t;
 }, 1000);
 
 /* ================================================================
@@ -1890,7 +1936,8 @@ async function renderRadio(){
     ['DMR ID', esc(m.dmrId||'—')],
     ['RX 频率', `${fRx} <small style="color:var(--muted)">MHz</small>`],
     ['TX 频率', `${fTx} <small style="color:var(--muted)">MHz</small>`],
-    ['版本', esc((m.version||'—').replace('MMDVMHost-',''))],
+    ['Host 版本', esc((m.version||'—').replace('MMDVMHost-',''))],
+    ['Dashboard 版本', esc(UI_VER)],
   ];
   $('#radio-table').innerHTML = rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('');
 }
@@ -1919,6 +1966,8 @@ async function renderServices(){
 
 /* ---- 基本信息 ---- */
 const UART_BASE = ['/dev/ttyUSB0','/dev/ttyAMA0'];
+/* 屏幕端口预置：Modem 表示屏幕接在调制解调器的第二个串口上（MMDVMHost 认的小写 modem），排第一位且为默认 */
+const SCREEN_BASE = ['Modem'];
 const UART_LS = 'mmdvm_uart_custom';
 const SCREEN_LS = 'mmdvm_screen_custom';
 /* UART 自定义端口 */
@@ -1963,14 +2012,17 @@ function syncScreenDelBtn(){
   btn.style.display = (v && screenCustomList().includes(v)) ? '' : 'none';
 }
 function screenOptionVals(extra){
-  let vals = UART_BASE.slice();
+  let vals = SCREEN_BASE.concat(UART_BASE);
   screenCustomList().forEach(v=>{ if(!vals.includes(v)) vals.push(v); });
   if(extra && extra!=='__custom__' && !vals.includes(extra)) vals.push(extra);
   return vals;
 }
+/* ini 里存小写 modem，界面上统一显示成 Modem */
+function screenPortLabel(v){ return (String(v||'').toLowerCase() === 'modem') ? 'Modem' : (v || ''); }
 function renderScreenPortSelect(current){
   const inp = $('#basic-screenport');
   if(!inp) return;
+  current = screenPortLabel(current);
   let vals = screenOptionVals(current);
   const html = vals.map(v=>`<div class="port-opt" data-val="${esc(v)}">${esc(v)}</div>`).join('');
   const dd = $('#basic-screenport-dropdown');
@@ -2062,8 +2114,6 @@ async function renderBasic(){
   $('#basic-srvport').value = m.dmrServerPort || '62031';
   $('#basic-srvpass').value = m.dmrServerPassword || 'passw0rd';
   syncSrvAddrEditable();
-  $('#basic-aprs').value = m.aprsServer || 'china.aprs2.net';
-  $('#basic-aprs-enable').checked = (m.aprsEnable == null) ? true : !!m.aprsEnable;
   /* RF 来源 / UART 端口 / 波特率 */
   $('#basic-protocol').value = m.protocol || 'uart';
   renderUartPortSelect(m.uartPort || UART_BASE[0]);
@@ -2074,10 +2124,9 @@ async function renderBasic(){
   $('#basic-udpport').value = m.modemPort || '3334';
   /* 屏幕类型 / 端口 */
   $('#basic-screentype').value = m.screenType || 'None';
-  renderScreenPortSelect(m.screenPort || '');
+  renderScreenPortSelect(m.screenPort || 'Modem');
   syncScreenFields();
   syncProtocolFields();
-  syncAprsEnable();
   syncDmrTypeRule();
   layoutBasicRows();
 }
@@ -2267,10 +2316,6 @@ function syncScreenFields(){
   const t = $('#basic-screentype').value;
   $('.field-screenport').style.display = (t === 'None' || !t) ? 'none' : '';
 }
-/* 未启用 APRS 时禁用服务器选择 */
-function syncAprsEnable(){
-  $('#basic-aprs').disabled = !$('#basic-aprs-enable').checked;
-}
 function saveBasic(){
   if(PREVIEW){ toast('预览模式：基本信息已“保存”（后端就绪后生效）'); return; }
   let uartPort = $('#basic-uartport').value.trim();
@@ -2309,9 +2354,7 @@ function saveBasic(){
       udpAddress: $('#basic-udpaddr').value.trim(),
       udpPort: $('#basic-udpport').value.trim(),
       screenType: $('#basic-screentype').value,
-      screenPort: screenPort,
-      aprsServer: $('#basic-aprs').value,
-      aprsEnable: $('#basic-aprs-enable').checked ? 1 : 0
+      screenPort: screenPort
     })
   }).then(r=>r.json()).then(j=>{
     if(!j.ok){ toast(j.error||'保存失败', true); return; }
@@ -2440,7 +2483,6 @@ $('#i2c-del-btn').addEventListener('click', ()=>{
   renderI2cPortSelect('');
 });
 $('#svc-refresh').addEventListener('click', ()=> renderServices());
-$('#basic-aprs-enable').addEventListener('change', syncAprsEnable);
 
 /* ---- 日志 ---- */
 let logCurrent = 'MMDVMHost', logPaused = false, logTimer=null, logSince=0, logPoll=null;
@@ -2450,13 +2492,22 @@ async function renderLogTabs(){
   $('#logTabs').innerHTML = names.map(n=>`<button class="chip ${n===logCurrent?'active':''}" data-log="${n}">${n}</button>`).join('');
   $$('#logTabs .chip').forEach(c=>c.addEventListener('click',()=>{ logCurrent=c.dataset.log; renderLogTabs(); clearLog(); startLog(); }));
 }
+/* 设备各服务日志写的是 UTC，展示时换成本机时区 */
+function localStamp(s){
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(\.\d+)?$/);
+  if(!m) return s;
+  const d = new Date(Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]));
+  if(isNaN(d)) return s;
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${m[7]||''}`;
+}
 function logLine(raw){
   const m = raw.match(/^([I M W E D]):\s*(.*)$/);
   let lvl='I', txt=raw;
   if(m){ lvl=m[1].trim(); txt=m[2]; }
   const tm = txt.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\s*/);
   let ts='', body=txt;
-  if(tm){ ts=tm[1]; body=txt.slice(tm[0].length); }
+  if(tm){ ts=localStamp(tm[1]); body=txt.slice(tm[0].length); }
   const box = $('#logbox');
   /* 仅当用户本来就停留在底部时才自动跟随，避免查看历史日志时被强制跳到最后一行 */
   const stick = (box.scrollHeight - box.scrollTop - box.clientHeight) < 24;
@@ -3419,10 +3470,11 @@ async function renderQso(){
   await qsoOnce();
   scheduleQso();
 }
-/* 通话中约 2.5s、空闲约 7s；后台标签页暂停请求并明显降频，降低设备 CPU 占用 */
+/* 0.7s 轮询：后端只读缓存（地址查询走后台进程），单次响应约几十毫秒。
+   后台标签页暂停请求并明显降频，降低设备 CPU 占用 */
 function qsoDelay(){
   if(document.hidden) return 30000;
-  return qsoActive ? 2500 : 7000;
+  return 700;
 }
 function scheduleQso(){
   if(qsoTimer) return;
@@ -3469,21 +3521,26 @@ function renderSlot(n, s, mode){
   const active = !!s.active;
   /* 差分键：不含时长（时长由 liveTick 每秒刷新） */
   const key = active
-    ? [1, s.state||'', s.callsign||'', s.id||'', s.addr||'', s.target||'', mode||'', s.rssi==null?'-':s.rssi, s.ber==null?'-':s.ber].join('\u0001')
+    ? [1, s.ended?'E':'', s.state||'', s.callsign||'', s.id||'', s.addr||'', s.target||'', mode||'', s.rssi==null?'-':s.rssi, s.ber==null?'-':s.ber, s.gps?(s.gps.addr||'')+ (s.gps.dist==null?'':'|'+s.gps.dist):''].join('\u0001')
     : '0';
   if(active){
     delete liveIdle[n];
-    /* 起始时间戳用于本地累计时长；接口短缓存会让 dur 略微滞后，
-       同一笔通话只向前校正，避免时长回跳 */
-    const cand = Date.now() - (s.dur || 0) * 1000;
-    if(liveStart[n] == null || slotPrev[n] !== key || cand > liveStart[n] + 2500) liveStart[n] = cand;
-    else if(cand < liveStart[n]) liveStart[n] = cand;
+    /* 已结束的通话不参与本地计时，时长停在最后上报值 */
+    if(s.ended){
+      delete liveStart[n];
+    } else {
+      /* 起始时间戳用于本地累计时长；接口短缓存会让 dur 略微滞后，
+         同一笔通话只向前校正，避免时长回跳 */
+      const cand = Date.now() - (s.dur || 0) * 1000;
+      if(liveStart[n] == null || slotPrev[n] !== key || cand > liveStart[n] + 2500) liveStart[n] = cand;
+      else if(cand < liveStart[n]) liveStart[n] = cand;
+    }
   } else {
     delete liveStart[n];
     liveIdle[n] = true;
   }
   if(slotPrev[n] === key){
-    if(active){
+    if(active && liveStart[n] != null){
       const el = $('#slot'+n+'-dur');
       if(el) el.textContent = fmtDur((Date.now() - liveStart[n]) / 1000);
     }
@@ -3494,24 +3551,51 @@ function renderSlot(n, s, mode){
   const badge = $('#slot'+n+'-badge'), dir = $('#slot'+n+'-dir');
   $('#slot'+n+'-metrics').style.display = active ? '' : 'none';
   if(active){
-    badge.className = 'badge ' + (s.state==='TX'?'warn':'ok');
-    dir.textContent = s.state==='TX' ? '发射 TX' : '接收 RX';
+    /* 已结束的通话保留 8 秒供查看，用灰色徽标标出「已结束」 */
+    if(s.ended){
+      badge.className = 'badge off';
+      dir.textContent = (s.state==='TX' ? '发射' : '接收') + ' 已结束';
+    } else {
+      badge.className = 'badge ' + (s.state==='TX'?'warn':'ok');
+      dir.textContent = s.state==='TX' ? '发射 TX' : '接收 RX';
+    }
     $('#slot'+n+'-flag').innerHTML = flagForCallsign(s.callsign, s.id);
     $('#slot'+n+'-call').textContent = s.callsign || s.id || '—';
     $('#slot'+n+'-id').textContent = s.callsign ? (s.id || '') : '';
     const addr = s.addr || (s.callsign ? countryForCallsign(s.callsign) : '');
     $('#slot'+n+'-addr').innerHTML = (addr && addr !== '未知') ? addrIcon + esc(addr) : '';
     $('#slot'+n+'-target').textContent = '→ ' + (s.target||'') + ' · ' + (mode||'');
+    /* RX 是网络下行的收听，没有本机误码率，隐藏该指标，时长自动补到第一位 */
+    const bwEl = $('#slot'+n+'-berw');
+    if(bwEl) bwEl.style.display = (s.state === 'RX') ? 'none' : '';
     const bEl = $('#slot'+n+'-ber');
     bEl.textContent = (s.ber==null) ? '—' : (+s.ber).toFixed(1) + '%';
     bEl.classList.toggle('bad', s.ber!=null && +s.ber > 3);
-    $('#slot'+n+'-dur').textContent = fmtDur((Date.now() - liveStart[n]) / 1000);
+    $('#slot'+n+'-dur').textContent = (s.ended || liveStart[n] == null)
+      ? fmtDur(s.dur || 0)
+      : fmtDur((Date.now() - liveStart[n]) / 1000);
+    const gEl = $('#slot'+n+'-geo'), gwEl = $('#slot'+n+'-geow');
+    if(gEl && gwEl){
+      const g = s.gps;
+      /* 只有成功解析出地址才显示；查不到地址（境外坐标等）就整项隐藏 */
+      const place = (g && g.addr) ? g.addr : '';
+      if(place){
+        gEl.textContent = place + (g.dist!=null ? ' · ' + g.dist + 'km' : '');
+        gEl.title = place + ' (' + (+g.lat).toFixed(3) + ',' + (+g.lon).toFixed(3) + ')';
+        gwEl.style.display = '';
+      } else {
+        gEl.textContent = '—';
+        gEl.title = '';
+        gwEl.style.display = 'none';
+      }
+    }
   } else {
     badge.className = 'badge off'; dir.textContent = '待机';
     $('#slot'+n+'-call').textContent = '等待通联';
     $('#slot'+n+'-id').textContent = '';
     $('#slot'+n+'-addr').innerHTML = '';
     $('#slot'+n+'-target').textContent = '';
+    $('#slot'+n+'-geo').textContent = '—';
   }
 }
 function startLiveTick(){
@@ -3548,6 +3632,7 @@ async function renderLastheardLog(){
   lhSnapshot = snap;
   const box = $('#lh-logbox');
   if(!list.length){ box.innerHTML = '<div class="lh-empty">暂无通联记录</div>'; return; }
+  const pin = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>';
   box.innerHTML = list.map(r=>{
     const isTx = r.dir === 'TX';
     const call = r.callsign || '';
@@ -3556,6 +3641,10 @@ async function renderLastheardLog(){
     const addr = r.addr || (call ? countryForCallsign(call) : '');
     const berNum = parseFloat(String(r.ber||'').replace('%',''));
     const berCls = (isFinite(berNum) && berNum > 3) ? ' bad' : '';
+    const g = (r.gps && r.gps.lat != null && r.gps.lon != null) ? r.gps : null;
+    const geoBtn = g
+      ? `<button class="lh-geo" data-lat="${(+g.lat).toFixed(6)}" data-lon="${(+g.lon).toFixed(6)}" data-addr="${esc(g.addr||'')}" data-dist="${g.dist==null?'':g.dist}" title="查看 GPS 定位">${pin}</button>`
+      : '';
     return `<div class="lh-item${isTx?' tx':''}">
       <div class="lh-flag">${flagForCallsign(call, id)}</div>
       <div class="lh-mode-badge">${esc(r.mode||'')}</div>
@@ -3572,7 +3661,7 @@ async function renderLastheardLog(){
           <span class="lh-tg">${esc(r.target||'')}</span>
           <span class="lh-slot">${esc(slot)}</span>
           <span class="lh-mode-pc">${esc(r.mode||'')}</span>
-          <span class="lh-time">${esc(localTime(r))}</span>
+          <span class="lh-time"><span>${esc(localTime(r))}</span><span class="lh-geo-slot">${geoBtn}</span></span>
         </div>
       </div>
     </div>`;
@@ -3620,7 +3709,7 @@ function stopCalMon(){
   if(sw) sw.checked = false;
   setCalBadge('已停止', 'off');
 }
-const UI_VER = '2026-11-18z9';
+const UI_VER = '20261118z47';
 /* forceMs：指定固定刷新周期（自动校准用 3000ms），省略则跟随下拉框 */
 function startCalMon(forceMs){
   stopCalTimer();
@@ -3805,45 +3894,24 @@ function saveCal(){
 }
 
 /* ---- 全自动校准（RX 频偏扫描，开关开启才运行，默认手动） ---- */
-const CAL_LIMIT = 300, CAL_COARSE = 100, CAL_STEP = 50, CAL_FINE = 20;
-const CAL_WIN_MS = 60000, CAL_MIN_SAMPLES = 5, CAL_TOL = 0.15;
+/* 搜索：150 Hz 步长爬坡，单调区间二分，扫描上限 ±1000 Hz */
+const CAL_STEP = 150, CAL_FINE = 50, CAL_LIMIT = 1000, CAL_MAX_STEPS = 7;
+/* 单点采样：每突发 141 bit、约 2350 bit/s；50000 bit ≈ 21 秒持续发射 */
+const CAL_WIN_MS = 60000, CAL_TARGET_BITS = 50000, CAL_MIN_BITS = 20000;
+/* 同步建立期误码偏高，PTT 后前 0.7 秒不计入累计 */
+const CAL_SKIP_MS = 700, CAL_POLL_MS = 350;
+/* 松手超过该时长、或一直无信号超过该时长，结束本档 */
+const CAL_IDLE_MS = 6000, CAL_START_TIMEOUT = 25000;
+/* 判定「有改善」的最小均值差（%）：同一偏移重复测量波动可达 ±0.3% 以上 */
+const CAL_TOL = 0.3;
+/* 目标值与可接受上限 */
+const CAL_GOAL = 0.5, CAL_OK = 1.0;
 let calAuto = { on:false, abort:false, results:[] };
 function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 function median(arr){
   if(!arr.length) return null;
   const s = arr.slice().sort((a,b)=>a-b), m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
-}
-/* 解 3x3 线性方程组（高斯消元，部分主元） */
-function solve3(A, B){
-  const M = A.map((row,i)=>[row[0], row[1], row[2], B[i]]);
-  for(let col=0; col<3; col++){
-    let piv = col;
-    for(let r=col+1; r<3; r++) if(Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
-    if(Math.abs(M[piv][col]) < 1e-12) return null;
-    [M[col], M[piv]] = [M[piv], M[col]];
-    for(let r=0; r<3; r++){
-      if(r === col) continue;
-      const f = M[r][col] / M[col][col];
-      for(let c=col; c<4; c++) M[r][c] -= f * M[col][c];
-    }
-  }
-  return [M[0][3]/M[0][0], M[1][3]/M[1][1], M[2][3]/M[2][2]];
-}
-/* 最小二乘拟合二次曲线 y=ax²+bx+c，返回谷底 x*=-b/(2a)；样本不足 3 或非抛物线返回 null */
-function fitQuadraticMin(pts){
-  const n = pts.length;
-  if(n < 3) return null;
-  let S0=0,S1=0,S2=0,S3=0,S4=0,T0=0,T1=0,T2=0;
-  for(const p of pts){
-    const x = p.off, y = p.med, x2 = x*x, x3 = x2*x, x4 = x3*x;
-    S0 += 1; S1 += x; S2 += x2; S3 += x3; S4 += x4;
-    T0 += y; T1 += x*y; T2 += x2*y;
-  }
-  const sol = solve3([[S4,S3,S2],[S3,S2,S1],[S2,S1,S0]], [T2,T1,T0]);
-  if(!sol) return null;
-  if(Math.abs(sol[0]) < 1e-9) return null;
-  return -sol[1] / (2 * sol[0]);
 }
 function setAutoState(text, cls){
   const b = $('#cal-auto-state');
@@ -3857,12 +3925,19 @@ function setAutoProgress(pct){
   const el = $('#cal-auto-bar');
   if(el) el.style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + '%';
 }
-function addAutoRow(off, avg, n, text, kind){
+function addAutoRow(r, text, kind){
   const tb = $('#cal-auto-table tbody');
   if(!tb) return;
   const color = kind==='ok' ? 'var(--green)' : kind==='bad' ? 'var(--red)' : 'var(--muted)';
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td class="mono">${off>0?'+':''}${off} Hz</td><td class="mono">${avg==null?'—':avg.toFixed(2)+'%'}</td><td class="mono">${n}</td><td style="color:${color}">${text}</td>`;
+  const jt = (r.jumps == null) ? '—' : (r.jumps + ' 次' + (r.jumps ? ' / 均 ' + (r.jsum / r.jumps).toFixed(1) : ''));
+  tr.innerHTML = `<td class="mono">${r.off>0?'+':''}${r.off} Hz</td>` +
+    `<td class="mono">${r.mean==null?'—':r.mean.toFixed(2)+'%'}</td>` +
+    `<td class="mono">${r.med==null?'—':r.med.toFixed(2)+'%'}</td>` +
+    `<td class="mono">${r.total?r.total.toLocaleString():'0'}</td>` +
+    `<td class="mono">${jt}</td>` +
+    `<td class="mono">${r.se==null?'—':'±'+(2*r.se).toFixed(2)+'%'}</td>` +
+    `<td style="color:${color}">${text}</td>`;
   tb.appendChild(tr);
   tr.scrollIntoView({ block:'nearest' });
 }
@@ -3901,7 +3976,7 @@ function setCalEditing(on){
   const stop = $('#cal-auto-stop'); if(stop) stop.disabled = on;
 }
 function fmtOff(o){ return (o>0?'+':'') + o + ' Hz'; }
-/* 单个测点：确认重启 → 等待服务正常 → 确认按 PTT → 采样，返回 {off,avg,n,valid} */
+/* 单个测点：确认重启 → 等待服务正常 → 确认按 PTT → 采样，返回 {off,mean,med,total,se,valid} */
 async function calMeasure(off, lv, phase){
   if(calAuto.abort) return null;
   setAutoState('测试中','warn');
@@ -3919,53 +3994,80 @@ async function calMeasure(off, lv, phase){
   setAutoDetail(`RX 偏移 ${fmtOff(off)}：等待 MMDVMHost 启动…`);
   const up = await waitMmdvmUp(30000);
   if(!up){
-    addAutoRow(off, null, 0, '服务未正常启动，中止', 'bad');
+    addAutoRow({ off: off, mean: null, med: null, total: 0, se: null, jumps: null }, '服务未正常启动，中止', 'bad');
     setAutoDetail('MMDVMHost 未在 30 秒内正常启动，校准中止');
     calAuto.abort = true;
     return null;
   }
   await sleep(1000);
   setAutoState('等待 PTT','tag');
-  setAutoDetail(`MMDVMHost 已正常运行。请按下 PTT 发射，然后点击“确定”开始 ${CAL_WIN_MS/1000} 秒采样`);
+  setAutoDetail(`MMDVMHost 已正常运行。请按下 PTT 发射，然后点击“确定”开始采样（目标累计 ${CAL_TARGET_BITS} 比特）`);
   const startSampling = await uiConfirm(
     `RX 偏移 ${fmtOff(off)}：MMDVMHost 已正常运行。\n\n` +
     '请按下 PTT（或让电台开始发射），准备好后选择“确定”开始采样。\n' +
-    `将采集 ${CAL_WIN_MS/1000} 秒内的 RF 误码率；提前松开 PTT 且样本足够时会自动结束本档。\n` +
+    `将持续采集到累计 ${CAL_TARGET_BITS} 比特（约 21 秒发射）或 ${Math.round(CAL_WIN_MS/1000)} 秒上限。\n` +
+    `累计不足 ${CAL_MIN_BITS} 比特的测点会被判为无效，不参与选优。\n` +
     '选择“取消”将中止校准并恢复原频偏。',
     { title: '请按下 PTT', okText: '开始采样' }
   );
   if(!startSampling){ calAuto.abort = true; return null; }
   if(!calMon.on) startCalMon(3000);   /* 兜底：确保采样期间折线图在工作 */
   setAutoState('采样中','warn');
-  const samples = [];
+  /* api.uc 已在增量解析时逐突发累计，这里只做相邻快照差分：不漏帧、不重复计数 */
+  const pcts = [];                        /* 仅用于显示中位数，不参与判优 */
+  const acc = { errs: 0, total: 0, frames: 0, jumps: 0, jsum: 0 };
+  let prev = null, reset = false, firstRfAt = 0, lastGrowAt = 0;
   const t0 = Date.now();
-  let lastAt = 0;
-  while(Date.now()-t0 < CAL_WIN_MS && !calAuto.abort){
+  while(!calAuto.abort){
+    const el = Date.now() - t0;
+    if(el >= CAL_WIN_MS) break;
     let c = null;
     try { c = await api('/api/calibration?ui=' + UI_VER + '&src=sample'); } catch(e){ c = null; }
-    if(c && c.rf){ samples.push(+c.ber); lastAt = Date.now(); }
-    /* 采样读数直接进图表（无数据按 0% 记点），不受监测开关影响，确保折线图实时可见 */
-    calFeed((c && c.ber != null) ? +c.ber : null, true);
-    if(samples.length >= CAL_MIN_SAMPLES && lastAt && Date.now()-lastAt > 5000) break;
-    if(samples.length >= 5){
-      const w = samples.slice(-5);
-      const m = w.reduce((a,b)=>a+b,0)/w.length;
-      const v = w.reduce((a,b)=>a+(b-m)*(b-m),0)/w.length;
-      if(v < 0.02) break;   /* BER 已稳定，提前结束本测点 */
+    if(c){
+      const cur = { errs: +c.errs || 0, total: +c.total || 0, frames: +c.frames || 0,
+        jumps: +c.jumps || 0, jsum: +c.jsum || 0 };
+      if(c.rf && c.ber != null){ pcts.push(+c.ber); if(!firstRfAt) firstRfAt = Date.now(); }
+      if(!prev){
+        prev = cur;
+      } else if(cur.total < prev.total){
+        /* 日志轮转 / 缓存重建：累计器归零，本测点从当前值重新累计 */
+        prev = cur; acc.errs = 0; acc.total = 0; acc.frames = 0; acc.jumps = 0; acc.jsum = 0; reset = true;
+      } else {
+        if(cur.total > prev.total) lastGrowAt = Date.now();
+        if(firstRfAt && Date.now() - firstRfAt >= CAL_SKIP_MS){
+          acc.errs += cur.errs - prev.errs;
+          acc.total += cur.total - prev.total;
+          acc.frames += cur.frames - prev.frames;
+          acc.jumps += cur.jumps - prev.jumps;
+          acc.jsum += cur.jsum - prev.jsum;
+        }
+        prev = cur;
+      }
+      /* 采样读数直接进图表（无数据按 0% 记点），不受监测开关影响，确保折线图实时可见 */
+      calFeed((c.ber != null) ? +c.ber : null, true);
+      const m = acc.total ? acc.errs / acc.total * 100 : null;
+      setAutoDetail(`RX 偏移 ${fmtOff(off)}：采样 ${Math.round(el/1000)}s，比特 ${acc.total}/${CAL_TARGET_BITS}` +
+        (m != null ? `，当前均值 ${m.toFixed(2)}%` : '') + (c.rf ? ' · RF' : '') + (reset ? '（累计已重置）' : ''));
     }
-    const curBer = (c && c.ber != null) ? +c.ber : null;
-    const barW = curBer != null ? Math.min(Math.max(curBer, 0) / 5 * 100, 100) : 0;
-    const barTxt = curBer != null ? curBer.toFixed(1) + '%' : '—';
-    setAutoDetail(`RX 偏移 ${fmtOff(off)}：采样 ${Math.round((Date.now()-t0)/1000)}/${CAL_WIN_MS/1000}s，样本 ${samples.length} <span class="berbar-inline"><i style="width:${barW}%"></i><em>${barTxt}</em></span>${(c && c.rf) ? ' · RF' : ''}`);
-    await sleep(1000);
+    if(acc.total >= CAL_TARGET_BITS) break;                      /* 累计够了，提前结束本档 */
+    if(lastGrowAt && Date.now() - lastGrowAt > CAL_IDLE_MS) break;/* 已松手，不再等 */
+    if(!firstRfAt && el > CAL_START_TIMEOUT) break;               /* 一直没信号，快速跳过 */
+    await sleep(CAL_POLL_MS);
   }
   if(calAuto.abort) return null;
-  const n = samples.length;
-  const med = n ? median(samples) : null;
-  const avg = n ? samples.reduce((a,b)=>a+b,0)/n : null;
-  const ok = n >= CAL_MIN_SAMPLES;
-  addAutoRow(off, med, n, ok ? '已记录' : '无信号，跳过', ok ? 'ok' : 'bad');
-  return { off, med, avg, n, valid: ok };
+  const total = acc.total;
+  const mean = total ? acc.errs / total * 100 : null;
+  const med = pcts.length ? median(pcts) : null;
+  const p = (mean != null) ? mean / 100 : 0;
+  const se = total ? Math.sqrt(p * (1 - p) / total) * 100 : null;
+  /* 有效性只看累计比特数：DMR 每突发仅 141 bit，误码呈重尾分布，
+     均值被少数坏突发抬高是正常物理现象，中位数只作显示，不能据此否决样本 */
+  const ok = total >= CAL_MIN_BITS && mean != null;
+  const text = !total ? '无信号，跳过' : (!ok ? '样本不足，忽略' : (reset ? '已记录（重置）' : '已记录'));
+  addAutoRow({ off: off, mean: mean, med: med, total: total, se: se,
+    jumps: ok ? acc.jumps : null, jsum: acc.jsum }, text, ok ? 'ok' : 'bad');
+  return { off, mean, med, total, se, jumps: acc.jumps, jsum: acc.jsum,
+    jrate: acc.frames ? acc.jumps / acc.frames : null, valid: ok };
 }
 async function runAutoCal(orig){
   calAuto.on = true; calAuto.abort = false; calAuto.results = [];
@@ -3979,96 +4081,79 @@ async function runAutoCal(orig){
   startCalMon(3000);
   const lv = calLevels();
   const origTx = lv.txOffset;   /* 开始时的手动 TX 偏移，中止/取消时恢复 */
+  /* 以开始时的 RX 偏移为基准：±150、±300… 都是相对它的偏移量 */
+  const base0 = orig;
   const measured = [];
-  const valid = arr => arr.filter(r => r && r.valid);
-  const bestOf = arr => arr.reduce((a,b)=> (!a || b.med < a.med) ? b : a, null);
-  const betterThan = (a,b) => !!a && (!b || a.med < b.med - CAL_TOL);
-  const tie = (a,b) => !!a && !!b && Math.abs(a.med - b.med) <= CAL_TOL;
+  let boundaryHit = false;
+  const validOf = arr => arr.filter(r => r && r.valid);
+  const bestOf = arr => arr.reduce((a,b)=> (!a || b.mean < a.mean) ? b : a, null);
   const test = async (off, phase) => {
     const r = await calMeasure(off, lv, phase);
     if(r) measured.push(r);
     return r;
   };
-  let best = null, boundaryHit = false;
+  /* 单调区间二分：good 端优于 bad 端，收敛到 ≤50 Hz 或已达标 */
+  const bisect = async (good, bad) => {
+    let it = 0;
+    while(!calAuto.abort && Math.abs(bad.off - good.off) > CAL_FINE && it < 8){
+      const mid = Math.round((good.off + bad.off) / 2 / 20) * 20;
+      if(mid === good.off || mid === bad.off) break;
+      setAutoProgress(50 + Math.min(it / 6, 1) * 35);
+      const r = await test(mid, `阶段 3/3：二分 ${fmtOff(good.off)} ~ ${fmtOff(bad.off)}`);
+      if(!r || !r.valid) break;
+      it++;
+      if(r.mean < good.mean){ bad = good; good = r; }
+      else bad = r;
+      if(r.mean <= CAL_GOAL) break;
+    }
+    return good;
+  };
 
-  /* 阶段 1：初始值 + 左右 ±100 Hz */
-  setAutoDetail('阶段 1/4：测量初始值与左右 ±100 Hz 的中位误码率');
-  await test(0, '阶段 1/4：初始值');
-  if(!calAuto.abort) await test(-CAL_COARSE, '阶段 1/4：左侧 -100 Hz');
-  if(!calAuto.abort) await test(CAL_COARSE, '阶段 1/4：右侧 +100 Hz');
-  setAutoProgress(25);
-
-  /* 阶段 2：定向延伸；阶段 3：区间细化；阶段 4：复测确认 */
-  if(!calAuto.abort){
-    const cands = valid(measured);
-    if(cands.length){
-      const r0 = measured.find(r => r.off === 0 && r.valid) || null;
-      best = bestOf(cands);
-      let bracket = null;
-      if(!r0 || best.off === 0 || tie(best, r0)){
-        bracket = [-CAL_COARSE, CAL_COARSE];
-      } else {
-        const dir = best.off > 0 ? 1 : -1;
-        let cur = best;
-        for(let a=CAL_COARSE+CAL_STEP; a<=CAL_LIMIT; a+=CAL_STEP){
-          if(calAuto.abort) break;
-          const r = await test(dir*a, `阶段 2/4：沿${dir>0?'正':'负'}方向延伸至 ${fmtOff(dir*a)}`);
-          if(!r) break;
-          setAutoProgress(25 + (a-CAL_COARSE)/(CAL_LIMIT-CAL_COARSE)*35);
-          if(!r.valid){ bracket = [cur.off, dir*a]; break; }
-          if(betterThan(r, cur)){ cur = r; continue; }
-          bracket = [cur.off, dir*a];
-          break;
-        }
-        if(!bracket){
-          boundaryHit = Math.abs(cur.off) >= CAL_LIMIT;
-          bracket = [cur.off, dir*CAL_LIMIT];
-        }
+  /* 阶段 1：当前值 + 左右 ±150 Hz，判断正确方向在哪一侧 */
+  setAutoDetail(`阶段 1/3：测量当前值 ${fmtOff(base0)} 与左右 ±${CAL_STEP} Hz`);
+  let baseP = await test(base0, '阶段 1/3：当前值');
+  if(!calAuto.abort && (!baseP || !baseP.valid)){
+    /* 首个测点常因发射时间太短样本不足，重测一次，避免整轮直接判失败 */
+    setAutoHint('首个测点样本不足，重测一次');
+    baseP = await test(base0, '阶段 1/3：当前值（重测）');
+  }
+  setAutoProgress(5);
+  if(!calAuto.abort && baseP && baseP.valid && baseP.mean <= CAL_GOAL){
+    /* 已优于目标值：不搜索，交给阶段 4 复测确认 */
+    setAutoHint(`当前偏移 ${fmtOff(base0)} 均值 ${baseP.mean.toFixed(2)}%，已达 ${CAL_GOAL}% 目标，跳过搜索`);
+  } else if(!calAuto.abort && baseP && baseP.valid){
+    const neg = await test(base0 - CAL_STEP, `阶段 1/3：当前值 -${CAL_STEP} Hz`);
+    const pos = await test(base0 + CAL_STEP, `阶段 1/3：当前值 +${CAL_STEP} Hz`);
+    setAutoProgress(20);
+    const cands = [neg, pos].filter(r => r && r.valid);
+    cands.sort((a,b)=> a.mean - b.mean);
+    let side = cands.length ? cands[0] : null;
+    if(side){
+      const dir = (side.off < baseP.off) ? -1 : 1;
+      let steps = 0;
+      /* 情况一：侧点仍显著更低 → 沿同方向爬坡，每轮只新增 1 个测点 */
+      while(!calAuto.abort && side && side.mean < baseP.mean - CAL_TOL){
+        if(steps >= CAL_MAX_STEPS){ boundaryHit = true; break; }
+        steps++;
+        baseP = side;
+        const nextOff = baseP.off + dir * CAL_STEP;
+        if(Math.abs(nextOff - base0) > CAL_LIMIT){ boundaryHit = true; break; }
+        setAutoProgress(20 + Math.min(steps / CAL_MAX_STEPS, 1) * 25);
+        const r = await test(nextOff, `阶段 2/3：沿${dir>0?'正':'负'}方向爬坡至 ${fmtOff(nextOff)}`);
+        if(!r || !r.valid){ side = null; break; }
+        side = r;
       }
-      if(!calAuto.abort && bracket && bracket[0] !== bracket[1]){
-        const lo = Math.min(bracket[0], bracket[1]), hi = Math.max(bracket[0], bracket[1]);
-        /* 阶段 3：抛物线拟合谷底（至少 3 个不同偏移的点），再验证；失败/无改善则二分兜底 */
-        const inRange = valid(measured).filter(p => p.off >= lo && p.off <= hi);
-        const unique = [];
-        for(const p of inRange){ if(!unique.some(q=>q.off===p.off)) unique.push(p); }
-        const xStar = unique.length >= 3 ? fitQuadraticMin(unique.map(p=>({off:p.off, med:p.med}))) : null;
-        let fittedOk = false;
-        if(xStar != null && isFinite(xStar) && xStar > lo && xStar < hi){
-          const xr = Math.round(xStar/CAL_FINE)*CAL_FINE;
-          if(xr > lo && xr < hi && !measured.some(p=>p.off===xr)){
-            setAutoState('拟合中','warn');
-            setAutoDetail(`阶段 3/4：抛物线拟合谷底 ${fmtOff(xr)}，验证该点`);
-            const rv = await test(xr, '阶段 3/4：抛物线拟合验证点');
-            setAutoProgress(85);
-            fittedOk = !!(rv && rv.valid);
-          }
-        }
-        /* 二分兜底：拟合未得到有效点，或验证点仍非最优时，用二分补测缩小区间 */
-        const nbNow = bestOf(valid(measured));
-        if(!fittedOk || (nbNow && best && nbNow.off === best.off && !calAuto.abort)){
-          let a = lo, b = hi, it = 0;
-          while(b - a > CAL_FINE && it < 6 && !calAuto.abort){
-            const mid = Math.round((a+b)/2/CAL_FINE)*CAL_FINE;
-            if(mid <= a || mid >= b || measured.some(p=>p.off===mid)) break;
-            const r = await test(mid, '阶段 3/4：二分细化兜底');
-            if(!r || !r.valid) break;
-            it++;
-            const nb = bestOf(valid(measured));
-            if(nb.off <= mid) b = mid; else a = mid;
-            setAutoProgress(60 + it*5);
-          }
-        }
+      /* 情况三：侧点仍略优于基准（差值在容差内）→ 单调区间内二分；
+         触到 ±1000 Hz / 步数上限时不再二分，避免把边界当谷底 */
+      if(!calAuto.abort && !boundaryHit && side && side.valid && side.mean < baseP.mean){
+        await bisect(baseP, side);
       }
-      best = bestOf(valid(measured));
-      /* 阶段 4：复测最优值确认 */
-      if(!calAuto.abort && best){
-        setAutoState('复测中','warn');
-        setAutoDetail(`阶段 4/4：复测 ${fmtOff(best.off)} 确认结果`);
-        await test(best.off, '阶段 4/4：复测确认最优值');
-        best = bestOf(valid(measured));
-      }
+      /* 情况二：侧点比基准差 → 基准即谷底，不做二分 */
     }
   }
+
+  let best = bestOf(validOf(measured));
+  let finalOff = orig, finalTx = origTx;
   setAutoProgress(100);
   const stopped = calAuto.abort;
   if(stopped){
@@ -4098,41 +4183,119 @@ async function runAutoCal(orig){
     $('#cal-auto').checked = false;
     stopCalMon();
     setAutoState('无有效数据','err');
-    setAutoDetail(`所有档位均未收到足够 RF 信号，已恢复原 RX 偏移 ${orig>0?'+':''}${orig} Hz`);
-    setAutoHint('自动校准未获得有效样本：请确认有电台持续发射（本机接收）后再试');
-    toast('自动校准失败：未收到 RF 信号', true, 3000);
+    setAutoDetail(`未获得有效测点（累计比特不足），已恢复原 RX 偏移 ${orig>0?'+':''}${orig} Hz`);
+    setAutoHint('自动校准未获得有效样本：每个测点需持续发射到累计 20000 比特以上');
+    toast('自动校准失败：样本不足', true, 3000);
     return;
   }
-  /* 校准完成：由用户确认是否写入最优频偏 */
-  setAutoState('等待确认','tag');
-  const limitTip = boundaryHit ? '\n\n注意：已扫描到 ±300 Hz 上限，若最优值落在边界，真实偏差可能更大，建议手动扩大范围。' : '';
-  setAutoDetail(`最优偏移 ${fmtOff(best.off)}，中位误码率 ${best.med.toFixed(2)}%`);
-  const apply = await uiConfirm(
-    `自动校准完成。\n\n最优偏移：${fmtOff(best.off)}\n中位误码率：${best.med.toFixed(2)}%${limitTip}\n\n` +
-    '选择“确定”将把该值同时写入 RX 与 TX 偏移并重启 MMDVMHost；\n' +
-    '选择“取消”则不写入，并恢复开始前的 RX/TX 偏移。',
-    { title: '写入校准结果', okText: '写入并重启', cancelText: '取消保存' }
-  );
-  const finalOff = apply ? best.off : orig;
-  const finalTx = apply ? best.off : origTx;
-  $('#cal-rxoff').value = finalOff;
-  $('#cal-txoff').value = finalTx;
+  let apply = false, keep = false, flat = false, unstable = false, failAll = false, cancelled = false;
+  let m1 = null, m2 = null;
+  /* 复测阶段的跳变率（次/百突发），用于稳定性佐证 */
+  let jCand = null, jBase = null;
+
+  /* 阶段 4：候选 → 基准 → 候选 交错复测，抵消信道慢漂移 */
+  if(!calAuto.abort && best){
+    setAutoState('复测中','warn');
+    setAutoProgress(90);
+    const cand = best.off;
+    setAutoDetail(`阶段 4/4：按「候选 → 基准 → 候选」交错复测 ${fmtOff(cand)}`);
+    const r1 = await test(cand, '阶段 4/4：复测候选（第 1 次）');
+    let rBase = null;
+    if(!calAuto.abort && cand !== base0) rBase = await test(base0, '阶段 4/4：交错复测当前值');
+    const r2 = (!calAuto.abort && cand !== base0) ? await test(cand, '阶段 4/4：复测候选（第 2 次）') : null;
+    if(cand === base0){
+      m1 = baseP ? baseP.mean : null;     /* 搜索阶段的首次测量 */
+      m2 = r1 ? r1.mean : null;           /* 本次复测 */
+      jCand = (r1 && r1.jrate != null) ? r1.jrate : null;
+    } else {
+      m1 = r1 ? r1.mean : null;
+      m2 = (r2 && r2.valid) ? r2.mean : (r1 ? r1.mean : null);
+      jCand = (r1 && r1.jrate != null && r2 && r2.jrate != null)
+        ? (r1.jrate + r2.jrate) / 2 : (r1 ? r1.jrate : null);
+      jBase = (rBase && rBase.jrate != null) ? rBase.jrate : null;
+    }
+    failAll = (m1 != null && m2 != null) ? ((m1 + m2) / 2 > CAL_OK) : (best.mean > CAL_OK);
+    if(m1 != null && m2 != null && m1 <= CAL_OK && m2 <= CAL_OK){
+      if(Math.abs(m1 - m2) <= CAL_TOL){
+        if(cand === base0){
+          keep = true;                    /* 当前值已达标，保持不写入 */
+        } else if(rBase && rBase.valid && (rBase.mean - (m1 + m2) / 2) <= CAL_TOL){
+          /* 均值差在噪声内：若候选跳变率明显更低，视为更稳，仍建议写入 */
+          if(jCand != null && jBase != null && jBase > 0 && jCand <= jBase * 0.7){
+            apply = true; finalOff = cand; finalTx = cand;
+          } else {
+            flat = true;
+          }
+        } else {
+          apply = true; finalOff = cand; finalTx = cand;
+        }
+      } else {
+        unstable = true;                  /* 两次差值超过容差 */
+      }
+    } else {
+      unstable = true;
+    }
+  }
+  const candAvg = (m1 != null && m2 != null) ? (m1 + m2) / 2 : null;
+  /* 校准完成：按复测结论决定写入 / 保持 / 恢复 */
+  const limitTip = boundaryHit ? `\n\n注意：已扫描到 ±${CAL_LIMIT} Hz 上限，若候选值落在边界，真实偏差可能更大，建议人工复核。` : '';
+  if(apply){
+    setAutoState('等待确认','tag');
+    setAutoDetail(`候选偏移 ${fmtOff(finalOff)}，两次均值 ${m1.toFixed(2)}% / ${m2.toFixed(2)}%`);
+    const ok = await uiConfirm(
+      `自动校准完成。\n\n候选偏移：${fmtOff(finalOff)}\n` +
+      `两次测量均值：${m1.toFixed(2)}% / ${m2.toFixed(2)}%（累计 ${(best.total||0).toLocaleString()} 比特）\n` +
+      (jCand != null ? `跳变率：候选 ${(jCand*100).toFixed(1)} 次/百突发` +
+        (jBase != null ? `，基准 ${(jBase*100).toFixed(1)} 次/百突发` : '') + '\n' : '') +
+      `写入值：RX 偏移 ${fmtOff(finalOff)}、TX 偏移 ${fmtOff(finalOff)}${limitTip}\n\n` +
+      '选择“确定”将把该值同时写入 RX 与 TX 偏移并重启 MMDVMHost；\n' +
+      '选择“取消”则不写入，并恢复开始前的 RX/TX 偏移。',
+      { title: '写入校准结果', okText: '写入并重启', cancelText: '取消保存' }
+    );
+    if(!ok){ apply = false; cancelled = true; }
+  }
+  const writeOff = apply ? finalOff : orig;
+  const writeTx = apply ? finalOff : origTx;
+  $('#cal-rxoff').value = writeOff;
+  $('#cal-txoff').value = writeTx;
   setAutoState(apply ? '正在写入' : '正在恢复', 'warn');
-  setAutoDetail(`写入 RX 偏移 ${finalOff>0?'+':''}${finalOff} Hz、TX 偏移 ${finalTx>0?'+':''}${finalTx} Hz 并重启 MMDVMHost…`);
-  try { await postCal(Object.assign({}, lv, { rxOffset: finalOff, txOffset: finalTx })); } catch(e){}
+  setAutoDetail(`写入 RX 偏移 ${writeOff>0?'+':''}${writeOff} Hz、TX 偏移 ${writeTx>0?'+':''}${writeTx} Hz 并重启 MMDVMHost…`);
+  try { await postCal(Object.assign({}, lv, { rxOffset: writeOff, txOffset: writeTx })); } catch(e){}
   await restartMmdvm();
   $('#cal-auto').checked = false;
   stopCalMon();
   if(apply){
     setAutoState('已保存','ok');
-    setAutoDetail(`RX/TX 偏移均写入 ${fmtOff(best.off)}，中位误码率 ${best.med.toFixed(2)}%`);
-    setAutoHint(`自动校准完成：RX/TX 偏移 ${fmtOff(best.off)}。开关已关闭，当前为手动模式`);
-    toast('频偏校准信息已保存', false, 3000);
-  }else{
+    setAutoDetail(`RX/TX 偏移均写入 ${fmtOff(finalOff)}，两次均值 ${m1.toFixed(2)}% / ${m2.toFixed(2)}%`);
+    setAutoHint(`自动校准完成：RX/TX 偏移 ${fmtOff(finalOff)}。开关已关闭，当前为手动模式`);
+    toast(`频偏校准信息已保存：RX/TX 偏移 ${fmtOff(finalOff)}`, false, 3000);
+  }else if(keep){
+    setAutoState('已达标','ok');
+    setAutoDetail(`当前偏移 ${fmtOff(base0)} 已达标（${m1.toFixed(2)}% / ${m2.toFixed(2)}%），保持不写入`);
+    setAutoHint(`当前偏移 ${fmtOff(base0)} 已在 ${CAL_OK}% 以内，无需修正；开关已关闭`);
+    toast('当前频偏已达标，保持原值', false, 3000);
+  }else if(flat){
+    setAutoState('无需修正','ok');
+    setAutoDetail(`候选 ${fmtOff(best.off)} 相对复测基准的改善不足 ${CAL_TOL}%，判定在噪声内，保持 ${fmtOff(base0)}` +
+      (jCand != null && jBase != null ? `；跳变率 ${(jCand*100).toFixed(1)} vs ${(jBase*100).toFixed(1)} 次/百突发` : ''));
+    setAutoHint(`候选与当前值差异在 ${CAL_TOL}% 以内，无需修正；开关已关闭`);
+    toast(`改善不足 ${CAL_TOL}%，保持当前频偏`, false, 3000);
+  }else if(failAll){
+    setAutoState('未达标','err');
+    setAutoDetail(`候选 ${fmtOff(best.off)} 复测均值 ${(candAvg != null ? candAvg : best.mean).toFixed(2)}%，超过 ${CAL_OK}%，已恢复原偏移 ${fmtOff(orig)}` +
+      (jCand != null ? `；跳变率 ${(jCand*100).toFixed(1)} 次/百突发` : ''));
+    setAutoHint(`±${CAL_LIMIT} Hz 内达不到 ${CAL_OK}%，更可能是信号质量 / 天线 / 功率问题，不是频偏`);
+    toast(`扫描范围内达不到 ${CAL_OK}%，请检查信号质量`, true, 4000);
+  }else if(cancelled){
     setAutoState('已取消','off');
     setAutoDetail(`已取消写入，RX 恢复为 ${orig>0?'+':''}${orig} Hz，TX 恢复为 ${origTx>0?'+':''}${origTx} Hz`);
     setAutoHint('已取消保存，当前为手动模式');
     toast('取消保存', false, 3000);
+  }else{
+    setAutoState('复测不稳','err');
+    setAutoDetail(`候选 ${fmtOff(best.off)} 两次复测${(m1!=null&&m2!=null)?`为 ${m1.toFixed(2)}% / ${m2.toFixed(2)}%`:'无效'}，差值超过 ${CAL_TOL}%，已恢复原偏移 ${fmtOff(orig)}`);
+    setAutoHint('复测波动过大，建议改善信号条件后重测；本次未写入任何频偏');
+    toast('复测结果不稳，未写入', true, 4000);
   }
 }
 async function cancelAutoCal(){
@@ -4147,11 +4310,11 @@ async function onCalAutoToggle(el){
     if(PREVIEW){ el.checked = false; toast('预览模式无法执行自动校准', true); return; }
     const ok = await uiConfirm(
       '开始全自动 RX 频偏校准？\n\n' +
-      '• 阶段 1：测初始值、-100 Hz、+100 Hz，用中位误码率判断方向（差值 <0.15% 视为相同）\n' +
-      '• 阶段 2：沿该方向每 50 Hz 延伸（最多 ±300 Hz），直到误码率明显变大\n' +
-      '• 阶段 3：在最优区间内用抛物线拟合定位谷底（失败则二分细化）\n' +
-      '• 阶段 4：复测最优值确认（全程约 8~10 次测量）\n' +
-      `• 每次测量前确认重启，重启正常后提示你按下 PTT，最多采样 ${CAL_WIN_MS/1000} 秒\n` +
+      '• 阶段 1：测当前值、当前值 ±150 Hz，均值低的一侧即为正确方向；当前值 ≤0.5% 时跳过搜索\n' +
+      '• 阶段 2：若 ±150 Hz 仍在变好，按 150 Hz 步长沿同方向继续爬坡，直到均值回升（上限 ±1000 Hz）\n' +
+      '• 阶段 3：在「基准 ~ 更差的侧点」这个单调区间内二分，直到区间 ≤50 Hz 或已达标\n' +
+      '• 阶段 4：按「候选 → 基准 → 候选」交错复测，两次都 ≤1% 且差值 ≤0.3% 才写入；均值接近时跳变率更低者优先\n' +
+      `• 每次测量前确认重启，重启正常后提示你按下 PTT，累计到 ${CAL_TARGET_BITS} 比特（约 21 秒发射）即结束，最长 ${Math.round(CAL_WIN_MS/1000)} 秒\n` +
       '• 期间收发会多次中断；页面必须保持打开，离开页面会中止并恢复原频偏\n' +
       '• 校准过程中只改 RX，结束后按同一数值一并写入 RX 与 TX 偏移\n\n' +
       '确定开始？',

@@ -40,7 +40,7 @@
 
 - `uhttpd` 与 `ucode`（含 `uhttpd-mod-ucode`）：`opkg update && opkg install ucode uhttpd-mod-ucode`
 - `MMDVMHost`（以及网关模式下的 `DMRGateway`）
-- 可选：`unzip`、`iconv`（中文通讯录同步脚本需要）
+- 可选：`unzip`、`iconv`（中文通讯录同步脚本需要）、`ca-bundle`（HTTPS 查询呼号需要）
 
 ## 安装
 
