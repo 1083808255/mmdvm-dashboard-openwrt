@@ -134,6 +134,14 @@ main{max-width:calc(100% - var(--sidebar-w));margin:0 auto;padding:calc(var(--he
 .stat .v small{font-size:14px;font-weight:400;color:var(--muted);margin-left:2px}
 .stat .sub{font-size:13.5px;color:var(--muted);margin-top:4px}
 
+/* 系统卡片右上角：CPU / 内存 / 磁盘 概览 */
+.sys-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:10px}
+.sys-meters{display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap}
+.sys-meter{min-width:112px;text-align:center;border:1px solid var(--border);border-radius:10px;padding:8px 12px}
+.sys-meter .mk{font-size:12px;color:var(--muted)}
+.sys-meter .mv{font-size:13px;font-weight:700;font-family:var(--mono);margin-top:2px;white-space:nowrap}
+.sys-meter .bar{margin-top:6px;height:6px}
+
 .radio-panel{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
 .rx-state{display:flex;align-items:center;gap:14px}
 .rx-ring{width:70px;height:70px;border-radius:50%;border:3px solid var(--border2);display:flex;align-items:center;justify-content:center;
@@ -216,7 +224,13 @@ tr:hover td{background:rgba(255,255,255,.015)}
 /* section 内表单 grid */
 .cfg-grid{display:grid;gap:10px;align-items:end}
 /* DMR Network 的 DMR ID 选择框：宽度由 JS 按显示文字实时设置，这里给出兜底宽度 */
-.cfg-gw-id select.inp{width:calc(100% - 70px)}
+.cfg-gw-id select.inp{width:auto;min-width:120px}
+/* DMR 网络：ID 与密码同一行，密码紧随 ID 选择框宽度左右移动 */
+.cfg-idpw{grid-column:1/-1;display:flex;align-items:flex-start;gap:24px;flex-wrap:nowrap;min-width:0}
+.cfg-idpw > .field{min-width:0}
+.cfg-idpw > .cfg-gw-id{flex:0 1 auto}
+.cfg-idpw > .cfg-gw-pw{flex:0 1 auto;min-width:0}
+.cfg-idpw .pw-wrap{max-width:100%}
 /* 服务器地址在非自定义名称下只读 */
 .cfg-gw-addr input[readonly]{background:var(--bg2);color:var(--muted);cursor:not-allowed}
 /* 自定义状态下地址框后的清空按钮 */
@@ -226,6 +240,33 @@ tr:hover td{background:rgba(255,255,255,.015)}
 .cfg-gw-addr-del:hover{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.26)}
 /* DMR Network 的「启用」：勾选框，独占一行 */
 #cfgSections .cfg-gw-en{grid-column:1/-1}
+#cfgSections .cfg-more-toggle{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:4px;padding:9px 0 2px;font-size:13px;color:var(--muted);cursor:pointer;border-top:1px dashed var(--border2);user-select:none}
+#cfgSections .cfg-more-toggle:hover{color:var(--text)}
+#cfgSections .cfg-more-arrow{font-size:11px}
+/* 「更多设置」内：勾选框按行排列，选项独占整行 */
+#cfgSections .cfg-more{display:flex;flex-wrap:wrap;gap:10px;padding-top:8px}
+#cfgSections .cfg-more > .cfg-grid{flex:1 1 100%}
+#cfgSections .cfg-more .more-row{display:flex;flex-wrap:wrap;gap:10px 18px;flex:1 1 100%}
+#cfgSections .cfg-more .more-chk{width:auto;flex:0 0 auto}
+#cfgSections .cfg-more .more-opts{flex:1 1 100%}
+#cfgSections .cfg-more .more-opts > .inp{width:100%}
+#cfgSections .cfg-add{flex:1 1 150px;margin-top:4px;padding:9px;border:1px dashed var(--border2);border-radius:8px;background:transparent;color:var(--muted);font-size:13px;cursor:pointer}
+#cfgSections .cfg-add:hover{color:var(--text);border-color:var(--cyan)}
+/* 改写规则：同类只显示一个标题，行内加减号与 DMR ID 一致 */
+#cfgSections .rw-group{flex:1 1 100%;display:flex;flex-direction:column;gap:8px}
+#cfgSections .rw-title{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;color:var(--cyan);line-height:1.3}
+#cfgSections .rw-help-btn{flex:none;width:16px;height:16px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1;color:var(--muted);border-color:var(--border2);background:transparent}
+#cfgSections .rw-help-btn:hover{color:var(--cyan);border-color:var(--cyan)}
+#cfgSections .rw-help{font-size:12px;line-height:1.65;color:var(--muted);background:rgba(148,163,184,.08);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+#cfgSections .rw-row{display:flex;align-items:center;gap:6px;min-width:0}
+#cfgSections .rw-row > .inp{flex:1 1 auto;min-width:0}
+#cfgSections .rw-acts{flex:none;width:36px;display:flex;gap:4px;justify-content:flex-start}
+#cfgSections .rw-acts .btn{width:16px;height:16px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1}
+#cfgSections .rw-acts .rw-add{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.12)}
+#cfgSections .rw-acts .rw-add:hover{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.24)}
+#cfgSections .rw-acts .rw-del{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.14)}
+#cfgSections .rw-acts .rw-del:hover{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.26)}
+#cfgSections .inp::placeholder{color:#7c8698;opacity:1}
 /* 电脑版主机配置页：所有输入框宽度缩为 70%（缩小 30%） */
 @media (min-width:861px){
   #cfgSections[data-cfg="host"] .field > .inp,
@@ -276,6 +317,9 @@ select.inp{appearance:auto;-webkit-appearance:auto}
   display:none;box-shadow:0 4px 16px rgba(0,0,0,.25)}
 .port-dropdown.show{display:block}
 .port-dropdown .port-opt{padding:9px 12px;cursor:pointer;font-size:15px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* I2C 地址下拉：宽度按内容展开，右侧显示设备说明 */
+#basic-screenaddr-dropdown,#basic-modemaddr-dropdown{right:auto;min-width:210px}
+.port-dropdown .port-opt .addr-note{margin-left:10px;color:var(--faint);font-size:12px}
 .port-dropdown .port-opt:hover{background:var(--hover)}
 /* 基本信息说明文字：（内容）小字号；单双工说明与身份信息提示保持相同的上间距 */
 .basic-hint{font-size:11.5px;color:var(--faint);line-height:1.5}
@@ -747,7 +791,11 @@ th{font-size:12px}
   #view-system .sys-table td:last-child{word-break:break-all }
   #view-system .stat-grid{gap:10px }
   #view-system .stat .v{font-size:17px }
-  #view-system #sys-reboot{width:100% ;justify-content:center ;padding:10px }
+  #view-system .sys-meters{gap:14px }
+  #view-system .sys-meter{min-width:96px }
+  /* 手机版：进入路由配置与重启设备同行等宽 */
+  #view-system .sys-ops{flex-wrap:nowrap ;gap:10px }
+  #view-system .sys-ops > .btn{flex:1 1 0 ;min-width:0 ;justify-content:center ;width:auto ;padding:10px }
 
   /* === 窄屏手机（≤600px）—— 系统信息堆叠 === */
   @media (max-width:600px){
@@ -763,6 +811,11 @@ th{font-size:12px}
     #view-system .sys-table td:first-child{font-size:12px ;color:var(--faint) ;width:auto ;letter-spacing:.02em }
     #view-system .sys-table td:last-child{margin-top:2px ;font-size:14px ;word-break:break-word ;line-height:1.45 }
     #view-system .stat-grid{grid-template-columns:1fr ;gap:9px }
+    #view-system .sys-head{gap:10px }
+    #view-system .sys-meters{width:100% ;gap:12px }
+    #view-system .sys-meter{flex:1 1 0 ;min-width:0 ;padding:6px 8px }
+    #view-system .sys-meter .mv{font-size:12px }
+    #view-system .sys-meter .bar{height:5px ;margin-top:5px }
     #view-system .stat{padding:11px 12px }
     #view-system .stat .k{font-size:12.5px }
     #view-system .stat .v{font-size:18px }
@@ -827,6 +880,10 @@ th{font-size:12px}
   #view-basic .field-udpport label{margin-left:20px}
   #view-basic .field-screentype{grid-column:1/span 3}  /* 第5行：屏幕类型 span 3 */
   #view-basic .field-screenport{grid-column:auto/span 3}/* 第5行：屏幕端口 span 3 */
+  #view-basic .field-screenaddr{grid-column:1/span 6}   /* I2C 地址单独一行 */
+  #view-basic #screenaddr-box{width:calc(100% - 220px)}/* 手机版地址框再缩短 120px */
+  #view-basic #modemaddr-box{width:calc(100% - 220px)} /* 与屏幕 I2C 地址同宽 */
+  #view-basic .field-i2caddr{grid-column:1/span 6}     /* 双工板 I2C 地址单独一行 */
   /* RF 来源 select 在窄列中完整显示，铺满到 UART 端口左边缘 */
   #view-basic .field-protocol{margin-right:-20px}
   #view-basic .field-protocol .inp{font-size:13px;padding:8px 4px}
@@ -897,6 +954,8 @@ th{font-size:12px}
   #basic-protocol{width:130px}
   #basic-uartspeed{width:150px}
   #basic-screentype{width:170px}
+  #screenaddr-box{width:100px}
+  #modemaddr-box{width:100px}
   #basic-latitude,#basic-longitude{width:140px}
   #basic-height{width:90px}
   #basic-location,#basic-description,#basic-url{width:calc(50% - 20px)}
@@ -1296,7 +1355,7 @@ th{font-size:12px}
         </div>
         <div class="field field-uartport" data-brow="4"><label style="display:flex;justify-content:space-between;align-items:center">UART 端口 <button type="button" class="port-del-btn" id="uart-del-btn" style="display:none" title="删除该自定义端口">删除</button></label>
           <div class="port-combobox">
-            <input id="basic-uartport" class="inp" type="text" placeholder="/dev/ttyUSB0" autocomplete="off">
+            <input id="basic-uartport" class="inp" type="text" placeholder="未检出" autocomplete="off">
             <button type="button" class="port-arrow" data-for="basic-uartport">▾</button>
             <div class="port-dropdown" id="basic-uartport-dropdown"></div>
           </div>
@@ -1305,11 +1364,19 @@ th{font-size:12px}
           <input id="basic-uartspeed" class="inp" type="text" inputmode="numeric">
         </div>
         <div class="field field-i2cport" data-brow="4" style="display:none">
-          <label style="display:flex;justify-content:space-between;align-items:center">I2C 端口 <button type="button" class="port-del-btn" id="i2c-del-btn" style="display:none" title="删除该自定义端口">删除</button></label>
-          <div class="port-combobox">
-            <input id="basic-i2cport" class="inp" type="text" placeholder="/dev/i2c-1" autocomplete="off">
+          <label style="display:flex;justify-content:space-between;align-items:center">I2C 总线 <button type="button" class="port-del-btn" id="i2c-del-btn" style="display:none" title="删除该自定义端口">删除</button></label>
+          <div class="port-combobox" id="modem-bus-box">
+            <input id="basic-i2cport" class="inp" type="text" placeholder="未检出" autocomplete="off">
             <button type="button" class="port-arrow" data-for="basic-i2cport">▾</button>
             <div class="port-dropdown" id="basic-i2cport-dropdown"></div>
+          </div>
+        </div>
+        <div class="field field-i2caddr" data-brow="4" style="display:none">
+          <label>I2C 地址</label>
+          <div class="port-combobox" id="modemaddr-box">
+            <input id="basic-modemaddr" class="inp" type="text" placeholder="0x22" maxlength="4" autocomplete="off">
+            <button type="button" class="port-arrow" data-for="basic-modemaddr">▾</button>
+            <div class="port-dropdown" id="basic-modemaddr-dropdown"></div>
           </div>
         </div>
         <div class="field field-udpaddr" data-brow="4" style="display:none">
@@ -1334,11 +1401,23 @@ th{font-size:12px}
             <option value="OLED Type6">OLED Type6</option>
           </select>
         </div>
-        <div class="field field-screenport" data-brow="5"><label style="display:flex;justify-content:space-between;align-items:center">屏幕端口 <button type="button" class="port-del-btn" id="screen-del-btn" style="display:none" title="删除该自定义端口">删除</button></label>
-          <div class="port-combobox">
-            <input id="basic-screenport" class="inp" type="text" placeholder="/dev/ttyUSB0" autocomplete="off">
+        <div class="field field-screenport" data-brow="5"><label style="display:flex;justify-content:space-between;align-items:center"><span id="screen-port-label-text">屏幕端口</span> <button type="button" class="port-del-btn" id="screen-del-btn" style="display:none" title="删除该自定义端口">删除</button></label>
+          <div class="port-combobox" id="screen-port-box">
+            <input id="basic-screenport" class="inp" type="text" placeholder="未检出" autocomplete="off">
             <button type="button" class="port-arrow" data-for="basic-screenport">▾</button>
             <div class="port-dropdown" id="basic-screenport-dropdown"></div>
+          </div>
+          <div class="port-combobox" id="screen-bus-box" style="display:none">
+            <input id="basic-i2cbus" class="inp" type="text" placeholder="未检出" autocomplete="off">
+            <button type="button" class="port-arrow" data-for="basic-i2cbus">▾</button>
+            <div class="port-dropdown" id="basic-i2cbus-dropdown"></div>
+          </div>
+        </div>
+        <div class="field field-screenaddr" data-brow="6"><label>I2C 地址</label>
+          <div class="port-combobox" id="screenaddr-box">
+            <input id="basic-screenaddr" class="inp" type="text" placeholder="0x3C" autocomplete="off" maxlength="4">
+            <button type="button" class="port-arrow" data-for="basic-screenaddr">▾</button>
+            <div class="port-dropdown" id="basic-screenaddr-dropdown"></div>
           </div>
         </div>
       </div>
@@ -1939,7 +2018,8 @@ async function renderRadio(){
     ['RX 频率', `${fRx} <small style="color:var(--muted)">MHz</small>`],
     ['TX 频率', `${fTx} <small style="color:var(--muted)">MHz</small>`],
     ['Host 版本', esc((m.version||'—').replace('MMDVMHost-',''))],
-    ['Dashboard 版本', esc(UI_VER)],
+    ['DMR 网关版本', esc((m.gwVersion||'—').replace('DMRGateway-',''))],
+    ['Dashboard 版本', esc(dashVer())],
   ];
   $('#radio-table').innerHTML = rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('');
 }
@@ -1968,6 +2048,11 @@ async function renderServices(){
 
 /* ---- 基本信息 ---- */
 const UART_BASE = ['/dev/ttyUSB0','/dev/ttyAMA0'];
+/* 串口 / I2C 总线一律以自动探测为准，不再补预置值或历史自定义值 */
+let SERIAL_PORTS = [];
+function serialPorts(){
+  return SERIAL_PORTS.slice();
+}
 /* 屏幕端口预置：Modem 表示屏幕接在调制解调器的第二个串口上（MMDVMHost 认的小写 modem），排第一位且为默认 */
 const SCREEN_BASE = ['Modem'];
 const UART_LS = 'mmdvm_uart_custom';
@@ -1985,20 +2070,19 @@ function syncUartDelBtn(){
   if(!btn) return;
   btn.style.display = (v && uartCustomList().includes(v)) ? '' : 'none';
 }
-function uartOptionVals(extra){
-  let vals = UART_BASE.slice();
-  uartCustomList().forEach(v=>{ if(!vals.includes(v)) vals.push(v); });
-  if(extra && extra!=='__custom__' && !vals.includes(extra)) vals.push(extra);
-  return vals;
+function uartOptionVals(){
+  return serialPorts();
 }
 function renderUartPortSelect(current){
   const inp = $('#basic-uartport');
   if(!inp) return;
-  let vals = uartOptionVals(current);
-  const html = vals.map(v=>`<div class="port-opt" data-val="${esc(v)}">${esc(v)}</div>`).join('');
+  const vals = uartOptionVals();
   const dd = $('#basic-uartport-dropdown');
-  if(dd) dd.innerHTML = html;
-  if(current) inp.value = current;
+  if(dd) dd.innerHTML = vals.length
+    ? vals.map(v=>`<div class="port-opt" data-val="${esc(v)}">${esc(v)}</div>`).join('')
+    : '<div class="port-opt">未检出</div>';
+  inp.value = (current && vals.includes(current)) ? current : '';
+  inp.placeholder = '未检出';
   syncUartDelBtn();
 }
 /* 屏幕端口自定义（独立列表） */
@@ -2013,11 +2097,8 @@ function syncScreenDelBtn(){
   if(!btn) return;
   btn.style.display = (v && screenCustomList().includes(v)) ? '' : 'none';
 }
-function screenOptionVals(extra){
-  let vals = SCREEN_BASE.concat(UART_BASE);
-  screenCustomList().forEach(v=>{ if(!vals.includes(v)) vals.push(v); });
-  if(extra && extra!=='__custom__' && !vals.includes(extra)) vals.push(extra);
-  return vals;
+function screenOptionVals(){
+  return SCREEN_BASE.concat(serialPorts());
 }
 /* ini 里存小写 modem，界面上统一显示成 Modem */
 function screenPortLabel(v){ return (String(v||'').toLowerCase() === 'modem') ? 'Modem' : (v || ''); }
@@ -2025,11 +2106,13 @@ function renderScreenPortSelect(current){
   const inp = $('#basic-screenport');
   if(!inp) return;
   current = screenPortLabel(current);
-  let vals = screenOptionVals(current);
-  const html = vals.map(v=>`<div class="port-opt" data-val="${esc(v)}">${esc(v)}</div>`).join('');
+  const vals = screenOptionVals();
   const dd = $('#basic-screenport-dropdown');
-  if(dd) dd.innerHTML = html;
-  if(current) inp.value = current;
+  if(dd) dd.innerHTML = vals.length
+    ? vals.map(v=>`<div class="port-opt" data-val="${esc(v)}">${esc(v)}</div>`).join('')
+    : '<div class="port-opt">未检出</div>';
+  inp.value = (current && vals.includes(current)) ? current : '';
+  inp.placeholder = '未检出';
   syncScreenDelBtn();
 }
 /* I2C 端口自定义（无预置项，参照 UART 端口） */
@@ -2048,14 +2131,13 @@ function syncI2cDelBtn(){
 function renderI2cPortSelect(current){
   const inp = $('#basic-i2cport');
   if(!inp) return;
-  let vals = i2cCustomList().slice();
-  if(current && !vals.includes(current)) vals.push(current);
   const dd = $('#basic-i2cport-dropdown');
-  if(dd) dd.innerHTML = vals.length
-    ? vals.map(v=>`<div class="port-opt" data-val="${esc(v)}">${esc(v)}</div>`).join('')
-    : '<div class="port-opt" style="color:var(--faint);cursor:default">暂无自定义端口</div>';
-  if(current) inp.value = current;
+  if(dd) dd.innerHTML = busOptionsHtml();
+  const n = String(current == null ? '' : current).replace(/^.*i2c-/, '').trim();
+  inp.value = /^[0-9]+$/.test(n) ? ('/dev/i2c-' + n) : '';
+  applyBusField('#basic-i2cport');
   syncI2cDelBtn();
+  fitModemBusBox();
 }
 /* 端口下拉面板：显示/隐藏 + 选项点击 */
 function togglePortDropdown(inputId){
@@ -2063,8 +2145,56 @@ function togglePortDropdown(inputId){
   if(!dd) return;
   const willShow = !dd.classList.contains('show');
   closeAllPortDropdowns();
-  if(willShow) dd.classList.add('show');
+  if(willShow){
+    dd.classList.add('show');
+    /* 地址类下拉是静态预置项，直接渲染；端口/总线要重新探测 */
+    const stat = PORT_STATIC_RERENDER[inputId];
+    if(stat){ stat(); return; }
+    const rerender = PORT_RERENDER[inputId];
+    if(rerender){
+      refreshPortLists().then(()=>{ if(dd.classList.contains('show')) rerender(); });
+    }
+  }
 }
+/* I2C 地址常用值：按设备类型给出 */
+const OLED_ADDRS = [['0x3C','SSD1306 / SH1106（128x64 常见）'], ['0x3D','SSD1306（SA0 拉高）']];
+const LCD_ADDRS  = [['0x27','PCF8574 背包'], ['0x3F','PCF8574A 背包']];
+const MODEM_ADDRS = [['0x22','MMDVM 双工板']];
+function addrOptionsHtml(pairs){
+  return pairs.map(p=>`<div class="port-opt" data-val="${p[0]}">${p[0]}<span class="addr-note">${p[1]}</span></div>`).join('');
+}
+function screenAddrPairs(){
+  return ($('#basic-screentype').value === 'HD44780') ? LCD_ADDRS : OLED_ADDRS;
+}
+function renderScreenAddrOptions(){
+  const dd = $('#basic-screenaddr-dropdown');
+  if(dd) dd.innerHTML = addrOptionsHtml(screenAddrPairs());
+}
+function renderModemAddrOptions(){
+  const dd = $('#basic-modemaddr-dropdown');
+  if(dd) dd.innerHTML = addrOptionsHtml(MODEM_ADDRS);
+}
+const PORT_STATIC_RERENDER = {
+  'basic-screenaddr': renderScreenAddrOptions,
+  'basic-modemaddr': renderModemAddrOptions
+};
+/* 打开下拉时重新拉一次 /api/ports（避免依赖状态轮询的缓存） */
+let PORT_SCAN_SEQ = 0;
+async function refreshPortLists(){
+  const seq = ++PORT_SCAN_SEQ;
+  try{
+    const r = await api('/api/ports');
+    if(seq !== PORT_SCAN_SEQ) return;
+    if(Array.isArray(r.serialPorts)) SERIAL_PORTS = r.serialPorts;
+    if(Array.isArray(r.i2cBuses)) I2C_BUSES = r.i2cBuses;
+  }catch(e){}
+}
+const PORT_RERENDER = {
+  'basic-uartport': ()=> renderUartPortSelect($('#basic-uartport').value),
+  'basic-screenport': ()=> renderScreenPortSelect($('#basic-screenport').value),
+  'basic-i2cport': ()=> renderI2cPortSelect($('#basic-i2cport').value),
+  'basic-i2cbus': ()=> renderI2cBusOptions()
+};
 function closeAllPortDropdowns(){
   $$('.port-dropdown').forEach(d=>d.classList.remove('show'));
 }
@@ -2082,6 +2212,102 @@ document.addEventListener('click', (e)=>{
   togglePortDropdown(btn.dataset.for);
 });
 document.addEventListener('click', (e)=>{
+  /* 配置页：追加一条通话组改写（编号自动递增，插在本段最后一个键之后） */
+  const addBtn = e.target.closest('#cfgSections .cfg-add, #cfgSections .rw-add');
+  if(addBtn){
+    const sec = addBtn.dataset.sec, base = addBtn.dataset.add;
+    /* 先序列化当前页面，保证其它未保存修改不丢 */
+    const lines = rebuildContent(true).split('\n');
+    const sIdx = lines.findIndex(l=> l.trim() === '[' + sec + ']');
+    if(sIdx >= 0){
+      let eIdx = lines.findIndex((l,i)=> i > sIdx && /^\s*\[/.test(l));
+      if(eIdx < 0) eIdx = lines.length;
+      let n = 0;
+      for(let i = sIdx + 1; i < eIdx; i++){
+        const m = lines[i].match(new RegExp('^' + base + '(\\d+)='));
+        if(m) n = Math.max(n, parseInt(m[1], 10) + 1);
+      }
+      const key = base + n;
+      let ins = eIdx;
+      for(let i = eIdx - 1; i > sIdx; i--){
+        if(/^[^#\s\[][^=]*=/.test(lines[i])){ ins = i + 1; break; }
+      }
+      lines.splice(ins, 0, key + '=');
+      renderSections(lines.join('\n'));
+      setDirty(true);
+      /* 重绘后「更多设置」默认收起，重新展开并聚焦新字段 */
+      const card = document.querySelector(`#cfgSections .cfg-sec[data-sec-name="${sec}"]`);
+      const tg = card && card.querySelector('.cfg-more-toggle');
+      if(tg){
+        const box = tg.nextElementSibling;
+        if(box && box.style.display === 'none'){
+          box.style.display = '';
+          const ar = tg.querySelector('.cfg-more-arrow');
+          if(ar) ar.textContent = '▴';
+        }
+        const inp = card.querySelector(`input[data-key="${key}"]`);
+        if(inp) inp.focus();
+      }
+    }
+    return;
+  }
+  /* 配置页：展开/收起改写规则的填写说明 */
+  const helpBtn = e.target.closest('#cfgSections .rw-help-btn');
+  if(helpBtn){
+    const grp = helpBtn.closest('.rw-group');
+    const box = grp && grp.querySelector('.rw-help');
+    if(box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+  /* 配置页：删除一条改写规则，同类剩余项重新编号保持连续 */
+  const delBtn = e.target.closest('#cfgSections .rw-del');
+  if(delBtn){
+    const sec = delBtn.dataset.sec, key0 = delBtn.dataset.del;
+    const base = key0.replace(/\d+$/, '');
+    const lines = rebuildContent(true).split('\n');
+    const sIdx = lines.findIndex(l=> l.trim() === '[' + sec + ']');
+    if(sIdx >= 0){
+      let eIdx = lines.findIndex((l,i)=> i > sIdx && /^\s*\[/.test(l));
+      if(eIdx < 0) eIdx = lines.length;
+      let pos = -1;
+      for(let i = sIdx + 1; i < eIdx; i++){
+        if(lines[i].indexOf(key0 + '=') === 0){ pos = i; break; }
+      }
+      if(pos >= 0){
+        lines.splice(pos, 1);
+        let n = 0;
+        for(let i = sIdx + 1; i < lines.length; i++){
+          if(/^\s*\[/.test(lines[i])) break;
+          const m = lines[i].match(new RegExp('^' + base + '\\d+='));
+          if(m) lines[i] = base + (n++) + '=' + lines[i].slice(m[0].length);
+        }
+        renderSections(lines.join('\n'));
+        setDirty(true);
+        const card = document.querySelector(`#cfgSections .cfg-sec[data-sec-name="${sec}"]`);
+        const tg = card && card.querySelector('.cfg-more-toggle');
+        if(tg){
+          const box = tg.nextElementSibling;
+          if(box && box.style.display === 'none'){
+            box.style.display = '';
+            const ar = tg.querySelector('.cfg-more-arrow');
+            if(ar) ar.textContent = '▴';
+          }
+        }
+      }
+    }
+    return;
+  }
+  const mt = e.target.closest('.cfg-more-toggle');
+  if(mt){
+    const box = mt.nextElementSibling;
+    if(box){
+      const open = box.style.display !== 'none';
+      box.style.display = open ? 'none' : '';
+      const ar = mt.querySelector('.cfg-more-arrow');
+      if(ar) ar.textContent = open ? '▾' : '▴';
+    }
+    return;
+  }
   const opt = e.target.closest('.port-opt');
   if(!opt || opt.dataset.val == null) return;
   const dd = opt.closest('.port-dropdown');
@@ -2093,6 +2319,7 @@ document.addEventListener('click', (e)=>{
 async function renderBasic(){
   const s = await api('/api/status');
   const m = s.mmdvm || {};
+  SERIAL_PORTS = Array.isArray(m.serialPorts) ? m.serialPorts : [];
   $('#basic-callsign').value = m.callsign || '';
   renderDmrRows(m.dmrIds || []);
   $('#basic-rxfreq').value = m.rxFreq ? fmtFreq(m.rxFreq) : '';
@@ -2118,15 +2345,19 @@ async function renderBasic(){
   syncSrvAddrEditable();
   /* RF 来源 / UART 端口 / 波特率 */
   $('#basic-protocol').value = m.protocol || 'uart';
-  renderUartPortSelect(m.uartPort || UART_BASE[0]);
+  renderUartPortSelect(m.uartPort || '');
   $('#basic-uartspeed').value = m.uartSpeed || '';
   /* I2C 端口 / UDP 远程地址与端口 */
-  renderI2cPortSelect(m.i2cPort || '');
+  renderI2cPortSelect(m.modemBus || '');
+  $('#basic-modemaddr').value = m.modemI2cAddr || '';
   $('#basic-udpaddr').value = m.modemAddress || '';
   $('#basic-udpport').value = m.modemPort || '3334';
   /* 屏幕类型 / 端口 */
   $('#basic-screentype').value = m.screenType || 'None';
-  renderScreenPortSelect(m.screenPort || 'Modem');
+  I2C_BUSES = Array.isArray(m.i2cBuses) ? m.i2cBuses : [];
+  $('#basic-i2cbus').value = m.i2cBus ? ('/dev/i2c-' + m.i2cBus) : '';
+  $('#basic-screenaddr').value = m.screenAddr || '';
+  renderScreenPortSelect(m.screenPort || '');
   syncScreenFields();
   syncProtocolFields();
   syncDmrTypeRule();
@@ -2313,15 +2544,75 @@ function syncDmrSaveBtns(){
   });
   $$('#dmr-id-list .dmr-save').forEach(btn=>{ btn.disabled = same; });
 }
-/* 屏幕类型为 None 时隐藏端口 */
+/* 屏幕类型为 None 时隐藏端口；I2C 屏（OLED/HD44780）显示总线选择与地址 */
 function syncScreenFields(){
   const t = $('#basic-screentype').value;
+  const isI2C = (t === 'HD44780' || t === 'OLED Type3' || t === 'OLED Type6');
   $('.field-screenport').style.display = (t === 'None' || !t) ? 'none' : '';
+  $('#screen-port-box').style.display = isI2C ? 'none' : '';
+  $('#screen-bus-box').style.display = isI2C ? '' : 'none';
+  $('#screen-port-label-text').textContent = isI2C ? 'I2C 总线' : '屏幕端口';
+  if(isI2C){ $('#screen-del-btn').style.display = 'none'; renderI2cBusOptions(); }
+  else syncScreenDelBtn();
+  $('.field-screenaddr').style.display = isI2C ? '' : 'none';
+  const addr = $('#basic-screenaddr');
+  if(addr) addr.placeholder = (t === 'HD44780') ? '0x27' : '0x3C';
+  renderScreenAddrOptions();
 }
+/* I2C 总线列表来自后端（/dev/i2c-N），未检测到时允许手填 */
+let I2C_BUSES = [];
+function busOptionsHtml(){
+  const vals = I2C_BUSES.slice().sort((a, b)=>a - b);
+  return vals.length
+    ? vals.map(n=>`<div class="port-opt" data-val="/dev/i2c-${n}">/dev/i2c-${n}</div>`).join('')
+    : '<div class="port-opt">未检出</div>';
+}
+/* 总线框只保留当前真实存在的总线，并统一显示成 /dev/i2c-N */
+function applyBusField(inpId){
+  const inp = $(inpId);
+  if(!inp) return;
+  const m = /i2c-?([0-9]+)$/.exec(String(inp.value || '').trim());
+  inp.value = (m && I2C_BUSES.includes(+m[1])) ? ('/dev/i2c-' + m[1]) : '';
+  inp.placeholder = '未检出';
+}
+function renderI2cBusOptions(){
+  const dd = $('#basic-i2cbus-dropdown');
+  if(!dd) return;
+  dd.innerHTML = busOptionsHtml();
+  applyBusField('#basic-i2cbus');
+  fitI2cBusBox();
+}
+/* 按实际字体测量文本像素宽度，避免「未检出」被截断 */
+function measureTextPx(s, font){
+  if(!measureTextPx.cv) measureTextPx.cv = document.createElement('canvas').getContext('2d');
+  measureTextPx.cv.font = font;
+  return measureTextPx.cv.measureText(s).width;
+}
+/* 总线选择框宽度按显示内容自适应（当前值 / 下拉项 / 「未检出」取最宽） */
+function fitBusBox(boxSel, inpSel){
+  const box = $(boxSel), inp = $(inpSel);
+  if(!box || !inp) return;
+  const cs = getComputedStyle(inp);
+  const font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+  let max = measureTextPx(inp.value || '未检出', font);
+  I2C_BUSES.forEach(b=>{ max = Math.max(max, measureTextPx('/dev/i2c-' + b, font)); });
+  const pad = (parseFloat(cs.paddingLeft) || 0) + 28;   /* 右侧留出箭头位置 */
+  box.style.width = Math.ceil(max + pad) + 'px';
+}
+function fitI2cBusBox(){ fitBusBox('#screen-bus-box', '#basic-i2cbus'); }
+function fitModemBusBox(){ fitBusBox('#modem-bus-box', '#basic-i2cport'); }
+$('#basic-i2cbus').addEventListener('input', fitI2cBusBox);
+$('#basic-i2cbus').addEventListener('change', ()=>{ applyBusField('#basic-i2cbus'); fitI2cBusBox(); });
+$('#basic-i2cport').addEventListener('input', fitModemBusBox);
+$('#basic-i2cport').addEventListener('change', ()=>{ applyBusField('#basic-i2cport'); fitModemBusBox(); });
 function saveBasic(){
   if(PREVIEW){ toast('预览模式：基本信息已“保存”（后端就绪后生效）'); return; }
   let uartPort = $('#basic-uartport').value.trim();
-  let screenPort = $('.field-screenport').style.display === 'none' ? '' : $('#basic-screenport').value.trim();
+  const screenTypeVal = $('#basic-screentype').value;
+  const screenIsI2C = (screenTypeVal === 'HD44780' || screenTypeVal === 'OLED Type3' || screenTypeVal === 'OLED Type6');
+  let screenPort = (screenTypeVal === 'None' || !screenTypeVal || screenIsI2C) ? '' : $('#basic-screenport').value.trim();
+  let i2cBus = screenIsI2C ? $('#basic-i2cbus').value.trim().replace(/^.*i2c-/, '') : '';
+  let screenAddr = screenIsI2C ? $('#basic-screenaddr').value.trim() : '';
   /* Duplex：RX/TX 同频为 0，异频为 1 */
   let duplex = (String($('#basic-rxfreq').value).trim() === String($('#basic-txfreq').value).trim()) ? '0' : '1';
   fetch('/api/basic', {
@@ -2353,10 +2644,13 @@ function saveBasic(){
       uartPort: uartPort,
       uartSpeed: $('#basic-uartspeed').value,
       i2cPort: $('#basic-i2cport').value.trim(),
+      modemI2cAddr: $('#basic-modemaddr').value.trim(),
       udpAddress: $('#basic-udpaddr').value.trim(),
       udpPort: $('#basic-udpport').value.trim(),
       screenType: $('#basic-screentype').value,
-      screenPort: screenPort
+      screenPort: screenPort,
+      i2cBus: i2cBus,
+      screenAddr: screenAddr
     })
   }).then(r=>r.json()).then(j=>{
     if(!j.ok){ toast(j.error||'保存失败', true); return; }
@@ -2412,8 +2706,16 @@ function syncProtocolFields(){
   show('.field-uartport', isUart);
   show('.field-uartspeed', isUart);
   show('.field-i2cport', isI2c);
+  show('.field-i2caddr', isI2c);
   show('.field-udpaddr', isUdp);
   show('.field-udpport', isUdp);
+  /* 双工板走 I2C 时，总线下拉复用 /dev/i2c-* 列表 */
+  if(isI2c){
+    const dd = $('#basic-i2cport-dropdown');
+    if(dd) dd.innerHTML = busOptionsHtml();
+    applyBusField('#basic-i2cport');
+    fitModemBusBox();
+  }
   /* UDP 端口预置 3334 */
   if(isUdp && !$('#basic-udpport').value.trim()) $('#basic-udpport').value = '3334';
 }
@@ -2467,8 +2769,7 @@ $('#uart-del-btn').addEventListener('click', ()=>{
   const v = $('#basic-uartport').value.trim();
   if(!v) return;
   setUartCustomList(uartCustomList().filter(x=>x!==v));
-  $('#basic-uartport').value = UART_BASE[0];
-  renderUartPortSelect(UART_BASE[0]);
+  renderUartPortSelect('');
 });
 $('#screen-del-btn').addEventListener('click', ()=>{
   const v = $('#basic-screenport').value.trim();
@@ -2606,6 +2907,7 @@ function saveAdvFile(){
   }).then(r=>r.json()).then(j=>{
     if(j.ok){
       if(advCfgs && advCfgs[name]) advCfgs[name].content = content;
+      CFG_CACHE = null; prefetchCfgs();
       dirty.style.display = 'none';
       setAdvEditable(false);
       askRestart((advCfgs && advCfgs[name] && advCfgs[name].svc) || 'mmdvmhost');
@@ -2645,9 +2947,17 @@ async function renderConfig(){
   if(name) openConfig(name);
   else { cfgCurrent=null; $('#cfg-editor').style.display='none'; }
 }
+let CFG_CACHE = null;
+/* 启动时预取配置文件内容，进入「配置」页即可同步渲染 */
+function prefetchCfgs(){
+  api('/api/configs').then(c=>{ CFG_CACHE = c; }).catch(()=>{});
+}
 async function openConfig(name){
-  const cfgs = await api('/api/configs');
-  const c = cfgs[name]; if(!c) return;
+  if(!CFG_CACHE){
+    $('#cfgSections').innerHTML = '<div class="cfg-sec"><div class="cfg-sec-h">加载中…</div></div>';
+    try{ CFG_CACHE = await api('/api/configs'); }catch(e){ return; }
+  }
+  const c = CFG_CACHE[name]; if(!c) return;
   cfgCurrent = name; cfgOriginal = c.content; setDirty(false);
   $('#cfg-editor').style.display='block';
   await loadGwDmrIds(name);
@@ -2752,7 +3062,7 @@ const KEY_CN = {
   'ReloadTime':'重载时间','ParrotAddress':'鹦鹉地址','ParrotPort':'鹦鹉端口','Rooms':'房间列表',
   'File':'文件','Time':'间隔','Static':'静态组','RFHangTime':'射频保持时间','NetHangTime':'网络保持时间',
   'InactivityTimeout':'无活动超时','Reconnect':'重连','Revert':'回退',
-  'TGRewrite':'TG改写','PassAllPC':'全部语音直通','Relink':'重连','Startup':'启动组','Base':'基准',
+  'TGRewrite':'通话组改写','PCRewrite':'单呼改写','PassAllPC':'全部语音直通','Relink':'重连','Startup':'启动组','Base':'基准',
   'TG':'通话组','Slot':'时隙','UserControl':'用户控制','Language':'语言','Directory':'目录',
   'RptAddress':'中继地址','RptPort':'中继端口','RptProtocol':'中继协议','RuleTrace':'规则跟踪',
   /* 显示 */
@@ -2761,7 +3071,12 @@ const KEY_CN = {
   'Scroll':'滚动','Rotate':'旋转','Cast':'投屏','LogoScreensaver':'标志屏保','ScreenLayout':'屏幕布局',
   'IdleBrightness':'待机亮度','DimOnIdle':'空闲变暗'
 };
-function keyCn(key){ return KEY_CN[key] || ''; }
+function keyCn(key){
+  if(KEY_CN[key]) return KEY_CN[key];
+  /* 带序号后缀的键（TGRewrite0/1…）沿用基名的中文名 */
+  const base = String(key).replace(/\d+$/, '');
+  return (base !== key && KEY_CN[base]) ? KEY_CN[base] : '';
+}
 /* 主机配置文件：这些键已在“基本信息”页维护，这里不再重复展示 */
 const HIDE_ON_HOST = {
   'General': ['Callsign','Id','Duplex','Display'],
@@ -2778,6 +3093,23 @@ function isHiddenKey(sec, key){
 /* DMRGateway 配置页：[DMR Network N] Id 从“基本信息”已保存的 DMR ID（含 ESSID）中选择 */
 let gwDmrIds = [];
 /* DMRGateway 配置页：[DMR Network N] 常用服务器预置（名称 → 地址），选「自定义」可手填地址 */
+/* DMR 网络段：常用键直接展示，其余归入「更多设置」 */
+const DMR_NET_MAIN_KEYS = ['Enabled','Name','Address','Port','Password','Id'];
+/* 「更多设置」里做成勾选框/独占一行的键 */
+const isMoreSpecialTok = k => ['Location','Debug','Options','__PASSALL0__','__PASSALL1__'].includes(k) || /^PassAll(PC|TG)/.test(k);
+/* 「更多设置」留空时写回的默认值（未列出的键保持为空） */
+const GW_NET_DEFAULTS = {
+  Location: '0',
+  Debug: '0',
+  Options: '',
+  TGRewrite0: '1,1,1,1,9999999',
+  TGRewrite1: '2,1,2,1,9999999'
+};
+/* 改写规则填写说明（标题后「?」展开） */
+const RW_HELP = {
+  TGRewrite: '格式：源时隙,源通话组,目标时隙,目标通话组,范围。例 1,1,1,1,9999999：把时隙 1 上从通话组 1 开始的 9999999 个通话组，转发到时隙 1 的通话组 1 起。时隙填 1 或 2；多个通话组各写一条。',
+  PCRewrite: '格式：源时隙,源ID,目标时隙,目标ID,范围。例 2,2620000,2,262000,20：把时隙 2 上 ID 2620000 的呼叫，转发到时隙 2 上从 ID 262000 开始的连续 20 个 ID。时隙填 1 或 2；单个 ID 把范围写 1。'
+};
 const GW_HOST_PRESETS = [
   ['BrandMeister 4501', '4501.master.brandmeister.network'],
   ['BrandMeister 4602', '4602.master.brandmeister.network'],
@@ -2802,9 +3134,9 @@ function gwIdOptions(cur){
     if(!it || !it.id) return;
     const v = it.id + (it.essid || '');
     if(opts.some(o=>o.v===v)) return;
-    opts.push({ v, label: it.essid ? `${it.id}（ESSID ${it.essid}）` : it.id });
+    opts.push({ v, label: it.essid ? `${it.id}(${it.essid})` : it.id });
   });
-  if(cur && !opts.some(o=>o.v===cur)) opts.unshift({ v:cur, label:`${cur}（当前）` });
+  /* 不在已保存列表里的旧 ID 不再显示为“当前”，而是回落到（未选择），保存时即清空 */
   return opts;
 }
 /* 每个 [DMR Network N] 都补一个 Id 字段，默认选中基本信息里第 N 个已保存的 DMR ID */
@@ -2874,7 +3206,41 @@ function renderSections(content){
                       .map(x=>x.s);
   $('#cfgSections').innerHTML = viewSecs.map(s=>{
     if(hideSec(s.name)) return '';
-    const fieldsHtml = gwViewTokens(s.name, s.tokens).map(({t, i})=>{
+    /* 改写规则：默认的两行始终保留；单呼改写无记录时补一条空行，保证行内有「＋」 */
+    if(cfgCurrent === 'DMRGateway.ini' && /^DMR Network\s+\d+$/.test(s.name)){
+      const hasKey = k => s.tokens.some(t=>t.type === 'kv' && t.key === k);
+      ['TGRewrite0','TGRewrite1'].forEach(k=>{ if(!hasKey(k)) s.tokens.push({ type:'kv', key:k, value:'' }); });
+      if(!s.tokens.some(t=>t.type === 'kv' && /^PCRewrite\d+$/.test(t.key)))
+        s.tokens.push({ type:'kv', key:'PCRewrite0', value:'' });
+    }
+    /* 呼叫直通：按时隙合并 PassAllPC/TG（序号 0 = 时隙 1，1 = 时隙 2；兼容不带序号的旧写法） */
+    if(/^DMR Network\s+\d+$/.test(s.name)){
+      let first = -1, bare = 0;
+      const on = [false, false];
+      for(let i = 0; i < s.tokens.length; i++){
+        const t = s.tokens[i];
+        if(t.type !== 'kv') continue;
+        const m = t.key.match(/^PassAll(PC|TG)(\d*)$/);
+        if(!m) continue;
+        const slot = m[2] === '' ? (bare++) : parseInt(m[2], 10);
+        if(first < 0) first = i;
+        const v = String(t.value).trim();
+        if(slot >= 0 && slot < 2 && v !== '' && v !== '0') on[slot] = true;
+        s.tokens.splice(i, 1); i--;
+      }
+      /* 每个 DMR 网络都放两个时隙的呼叫直通，没有对应键时默认不勾选 */
+      const add = [
+        { type:'kv', key:'__PASSALL0__', value: on[0] ? '1' : '' },
+        { type:'kv', key:'__PASSALL1__', value: on[1] ? '1' : '' }
+      ];
+      if(first >= 0) s.tokens.splice(first, 0, add[0], add[1]);
+      else s.tokens.push(add[0], add[1]);
+    }
+    const toks = gwViewTokens(s.name, s.tokens);
+    const isDmrNetSec = (cfgCurrent === 'DMRGateway.ini' && /^DMR Network\s+\d+$/.test(s.name));
+    const isMoreTok = ({t})=> isDmrNetSec && t.type==='kv' && DMR_NET_MAIN_KEYS.indexOf(t.key) < 0;
+    const isRwTok = ({t})=> isDmrNetSec && t.type==='kv' && /^(TGRewrite|PCRewrite)\d+$/.test(t.key);
+    const renderTok = ({t, i})=>{
       if(t.type==='kv'){
         if(isHiddenKey(s.name, t.key)) return '';
         const cn = keyCn(t.key);
@@ -2932,9 +3298,37 @@ function renderSections(content){
             </div>
           </div>`;
         }
+        /* DMR 网络「更多设置」：位置/调试/全部语音直通改为勾选框，选项独占一行 */
+        if(isDmrNetSec && (t.key === 'Location' || t.key === 'Debug')){
+          const on = String(t.value).trim() === '1';
+          return `<div class="field cfg-kv more-chk" data-tok="${i}">
+            <label class="cfg-chk"><input type="checkbox" data-key="${esc(t.key)}"${on ? ' checked' : ''}> ${lab}</label>
+          </div>`;
+        }
+        /* 呼叫直通：每个时隙一个勾选框，同时控制该时隙的组呼与单呼 */
+        if(isDmrNetSec && /^__PASSALL[01]__$/.test(t.key)){
+          const slot = t.key === '__PASSALL1__' ? 2 : 1;
+          const on = String(t.value).trim() !== '';
+          return `<div class="field cfg-kv more-chk more-pass" data-tok="${i}">
+            <label class="cfg-chk"><input type="checkbox" data-key="${esc(t.key)}" data-on="1" data-drop="1"${on ? ' checked' : ''}> 呼叫直通(时隙 ${slot})</label>
+          </div>`;
+        }
+        if(isDmrNetSec && t.key === 'Options'){
+          return `<div class="field cfg-kv more-opts" data-tok="${i}">
+            <label>${lab}</label>
+            <input class="inp" data-key="Options" value="${esc(t.value)}" placeholder="留空则不发送">
+          </div>`;
+        }
+        /* 改写规则统一在「更多设置」底部按类型分组渲染 */
+        /* DMR 网络的「更多设置」：ini 里为空时把默认值以灰色占位显示，点进去即可编辑 */
+        const hasDef = isDmrNetSec && (t.key in GW_NET_DEFAULTS);
+        const isEmptyVal = String(t.value).trim() === '';
+        const defVal = hasDef ? String(GW_NET_DEFAULTS[t.key]) : '';
+        const shown = isEmptyVal ? '' : t.value;
+        const ph = isEmptyVal ? (defVal || (t.key === 'Options' ? '留空则不发送' : '')) : '';
         return `<div class="field cfg-kv" data-tok="${i}">
           <label>${lab}</label>
-          <input class="inp" data-key="${esc(t.key)}" value="${esc(t.value)}">
+          <input class="inp" data-key="${esc(t.key)}" value="${esc(shown)}"${ph ? ` placeholder="${esc(ph)}"` : ''}>
         </div>`;
       }
       if(t.type==='comment'){
@@ -2943,7 +3337,61 @@ function renderSections(content){
       }
       /* 空行不在页面占位（保存时仍原样保留），避免卡片被大量空行撑高 */
       return '';
-    }).join('');
+    };
+    /* DMR 网络：常用参数直接显示，其余收进「更多设置」 */
+    /* DMR 网络：呼号(Id)与密码放在同一行，密码紧随呼号下拉框宽度左右移动 */
+    const mainToks = toks.filter(x=>!isMoreTok(x));
+    let mainHtml;
+    if(isDmrNetSec){
+      const htmlOf = k => mainToks.filter(x=>x.t.key === k).map(renderTok).join('');
+      const idpwToks = mainToks.filter(x=>x.t.key === 'Id' || x.t.key === 'Password');
+      const idpw = idpwToks.length
+        ? `<div class="cfg-idpw">${idpwToks.map(renderTok).join('')}</div>`
+        : '';
+      const head = htmlOf('Enabled');
+      const tail = mainToks.filter(x=>!['Enabled','Id','Password'].includes(x.t.key)).map(renderTok).join('');
+      mainHtml = head + idpw + tail;
+    } else {
+      mainHtml = mainToks.map(renderTok).join('');
+    }
+    const moreToks = toks.filter(isMoreTok);
+    /* 固定三行：位置/调试 → 呼叫直通 → 选项（各自独占一行，不受宽度影响） */
+    const byKey = k => moreToks.filter(x=>x.t.key === k).map(renderTok).join('');
+    const passHtml = moreToks.filter(x=>/^(PassAll|__PASSALL)/.test(x.t.key)).map(renderTok).join('');
+    const moreSpecial =
+      (byKey('Location') || byKey('Debug') ? `<div class="more-row">${byKey('Location')}${byKey('Debug')}</div>` : '') +
+      (passHtml ? `<div class="more-row">${passHtml}</div>` : '') +
+      (byKey('Options') ? `<div class="more-row">${byKey('Options')}</div>` : '');
+    const moreRest = moreToks.filter(x=>!isMoreSpecialTok(x.t.key) && !isRwTok(x)).map(renderTok).join('');
+    /* 改写规则：同类只显示一个标题，行内绿色＋ / 红色−（样式与 DMR ID 一致） */
+    const rwGroupHtml = isDmrNetSec ? ['TGRewrite','PCRewrite'].map(base=>{
+      const arr = toks.filter(x=>x.t.type === 'kv' && new RegExp('^' + base + '\\d+$').test(x.t.key));
+      if(!arr.length) return '';
+      const nm = keyCn(base) || base;
+      const rows = arr.map((x, idx)=>{
+        const isLast = idx === arr.length - 1;
+        /* 带默认值的行（TGRewrite0/1）与各类型第 1 行不可删除；空值时灰色显示默认值 */
+        const def = (x.t.key in GW_NET_DEFAULTS) ? String(GW_NET_DEFAULTS[x.t.key]) : '';
+        const isFixed = !!def || x.t.key === base + '0';
+        const ph = def || (base === 'PCRewrite' ? '2,2620000,2,262000,20' : '1,1,1,1,9999999');
+        return `<div class="rw-row" data-tok="${x.i}">
+          <input class="inp" data-key="${esc(x.t.key)}" value="${esc(x.t.value)}" placeholder="${esc(ph)}">
+          <div class="rw-acts">
+            ${isFixed ? '' : `<button type="button" class="btn rw-del" data-del="${esc(x.t.key)}" data-sec="${esc(s.name)}" title="删除${esc(nm)}">−</button>`}
+            ${isLast ? `<button type="button" class="btn rw-add" data-add="${base}" data-sec="${esc(s.name)}" title="添加${esc(nm)}">＋</button>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+      return `<div class="rw-group">
+        <div class="rw-title">${esc(nm)} <span class="mono" style="color:var(--faint);font-size:12px">${base}</span><button type="button" class="btn rw-help-btn" title="填写说明">?</button></div>
+        <div class="rw-help" style="display:none">${esc(RW_HELP[base] || '')}</div>
+        ${rows}
+      </div>`;
+    }).join('') : '';
+    const moreBlock = moreToks.length
+      ? `<div class="cfg-more-toggle" role="button" tabindex="0"><span class="cfg-more-arrow">▾</span>更多设置</div>
+         <div class="cfg-more" style="display:none">${moreSpecial}<div class="grid cfg-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${moreRest}</div>${rwGroupHtml}</div>`
+      : '';
     const hasKv = s.tokens.some(t=>t.type==='kv');
     const hasVisible = s.tokens.some(t=>t.type==='kv' && !isHiddenKey(s.name,t.key));
     if(hasKv && !hasVisible) return '';
@@ -2955,10 +3403,11 @@ function renderSections(content){
         </div>
       </div>
       <div class="grid cfg-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
-        ${fieldsHtml}
+        ${mainHtml}
       </div>
+      ${moreBlock}
     </div>`;
-  }).join('');
+  }).join('').replace(/（/g, '(').replace(/）/g, ')');
   $$('#cfgSections .cfg-sec').forEach(card=>{
     card.addEventListener('input', (e)=>{
       setDirty(true);
@@ -2994,10 +3443,12 @@ function renderSections(content){
       /* 服务器名称选择预置后自动填充地址和端口(62031)，选自定义则就地切换为输入框 */
       if(e.target.dataset && e.target.dataset.key === 'Name') applyGwNameSelect(e.target);
       /* 下拉框选项长度不同，切换后重新计算占用列数，避免内容被截断 */
-      if(e.target.tagName === 'SELECT') layoutCfgGrids();
+      if(e.target.tagName === 'SELECT') layoutCfgGrids(true);
       /* 服务器名称/地址宽度随显示内容实时调节（需在栅格重排之后计算行宽） */
       if(e.target.tagName === 'SELECT') fitNameSelects(card);
       if(e.target.tagName === 'SELECT') fitGwPassword(card);
+      /* 呼叫直通：勾选时若同槽位已被其它网络占用，提示并转移 */
+      if(e.target.dataset && /^__PASSALL[01]__$/.test(e.target.dataset.key)) handlePassAllChange(e.target);
     });
   });
   /* 服务器名称自定义输入框：下拉选项的 change 不冒泡，这里直接绑定 */
@@ -3005,10 +3456,27 @@ function renderSections(content){
     inp.addEventListener('input', ()=>setDirty(true));
     inp.addEventListener('change', ()=>applyGwNameCustom(inp));
   });
-  layoutCfgGrids();
+  layoutCfgGrids(true);
   fitNameSelects();
   fitGwPassword();
   syncGwAddrEditable();
+}
+/* 呼叫直通：同一时隙同时只能有一个网络占用；改勾其它网络时提示后果并转移占用 */
+async function handlePassAllChange(cb){
+  if(!cb.checked) return;
+  const key = cb.dataset.key;
+  const card = cb.closest('.cfg-sec');
+  let owner = '', ownerCb = null;
+  $$('#cfgSections .cfg-sec[data-sec-name]').forEach(c=>{
+    if(c === card || !/^DMR Network/.test(c.dataset.secName)) return;
+    const o = c.querySelector(`input[data-key="${key}"]`);
+    if(o && o.checked){ owner = c.dataset.secName; ownerCb = o; }
+  });
+  if(!owner) return;
+  const ok = await uiConfirm(`${owner} 已勾选，勾选此处会将无规则的全部呼叫定向到此网络。`, { title: '呼叫直通' });
+  if(!ok){ cb.checked = false; return; }
+  if(ownerCb) ownerCb.checked = false;
+  setDirty(true);
 }
 /* 配置栅格：电脑版固定 4 列基准，内容放不下的字段自动跨 2/3 列，超过 3 列则独占一行；手机版按宽度自适应 1-3 列 */
 let _measureCtx = null;
@@ -3042,7 +3510,8 @@ function fitNameSelects(scope){
   };
   root.querySelectorAll('.cfg-gw-id select').forEach(el=>{
     const txt = (el.options[el.selectedIndex] || {}).text || '';
-    setW(el, textWidthDom(txt, getComputedStyle(el)) + 56);
+    /* 随文字长度设置宽度（不按父容器截断），密码框因此跟着左右移动 */
+    el.style.width = Math.max(120, Math.ceil(textWidthDom(txt, getComputedStyle(el)) + 56)) + 'px';
   });
   /* 服务器名称改为可输入 combobox 后宽度固定 200px（见 CSS），不再按选项文字测量 */
   /* 输入框按真实排版测量内容宽度（含内边距与边框余量），避免字体差异导致文字被截断 */
@@ -3168,7 +3637,11 @@ function fieldNeed(f){
   if(f.classList.contains('cfg-gw-id')) need += 70;
   return need;
 }
-function layoutCfgGrids(){
+function layoutCfgGrids(force){
+  /* 宽度没变就不重排：手机端地址栏收起等只改变高度的 resize 不会再触发一次布局切换 */
+  const _w = window.innerWidth;
+  if(!force && _w === window._cfgGridW) return;
+  window._cfgGridW = _w;
   const desktop = window.matchMedia('(min-width:861px)').matches;
   $$('#cfgSections .cfg-grid').forEach(g=>{
     const fields = Array.from(g.children).filter(el=>el.classList.contains('field'));
@@ -3238,17 +3711,22 @@ window.addEventListener('resize', ()=>{
   clearTimeout(window._cfgGridT);
   window._cfgGridT = setTimeout(layoutCfgGrids, 120);
 });
-function rebuildContent(){
+function rebuildContent(keepEmpty){
   const cache = window._cfgSecCache || {};
   /* 收集页面上可见字段的当前值（隐藏字段沿用原值，保证不被删改） */
   const domVals = {};
   $$('#cfgSections .cfg-sec').forEach(card=>{
     const name = card.dataset.secName;
-    card.querySelectorAll('.field.cfg-kv').forEach(f=>{
+    card.querySelectorAll('.field.cfg-kv, .rw-row').forEach(f=>{
       const inp = f.querySelector('input,select');
       if(!inp) return;
       /* 勾选框按 0/1 写回，与 ini 中 Enabled 的取值保持一致 */
-      let val = (inp.type === 'checkbox') ? (inp.checked ? '1' : '0') : inp.value;
+      /* 勾选框：有 data-on 时取该值；带 data-drop 的取消勾选则整行删除 */
+      let val;
+      if(inp.type === 'checkbox'){
+        if(inp.checked) val = inp.dataset.on || '1';
+        else val = inp.dataset.drop ? '\u0000DROP' : '0';
+      } else val = inp.value;
       /* 服务器名称选「自定义」时，取自定义输入框的值 */
       if(inp.tagName === 'SELECT' && inp.value === '__custom__'){
         const ci = f.querySelector('.cfg-gw-name-custom');
@@ -3261,7 +3739,23 @@ function rebuildContent(){
     const lines = cache[name].tokens.map((t,i)=>{
       if(t.type==='kv'){
         const k = name + '\u0000' + i;
-        const v = (k in domVals) ? domVals[k] : t.value;
+        let v = (k in domVals) ? domVals[k] : t.value;
+        /* 呼叫直通：每个时隙分别写回该时隙的组呼与单呼键，取消勾选则删除 */
+        if(t.key === '__PASSALL0__' || t.key === '__PASSALL1__'){
+          const on = v !== '\u0000DROP' && String(v).trim() !== '' && String(v).trim() !== '0';
+          if(!on && !keepEmpty) return null;
+          if(!on) return '';
+          return t.key === '__PASSALL0__'
+            ? 'PassAllPC0=1\nPassAllTG0=1'
+            : 'PassAllPC1=2\nPassAllTG1=2';
+        }
+        if(v === '\u0000DROP') return null;
+        /* 新增的改写规则留空时不写入；带默认值的行（TGRewrite0/1）留空则写回默认值 */
+        if(!keepEmpty && /^(TGRewrite|PCRewrite)\d+$/.test(t.key) && String(v).trim() === ''
+           && !(t.key in GW_NET_DEFAULTS)) return null;
+        /* DMR 网络：「更多设置」里没填内容的字段写回默认值 */
+        if(/^DMR Network\s+\d+$/.test(name) && String(v).trim() === '' && (t.key in GW_NET_DEFAULTS))
+          v = GW_NET_DEFAULTS[t.key];
         /* 自动补的 DMR ID 没选时不写入，避免出现空的 Id= */
         if(t._gw && !String(v).length) return null;
         return t.key + '=' + v;
@@ -3283,6 +3777,7 @@ function saveCfgPage(){
   }).then(r=>r.json()).then(j=>{
     if(!j.ok){ toast(j.error||'保存失败', true); return; }
     setDirty(false);
+    CFG_CACHE = null; prefetchCfgs();
     askRestart(cfgMode);
   }).catch(()=>toast('请求失败', true));
 }
@@ -3711,7 +4206,9 @@ function stopCalMon(){
   if(sw) sw.checked = false;
   setCalBadge('已停止', 'off');
 }
-const UI_VER = '20261118z48';
+const UI_VER = '20261118z57';
+/* 界面显示的版本号：V0.<构建序号>，小数位最多 4 位；稳定前主版本保持 0 */
+function dashVer(){ const m = /z(\d+)$/.exec(UI_VER); return m ? `V0.${m[1]}` : `V0.0`; }
 /* forceMs：指定固定刷新周期（自动校准用 3000ms），省略则跟随下拉框 */
 function startCalMon(forceMs){
   stopCalTimer();
@@ -4345,9 +4842,13 @@ async function renderSystem(){
   const now = new Date().toLocaleString('zh-CN', {hour12:false});
   $('#sys-overview').innerHTML = `
     <div class="card" style="margin-bottom:14px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="sys-head">
         <h2 style="font-size:17px;margin:0">系统</h2>
-        <a class="btn" href="/cgi-bin/luci" target="_blank" rel="noopener" style="text-decoration:none">进入路由配置</a>
+        <div class="sys-meters">
+          <div class="sys-meter"><div class="mk">CPU</div><div class="mv">${esc(s.cpuPct+'%')}</div><div class="bar"><i style="width:${s.cpuPct}%"></i></div></div>
+          <div class="sys-meter"><div class="mk">内存</div><div class="mv">${esc(s.memUsed+' / '+s.memTotal+' MB')}</div><div class="bar"><i style="width:${s.memPct}%"></i></div></div>
+          <div class="sys-meter"><div class="mk">磁盘</div><div class="mv">${esc(s.diskUsed+' / '+s.diskTotal+' '+(s.diskUnit||'GB'))}</div><div class="bar"><i style="width:${s.diskPct}%"></i></div></div>
+        </div>
       </div>
       <table class="sys-table">
         <tr><td>主机名</td><td class="mono">${esc(s.hostname)}</td></tr>
@@ -4359,15 +4860,13 @@ async function renderSystem(){
         <tr><td>负载</td><td class="mono">${esc(load)}</td></tr>
       </table>
     </div>
-    <div class="grid stat-grid">
-      <div class="card stat"><div class="k">CPU 使用率</div><div class="v" style="font-size:18px">${esc(s.cpuPct+'%')}</div><div class="bar"><i style="width:${s.cpuPct}%"></i></div></div>
-      <div class="card stat"><div class="k">内存</div><div class="v" style="font-size:18px">${esc(s.memUsed+' / '+s.memTotal+' MB')}</div><div class="bar"><i style="width:${s.memPct}%"></i></div></div>
-      <div class="card stat"><div class="k">磁盘</div><div class="v" style="font-size:18px">${esc(s.diskUsed+' / '+s.diskTotal+' '+(s.diskUnit||'GB'))}</div><div class="bar"><i style="width:${s.diskPct}%"></i></div></div>
-    </div>
     <div class="card" style="margin-top:14px">
       <h2 style="font-size:17px;margin-bottom:8px">系统操作</h2>
       <p style="color:var(--muted);font-size:14px;margin-bottom:12px">重启后设备会断开约 30–60 秒，期间通联中断，页面会在设备恢复后重新可用。</p>
-      <button class="btn danger" id="sys-reboot">重启设备</button>
+      <div class="sys-ops" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <a class="btn" href="/cgi-bin/luci" target="_blank" rel="noopener" style="text-decoration:none">进入路由配置</a>
+        <button class="btn danger" id="sys-reboot">重启设备</button>
+      </div>
     </div>`;
   $('#sys-reboot').addEventListener('click', async ()=>{
     if(PREVIEW){ toast('预览模式：不会真正重启设备'); return; }
@@ -4385,6 +4884,7 @@ bindCal();
 window.addEventListener('DOMContentLoaded', route);
 /* 首次加载（含手动刷新网页）带 ping=1，强制做一次 ping 测试 */
 api('/api/status?ping=1');
+prefetchCfgs();
 /* 右上角网络连接状态：每 3 秒轮询刷新（页面隐藏时跳过），ping 按 10 秒缓存刷新 */
 setInterval(()=>{ if(document.hidden) return; api('/api/status'); }, 3000);
 </script>

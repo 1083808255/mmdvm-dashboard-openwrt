@@ -185,6 +185,13 @@ function dispSectionFor(t) {
 	if (s == "TFT Serial") return "TFT Serial";
 	return null;
 }
+/* 屏幕 I2C 地址所在段：OLED → [OLED]，HD44780 → [HD44780] */
+function dispI2cSectionFor(t) {
+	let s = trim(t ?? "");
+	if (s == "OLED" || s == "OLED Type3" || s == "OLED Type6") return "OLED";
+	if (s == "HD44780") return "HD44780";
+	return null;
+}
 function directConnected(file) {
 	if (!length(file)) return false;
 	let st = FS.stat(file);
@@ -701,6 +708,8 @@ function cmdStatus() {
 	/* 屏幕端口按屏幕类型落在不同段（[Nextion] / [OLED] ...），旧版本误写在 [Display] 段的仍兼容读取 */
 	let dispSec = dispSectionFor(g.Display);
 	let dispPort = (dispSec == null) ? (disp.Port ?? "") : ((m[dispSec] ?? {}).Port ?? "");
+	let dispI2cSec = dispI2cSectionFor(g.Display);
+	let dispI2cAddr = (dispI2cSec == null) ? "" : ((m[dispI2cSec] ?? {}).I2CAddress ?? "");
 	let nw = ini(INI_DIR + "DMRGateway.ini") ?? {};
 	let st = state();
 	/* 直连服务器默认 BrandMeister 4602（未保存过时使用；自定义服务器未填名称时用地址显示） */
@@ -827,6 +836,51 @@ function cmdStatus() {
 			if (v != null && length(trim(v))) { ver = "MMDVMHost-" + trim(v); verFound = true; }
 		}
 	}
+	/* 日志按 UTC 日期滚动，跨天后新文件里还没有启动行，用上次解析到的版本兜底；
+	   首次（缓存未建立，如刚重启）则回看上一份日志，取最后一次启动的版本 */
+	let verCache = FS.readfile("/tmp/dashboard_ver");
+	let verCached = (verCache != null) ? trim(verCache) : "";
+	if (match(verCached, /^MMDVMHost-[0-9A-Za-z]+$/) == null) verCached = "";
+	if (!verFound) {
+		if (length(verCached)) {
+			ver = verCached;
+		} else {
+			let prev = trim(sh("ls -t /var/log/mmdvm/MMDVM-*.log 2>/dev/null | sed -n 2p"));
+			if (length(prev)) {
+				let g = between(sh("grep -o 'MMDVMHost-[0-9A-Za-z]* is running' " + prev + " | tail -1"), "MMDVMHost-", " is running");
+				if (g != null && length(trim(g))) {
+					ver = "MMDVMHost-" + trim(g);
+					try { FS.writefile("/tmp/dashboard_ver", ver + "\n"); } catch (e) {}
+				}
+			}
+		}
+	} else if (verCached != ver) {
+		try { FS.writefile("/tmp/dashboard_ver", ver + "\n"); } catch (e) {}
+	}
+	/* DMRGateway 版本：启动行是 “DMRGateway-YYYYMMDD is starting”，跨天兜底同上 */
+	let gwVer = "", gwFound = false;
+	/* 必须按行匹配：日志里 “DMRGateway-xxx exited on receipt of SIGTERM” 也会出现该前缀，
+	   跨行截取会把整段关停日志当作版本号 */
+	for (let l in split(gwData, "\n")) {
+		if (index(l, " is starting") < 0) continue;
+		let v = between(l, "DMRGateway-", " is starting");
+		if (v != null && length(trim(v))) { gwVer = "DMRGateway-" + trim(v); gwFound = true; }
+	}
+	let gwVerCache = FS.readfile("/tmp/dashboard_gwver");
+	let gwCached = (gwVerCache != null) ? trim(gwVerCache) : "";
+	/* 缓存只接受形如 DMRGateway-20250607 的值，防止旧的脏缓存继续外显 */
+	if (match(gwCached, /^DMRGateway-[0-9A-Za-z]+$/) == null) gwCached = "";
+	if (!gwFound) {
+		if (length(gwCached)) {
+			gwVer = gwCached;
+		} else {
+			/* 当前日志里没有启动行时，回看所有日志，取最后一次启动（文件名按日期递增） */
+			let g = between(sh("grep -o 'DMRGateway-[0-9A-Za-z]* is starting' /var/log/mmdvm/DMRGateway-*.log 2>/dev/null | tail -1"), "DMRGateway-", " is starting");
+			if (g != null && length(trim(g))) gwVer = "DMRGateway-" + trim(g);
+		}
+	}
+	if (length(gwVer) && (gwVerCache == null || trim(gwVerCache) != gwVer))
+		try { FS.writefile("/tmp/dashboard_gwver", gwVer + "\n"); } catch (e) {}
 
 	let body = {
 		hostname: hostname(),
@@ -849,6 +903,7 @@ function cmdStatus() {
 			modemPort: mod.ModemPort ?? "",
 			screenType: g.Display ?? "",
 			screenPort: dispPort,
+			screenI2c: dispI2cAddr,
 			rxFreq: +inf.RXFrequency || 0,
 			txFreq: +inf.TXFrequency || 0,
 			power: +inf.Power || 0,
@@ -868,7 +923,8 @@ function cmdStatus() {
 			dmrServerAddress: srvAddr,
 			dmrServerPort: srvPort,
 			dmrServerPassword: srvPass,
-			version: ver
+			version: ver,
+			gwVersion: gwVer
 		}
 	};
 	shortPut(STATUS_CACHE, body, lf);
@@ -1290,6 +1346,23 @@ function delIniSec(file, section, key) {
 	if (length(txt)) FS.writefile(file, txt);
 }
 
+/* DMRGateway 各 [DMR Network N] 的 Id 只能取自基本信息里配置的 DMR ID（含 ESSID）；
+   不在列表里的旧 ID 一律清空，避免网关继续用旧身份登录 */
+function syncGwIds(ids) {
+	let gw = INI_DIR + "DMRGateway.ini";
+	let secs = ini(gw);
+	let valid = [];
+	for (let it in ids) if (length(it.id)) push(valid, it.id + it.essid);
+	for (let k in secs) {
+		if (match(k, /^DMR Network [0-9]+$/) == null) continue;
+		let cur = trim(secs[k].Id ?? "");
+		if (!length(cur)) continue;
+		let ok = false;
+		for (let v in valid) if (v == cur) { ok = true; break; }
+		if (!ok) setIniSec(gw, k, "Id", "");
+	}
+}
+
 /* ---------- 路由 ---------- */
 let name = ep();
 let method = getenv("REQUEST_METHOD") ?? "GET";
@@ -1395,6 +1468,7 @@ if (name == "status") {
 			let s1 = state();
 			s1.dmrIds = ids;
 			saveState(s1);
+			syncGwIds(ids);
 			out({ ok: true });
 			return;
 		}
@@ -1404,6 +1478,7 @@ if (name == "status") {
 		let i2cPort = trim(d.i2cPort ?? "");
 		let udpAddr = trim(d.udpAddress ?? ""), udpPort = trim(d.udpPort ?? "");
 		let screenType = trim(d.screenType ?? ""), screenPort = trim(d.screenPort ?? "");
+		let screenI2c = trim(d.screenI2c ?? "");
 		let duplex = trim(d.duplex ?? "");
 		/* 连接：DMR 网络类型/时隙 + 色码/信标/信标时间 */
 		let dmrType = trim(d.dmrType ?? ""), slot1 = trim(d.slot1 ?? ""), slot2 = trim(d.slot2 ?? "");
@@ -1430,6 +1505,8 @@ if (name == "status") {
 			/* 服务器地址/端口校验（直连模式使用） */
 			if (length(srvAddr) && match(srvAddr, /^[A-Za-z0-9._:-]+$/) == null) { fail("服务器地址不合法"); return; }
 			if (length(srvPort) && (match(srvPort, /^[0-9]{1,5}$/) == null || +srvPort < 1 || +srvPort > 65535)) { fail("端口不合法"); return; }
+			/* 屏幕 I2C 地址：0x 开头的两位十六进制 */
+			if (length(screenI2c) && match(screenI2c, /^0x[0-9A-Fa-f]{2}$/) == null) { fail("I2C 地址格式不合法（如 0x3C）"); return; }
 			/* 频率按 MHz 提交，限制在 1~2000MHz，防止误填 Hz 把 ini 写坏（MMDVMHost 会异常） */
 			for (let k in ["rxFreq", "txFreq"]) {
 				let fv = trim(d[k] ?? "");
@@ -1469,21 +1546,27 @@ if (name == "status") {
 			if (length(udpPort) && match(udpPort, /^[0-9]{1,5}$/))
 				setIniSec(f, "Modem", "ModemPort", udpPort);
 
-			/* 屏幕类型 → [General] Display；屏幕端口 → 对应屏幕段的 Port（[Nextion]/[OLED]/[TFT Serial]） */
+			/* 屏幕类型 → [General] Display；Nextion 写端口，OLED / HD44780 写 I2C 地址 */
 			if (length(screenType) && match(screenType, /^(Nextion|HD44780|OLED Type3|OLED Type6|None)$/))
 				setIniSec(f, "General", "Display", screenType);
 			else if (length(screenType)) fail("屏幕类型不合法");
-			let portSec = dispSectionFor(length(screenType) ? screenType : (ini(f)["General"] ?? {}).Display);
-			/* Modem：屏幕接在调制解调器的第二串口，MMDVMHost 只认小写 modem */
+			let effType = length(screenType) ? screenType : ((ini(f)["General"] ?? {}).Display ?? "");
+			/* 屏幕端口只对 Nextion 有效：OLED / HD44780 的第二个字段是 I2C 地址 */
+			let portSec = dispSectionFor(effType);
 			let sp = trim(screenPort ?? "");
-			let spModem = (lc(sp) == "modem");
-			if (length(sp) && (spModem || match(sp, /^\/[A-Za-z0-9._\/-]+$/))) {
-				if (portSec == null) fail("当前屏幕类型没有端口可写");
-				setIniSec(f, portSec, "Port", spModem ? "modem" : sp);
-			} else if (length(sp)) {
-				fail("屏幕端口格式不合法");
-			} else if (portSec != null) {
-				delIniSec(f, portSec, "Port");
+			if (portSec == "Nextion") {
+				/* Modem：屏幕接在调制解调器的第二串口，MMDVMHost 只认小写 modem */
+				let spModem = (lc(sp) == "modem");
+				if (length(sp) && (spModem || match(sp, /^\/[A-Za-z0-9._\/-]+$/)))
+					setIniSec(f, portSec, "Port", spModem ? "modem" : sp);
+				else if (length(sp)) fail("屏幕端口格式不合法");
+				else delIniSec(f, portSec, "Port");
+			}
+			/* OLED / HD44780：I2C 地址写入对应屏幕段的 I2CAddress */
+			let i2cSec = dispI2cSectionFor(effType);
+			if (i2cSec != null) {
+				if (length(screenI2c)) setIniSec(f, i2cSec, "I2CAddress", screenI2c);
+				else delIniSec(f, i2cSec, "I2CAddress");
 			}
 			/* 旧版本写错的 [Display] 段一并清理 */
 			delIniSec(f, "Display", "Port");
@@ -1525,6 +1608,7 @@ if (name == "status") {
 			st.dmrServerPort = srvPort;
 			st.dmrServerPassword = srvPass;
 			saveState(st);
+			syncGwIds(ids);
 			/* 配置变更后立即失效短缓存与 ping 缓存，避免右上角/电台信息仍显示旧服务器 */
 			try { FS.writefile(STATUS_CACHE, ""); } catch (e) {}
 			try { FS.writefile(PING_CACHE, "{}"); } catch (e) {}

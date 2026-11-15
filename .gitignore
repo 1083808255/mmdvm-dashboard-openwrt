@@ -23,6 +23,9 @@ openwrt/luci-redirect.html
 # 旧单文件原型（非部署文件）
 /index.html
 
+# 编译产物（固件镜像等，体积大，不入库）
+firmware/
+
 # 通用
 *.bak
 *.bak-*
