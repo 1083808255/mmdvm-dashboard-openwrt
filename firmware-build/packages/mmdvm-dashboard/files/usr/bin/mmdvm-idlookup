@@ -1,0 +1,22 @@
+#!/bin/sh
+# 通过 RadioID API 按需查询 DMR ID 对应的呼号，结果缓存到本地
+# 用法: mmdvm-idlookup <dmrid> [dmrid...]
+CACHE=/etc/mmdvm/dashboard_ids.cache
+LOCK=/tmp/mmdvm_idlookup.lock
+
+[ -f "$LOCK" ] && exit 0
+touch "$LOCK"
+
+for id in "$@"; do
+	[ -z "$id" ] && continue
+	[ -f "$CACHE" ] && grep -q "^$id	" "$CACHE" 2>/dev/null && continue
+	body=$(wget -q -T 6 -O - "https://database.radioid.net/api/dmr/user/?id=$id" 2>/dev/null)
+	call=$(printf '%s' "$body" | sed -n 's/.*"callsign":"\([^"]*\)".*/\1/p' | head -1)
+	if [ -n "$call" ]; then
+		printf '%s\t%s\n' "$id" "$call" >> "$CACHE"
+	else
+		printf '%s\t-\n' "$id" >> "$CACHE"
+	fi
+done
+
+rm -f "$LOCK"

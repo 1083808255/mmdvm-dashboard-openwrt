@@ -1,0 +1,19 @@
+#!/bin/sh
+# 下载 BG4ESI/ytqkl 中文通讯录（gitee mmdvm-CNcontact），过滤 46 开头 ID，转 UTF-8
+set -e
+URL="https://gitee.com/ytqkl/mmdvm-CNcontact/raw/main/stripped.zip"
+TMPDIR=$(mktemp -d)
+trap "rm -rf $TMPDIR" EXIT
+
+cd "$TMPDIR"
+wget -q -O stripped.zip "$URL" 2>/dev/null || { echo "download failed"; exit 1; }
+unzip -q -o stripped.zip 2>/dev/null || { echo "unzip failed"; exit 1; }
+
+# stripped.csv 是 GB18030 编码，转 UTF-8 后只保留 46 开头的行
+iconv -f GB18030 -t UTF-8 stripped.csv 2>/dev/null | awk -F, 'NR==1 || $1 ~ /^46/' > /etc/mmdvm/bg4esi.csv
+
+# 更新时间戳
+date +%s > /etc/mmdvm/bg4esi.ts
+
+LINES=$(wc -l < /etc/mmdvm/bg4esi.csv)
+echo "done: $LINES lines"

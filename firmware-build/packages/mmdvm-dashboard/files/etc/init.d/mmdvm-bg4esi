@@ -1,0 +1,16 @@
+#!/bin/sh /etc/rc.common
+# 开机后自动同步 BG4ESI 中文通讯录（46 开头 ID 呼号库）
+START=95
+STOP=10
+
+start() {
+	( sleep 20; /usr/bin/mmdvm-bg4esi-sync ) >/dev/null 2>&1 &
+}
+
+boot() {
+	start
+}
+
+stop() {
+	:
+}

@@ -1,0 +1,24 @@
+#!/bin/sh
+# 首次安装时创建 uhttpd 的 dashboard 站点（80 端口）+ 启用呼号库同步服务
+[ -f /etc/config/uhttpd ] || exit 0
+
+if ! uci -q get uhttpd.dashboard >/dev/null 2>&1; then
+	uci set uhttpd.dashboard=uhttpd
+	uci set uhttpd.dashboard.home='/www-dash'
+	uci add_list uhttpd.dashboard.listen_http='0.0.0.0:80'
+	uci add_list uhttpd.dashboard.listen_http='[::]:80'
+	uci set uhttpd.dashboard.cgi_prefix='/api'
+	uci set uhttpd.dashboard.rfc1918_filter='0'
+	uci set uhttpd.dashboard.max_requests='6'
+	uci set uhttpd.dashboard.max_connections='100'
+	uci set uhttpd.dashboard.script_timeout='60'
+	uci set uhttpd.dashboard.network_timeout='30'
+	uci set uhttpd.dashboard.http_keepalive='20'
+	uci set uhttpd.dashboard.tcp_keepalive='1'
+	uci commit uhttpd
+fi
+
+[ -x /etc/init.d/mmdvm-radiowo ] && /etc/init.d/mmdvm-radiowo enable
+[ -x /etc/init.d/mmdvm-bg4esi ] && /etc/init.d/mmdvm-bg4esi enable
+
+exit 0
