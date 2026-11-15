@@ -201,13 +201,6 @@ function dispSectionFor(t) {
 	if (s == "TFT Serial") return "TFT Serial";
 	return null;
 }
-/* 屏幕 I2C 地址所在段：OLED → [OLED]，HD44780 → [HD44780] */
-function dispI2cSectionFor(t) {
-	let s = trim(t ?? "");
-	if (s == "OLED" || s == "OLED Type3" || s == "OLED Type6") return "OLED";
-	if (s == "HD44780") return "HD44780";
-	return null;
-}
 function directConnected(file) {
 	if (!length(file)) return false;
 	let st = FS.stat(file);
@@ -707,6 +700,27 @@ function is46Id(id) { return substr(id, 0, 2) == "46"; }
 function is86Id(id) { return substr(id, 0, 2) == "86"; }
 
 /* ---------- 端点实现 ---------- */
+/* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等） */
+function scanI2cBuses() {
+	let res = [];
+	let paths = split(trim(sh("ls /dev/i2c-* 2>/dev/null")), "\n");
+	for (let i = 0; i < length(paths); i++) {
+		let n = replace(trim(paths[i]), /^.*i2c-/, "");
+		if (match(n, /^[0-9]+$/)) push(res, +n);
+	}
+	sort(res, (a, b) => a - b);
+	return res;
+}
+function scanSerialPorts() {
+	let res = [];
+	let paths = split(trim(sh("ls /dev/ttyUSB* /dev/ttyACM* /dev/ttyAMA* /dev/ttyHS* 2>/dev/null")), "\n");
+	for (let i = 0; i < length(paths); i++) {
+		let p = trim(paths[i]);
+		if (length(p) && match(p, /^\/dev\/tty[A-Za-z]+[0-9]+$/)) push(res, p);
+	}
+	sort(res);
+	return res;
+}
 function cmdStatus() {
 	let lf = logFileFor("MMDVM");
 	/* ?ping=1：页面手动刷新时强制做一次 ping 测试，并跳过短缓存 */
@@ -724,8 +738,18 @@ function cmdStatus() {
 	/* 屏幕端口按屏幕类型落在不同段（[Nextion] / [OLED] ...），旧版本误写在 [Display] 段的仍兼容读取 */
 	let dispSec = dispSectionFor(g.Display);
 	let dispPort = (dispSec == null) ? (disp.Port ?? "") : ((m[dispSec] ?? {}).Port ?? "");
-	let dispI2cSec = dispI2cSectionFor(g.Display);
-	let dispI2cAddr = (dispI2cSec == null) ? "" : ((m[dispI2cSec] ?? {}).I2CAddress ?? "");
+	/* HD44780 地址在 ini 的 [HD44780] I2CAddress；OLED 上游无地址键，存在 uci 的 oled_i2c_addr */
+	let dispAddr = "";
+	if (dispSec == "OLED") dispAddr = trim(sh("uci get mmdvmhost.main.oled_i2c_addr 2>/dev/null"));
+	else if (g.Display == "HD44780") dispAddr = (m["HD44780"] ?? {}).I2CAddress ?? "";
+	/* I2C 总线号存 uci；可选总线来自 /dev/i2c-* */
+	let i2cBus = trim(sh("uci get mmdvmhost.main.i2c_bus 2>/dev/null"));
+	let i2cBuses = scanI2cBuses();
+	/* 调制解调器的 I2C 总线：ini 里是 /dev/i2c-N，界面只显示 N */
+	let modemBus = replace(mod.I2CPort ?? "", /^.*i2c-/, "");
+	if (match(modemBus, /^[0-9]+$/) == null) modemBus = "";
+	/* 串口自动探测：USB/ACM/AMA/HS 四类 */
+	let serialPorts = scanSerialPorts();
 	let nw = ini(INI_DIR + "DMRGateway.ini") ?? {};
 	let st = state();
 	/* 直连服务器默认 BrandMeister 4602（未保存过时使用；自定义服务器未填名称时用地址显示） */
@@ -832,7 +856,7 @@ function cmdStatus() {
 		}
 		n.ping = c.ms;
 	}
-	/* 仅在有新 ping 结果时落盘，避免每 3 秒无条件重写 */
+	/* 仅在有新 ping 结果时落盘，避免每次状态请求都重写 */
 	if (pingChanged) try { FS.writefile(PING_CACHE, sprintf("%J", pc)); } catch (e) {}
 	let modes = [];
 	if ((m["DMR"] ?? {}).Enable == "1") push(modes, "DMR");
@@ -916,12 +940,17 @@ function cmdStatus() {
 			protocol: mod.Protocol ?? "",
 			uartPort: mod.UARTPort ?? "",
 			uartSpeed: mod.UARTSpeed ?? "",
+			serialPorts: serialPorts,
 			i2cPort: mod.I2CPort ?? "",
+			modemBus: modemBus,
+			modemI2cAddr: mod.I2CAddress ?? "",
 			modemAddress: mod.ModemAddress ?? "",
 			modemPort: mod.ModemPort ?? "",
 			screenType: g.Display ?? "",
 			screenPort: dispPort,
-			screenI2c: dispI2cAddr,
+			screenAddr: dispAddr,
+			i2cBus: i2cBus,
+			i2cBuses: i2cBuses,
 			rxFreq: +inf.RXFrequency || 0,
 			txFreq: +inf.TXFrequency || 0,
 			power: +inf.Power || 0,
@@ -1067,7 +1096,8 @@ function cmdLastheard() {
 		if (type(v) == "object" && v.sig == sig && type(v.body) == "array") { out(v.body); return; }
 	}
 	let recs = parseQso().recs;
-	/* 合并阶段只解析 ID：ID 记录用呼号本身，纯呼号记录才查 DMRIds.dat */
+	/* 合并阶段只解析 ID：ID 记录用呼号本身，纯呼号记录才查 DMRIds.dat。
+	   地址/呼号全表扫描留到展示阶段，只对最终 50 条做，避免每次刷新都扫库 */
 	let st = lhLoad();
 	let nidCalls = [], seenC = {};
 	for (let q in recs) {
@@ -1487,7 +1517,10 @@ let name = ep();
 let method = getenv("REQUEST_METHOD") ?? "GET";
 let pi = pathinfo();
 
-if (name == "status") {
+/* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等） */
+if (name == "ports") {
+	out({ ok: true, serialPorts: scanSerialPorts(), i2cBuses: scanI2cBuses() });
+} else if (name == "status") {
 	out(cmdStatus());
 } else if (name == "services") {
 	if (method == "POST") {
@@ -1599,7 +1632,8 @@ if (name == "status") {
 		let i2cPort = trim(d.i2cPort ?? "");
 		let udpAddr = trim(d.udpAddress ?? ""), udpPort = trim(d.udpPort ?? "");
 		let screenType = trim(d.screenType ?? ""), screenPort = trim(d.screenPort ?? "");
-		let screenI2c = trim(d.screenI2c ?? "");
+		let screenAddr = trim(d.screenAddr ?? "");
+		let i2cBus = trim(d.i2cBus ?? "");
 		let duplex = trim(d.duplex ?? "");
 		/* 连接：DMR 网络类型/时隙 + 色码/信标/信标时间 */
 		let dmrType = trim(d.dmrType ?? ""), slot1 = trim(d.slot1 ?? ""), slot2 = trim(d.slot2 ?? "");
@@ -1626,8 +1660,6 @@ if (name == "status") {
 			/* 服务器地址/端口校验（直连模式使用） */
 			if (length(srvAddr) && match(srvAddr, /^[A-Za-z0-9._:-]+$/) == null) { fail("服务器地址不合法"); return; }
 			if (length(srvPort) && (match(srvPort, /^[0-9]{1,5}$/) == null || +srvPort < 1 || +srvPort > 65535)) { fail("端口不合法"); return; }
-			/* 屏幕 I2C 地址：0x 开头的两位十六进制 */
-			if (length(screenI2c) && match(screenI2c, /^0x[0-9A-Fa-f]{2}$/) == null) { fail("I2C 地址格式不合法（如 0x3C）"); return; }
 			/* 频率按 MHz 提交，限制在 1~2000MHz，防止误填 Hz 把 ini 写坏（MMDVMHost 会异常） */
 			for (let k in ["rxFreq", "txFreq"]) {
 				let fv = trim(d[k] ?? "");
@@ -1659,38 +1691,59 @@ if (name == "status") {
 				setIniSec(f, "Modem", "UARTPort", port);
 			if (length(speed) && match(speed, /^[0-9]{3,9}$/))
 				setIniSec(f, "Modem", "UARTSpeed", speed);
-			/* i2c：I2CPort；udp：ModemAddress + ModemPort */
-			if (length(i2cPort) && match(i2cPort, /^\/[A-Za-z0-9._\/-]+$/))
-				setIniSec(f, "Modem", "I2CPort", i2cPort);
+			/* i2c：总线号 → I2CPort=/dev/i2c-N，地址 → I2CAddress；udp：ModemAddress + ModemPort */
+			if (length(i2cPort)) {
+				let bn = replace(trim(i2cPort), /^\/dev\//, "");
+				bn = replace(bn, /^i2c-?/, "");
+				if (match(bn, /^[0-9]{1,2}$/) == null) { fail("I2C 总线号应为数字"); return; }
+				setIniSec(f, "Modem", "I2CPort", "/dev/i2c-" + bn);
+			}
+			let modemAddr = trim(d.modemI2cAddr ?? "");
+			if (length(modemAddr)) {
+				if (match(modemAddr, /^0[xX][0-9A-Fa-f]{2}$/) == null) { fail("调制解调器 I2C 地址应写成 0x22 这样的两位十六进制"); return; }
+				setIniSec(f, "Modem", "I2CAddress", "0x" + lc(substr(modemAddr, 2)));
+			}
 			if (length(udpAddr) && match(udpAddr, /^[A-Za-z0-9._:-]+$/))
 				setIniSec(f, "Modem", "ModemAddress", udpAddr);
 			if (length(udpPort) && match(udpPort, /^[0-9]{1,5}$/))
 				setIniSec(f, "Modem", "ModemPort", udpPort);
 
-			/* 屏幕类型 → [General] Display；Nextion 写端口，OLED / HD44780 写 I2C 地址 */
+			/* 屏幕类型 → [General] Display；屏幕端口 → 对应屏幕段的 Port（[Nextion]/[OLED]/[TFT Serial]） */
 			if (length(screenType) && match(screenType, /^(Nextion|HD44780|OLED Type3|OLED Type6|None)$/))
 				setIniSec(f, "General", "Display", screenType);
 			else if (length(screenType)) fail("屏幕类型不合法");
-			let effType = length(screenType) ? screenType : ((ini(f)["General"] ?? {}).Display ?? "");
-			/* 屏幕端口只对 Nextion 有效：OLED / HD44780 的第二个字段是 I2C 地址 */
-			let portSec = dispSectionFor(effType);
+			let portSec = dispSectionFor(length(screenType) ? screenType : (ini(f)["General"] ?? {}).Display);
+			/* Modem：屏幕接在调制解调器的第二串口，MMDVMHost 只认小写 modem */
 			let sp = trim(screenPort ?? "");
-			if (portSec == "Nextion") {
-				/* Modem：屏幕接在调制解调器的第二串口，MMDVMHost 只认小写 modem */
-				let spModem = (lc(sp) == "modem");
-				if (length(sp) && (spModem || match(sp, /^\/[A-Za-z0-9._\/-]+$/)))
-					setIniSec(f, portSec, "Port", spModem ? "modem" : sp);
-				else if (length(sp)) fail("屏幕端口格式不合法");
-				else delIniSec(f, portSec, "Port");
-			}
-			/* OLED / HD44780：I2C 地址写入对应屏幕段的 I2CAddress */
-			let i2cSec = dispI2cSectionFor(effType);
-			if (i2cSec != null) {
-				if (length(screenI2c)) setIniSec(f, i2cSec, "I2CAddress", screenI2c);
-				else delIniSec(f, i2cSec, "I2CAddress");
+			let spModem = (lc(sp) == "modem");
+			if (length(sp) && (spModem || match(sp, /^\/[A-Za-z0-9._\/-]+$/))) {
+				if (portSec == null) fail("当前屏幕类型没有端口可写");
+				setIniSec(f, portSec, "Port", spModem ? "modem" : sp);
+			} else if (length(sp)) {
+				fail("屏幕端口格式不合法");
+			} else if (portSec != null) {
+				delIniSec(f, portSec, "Port");
 			}
 			/* 旧版本写错的 [Display] 段一并清理 */
 			delIniSec(f, "Display", "Port");
+
+			/* 当前屏幕类型（表单未带时回落到 ini 里的 Display） */
+			let curDisp = length(screenType) ? screenType : ((ini(f)["General"] ?? {}).Display ?? "");
+			let isI2C = (curDisp == "HD44780" || dispSectionFor(curDisp) == "OLED");
+			/* I2C 总线号 → uci（init 脚本转成 MMDVM_I2C_BUS） */
+			if (isI2C && length(i2cBus)) {
+				if (match(i2cBus, /^[0-9]{1,2}$/) == null) { fail("I2C 总线号应为数字"); return; }
+				sh("uci set mmdvmhost.main.i2c_bus='" + i2cBus + "' && uci commit mmdvmhost");
+			}
+			/* I2C 地址：HD44780 写 ini；OLED 无对应 ini 键，改写 uci（init 转成环境变量给驱动） */
+			if (isI2C && length(screenAddr)) {
+				if (match(screenAddr, /^0[xX][0-9A-Fa-f]{2}$/) == null) { fail("I2C 地址应写成 0x27 这样的两位十六进制"); return; }
+				let addrVal = "0x" + lc(substr(screenAddr, 2));
+				if (curDisp == "HD44780")
+					setIniSec(f, "HD44780", "I2CAddress", addrVal);
+				else
+					sh("uci set mmdvmhost.main.oled_i2c_addr='" + addrVal + "' && uci commit mmdvmhost");
+			}
 
 			/* DMR ID 1~5（含 ESSID）保存到 dashboard.json；只把 DMR ID 1 写入 MMDVM.ini */
 			setIniSec(f, "DMR", "Id", ids[0].id + ids[0].essid);
