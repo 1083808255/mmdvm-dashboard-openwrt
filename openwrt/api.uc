@@ -6,6 +6,10 @@ const INI_DIR = "/etc/mmdvm/";
 const STATE   = "/etc/mmdvm/dashboard.json";
 const QSO_CACHE = "/tmp/dashboard_qso.cache";
 const LH_CACHE  = "/tmp/dashboard_lh.cache";
+/* 最近通联持久化（overlay 分区，重启不丢）：按 DMR ID 聚合 */
+const LH_STORE    = "/root/dashboard-lh.json";
+const LH_MAX_IDS  = 200;   /* 最多保留的 ID 数，超出淘汰最久未通联的 */
+const LH_MAX_HIST = 30;    /* 每个 ID 保留的历史条数 */
 const STATUS_CACHE = "/tmp/dashboard_status.cache";
 const LIVE_CACHE   = "/tmp/dashboard_live.cache";
 const PING_CACHE   = "/tmp/dashboard_ping.json";
@@ -170,8 +174,20 @@ function svcInfo(s) {
 		enabled: length(trim(sh("ls /etc/rc.d/S*" + s.key + " 2>/dev/null"))) > 0
 	};
 }
+const LOGPATH_CACHE = "/tmp/dashboard_logpath.json";
+/* 日志路径：ls -t 每次请求都要 fork，2 秒内复用同一结果。
+   日志按天滚动，最多让新文件晚 2 秒被发现，不影响实时显示 */
 function logFileFor(prefix) {
-	return trim(sh("ls -t /var/log/mmdvm/" + prefix + "-*.log 2>/dev/null | head -1"));
+	let now = time(), c = null;
+	try { c = json(FS.readfile(LOGPATH_CACHE) ?? ""); } catch (e) { c = null; }
+	if (type(c) != "object" || c == null) c = {};
+	let e = c[prefix];
+	if (type(e) == "object" && e != null && now - (e.t ?? 0) <= 2 && length(e.f ?? "") && FS.stat(e.f) != null)
+		return e.f;
+	let f = trim(sh("ls -t /var/log/mmdvm/" + prefix + "-*.log 2>/dev/null | head -1"));
+	c[prefix] = { t: now, f: f };
+	try { FS.writefile(LOGPATH_CACHE, sprintf("%J", c)); } catch (e2) {}
+	return f;
 }
 /* 直连模式下 MMDVMHost 与 master 的连接状态。
    日志可能上百 KB/小时，登录事件常在文件前部，按增量读取：
@@ -801,7 +817,7 @@ function cmdStatus() {
 		for (let n in nets) n.connected = false;
 	}
 	/* 各网络 ping 值：仅在已连接时测试；10 秒缓存（电脑版每 10 秒刷新一次） */
-	let pingNow = time(), pc = {};
+	let pingNow = time(), pc = {}, pingChanged = false;
 	try { pc = json(FS.readfile(PING_CACHE) ?? "") ?? {}; } catch (e) { pc = {}; }
 	for (let n in nets) {
 		let addr = netAddr[n.name] ?? "";
@@ -812,10 +828,12 @@ function cmdStatus() {
 			let ms = between(po, "time=", " ms");
 			c = { t: pingNow, ms: (ms != null ? int(ms) : null) };
 			pc[n.name] = c;
+			pingChanged = true;
 		}
 		n.ping = c.ms;
 	}
-	try { FS.writefile(PING_CACHE, sprintf("%J", pc)); } catch (e) {}
+	/* 仅在有新 ping 结果时落盘，避免每 3 秒无条件重写 */
+	if (pingChanged) try { FS.writefile(PING_CACHE, sprintf("%J", pc)); } catch (e) {}
 	let modes = [];
 	if ((m["DMR"] ?? {}).Enable == "1") push(modes, "DMR");
 	if ((m["System Fusion"] ?? {}).Enable == "1") push(modes, "YSF");
@@ -985,6 +1003,59 @@ function cmdSystem() {
 	});
 }
 
+/* ---------- 最近通联持久化 ---------- */
+function lhLoad() {
+	let st = null;
+	try {
+		let d = FS.readfile(LH_STORE);
+		if (d != null && substr(trim(d), 0, 1) == "{") st = json(d);
+	} catch (e) { st = null; }
+	if (type(st) != "object" || st == null || type(st.ids) != "object" || st.ids == null)
+		st = { ver: 1, since: 0, ids: {} };
+	if (type(st.since) != "int") st.since = 0;
+	return st;
+}
+function lhSave(st) { writeCache(LH_STORE, st); }
+
+/* 并入一条记录。key 为聚合键（DMR ID；纯呼号记录用 "C:呼号"）。
+   用「该 ID 最后通联时间」做水位去重：日志重启后会重新解析旧内容，
+   旧记录的时间不会超过水位，因此不会重复入库。返回是否有新增 */
+function lhTouch(st, key, id, call, q) {
+	let ts = epochOf(q.ts);
+	if (!ts || ts < st.since) return false;
+	let e = st.ids[key];
+	if (e != null && type(e) == "object" && ts <= (+e.last || 0)) return false;
+	if (e == null || type(e) != "object") {
+		e = { id: id, call: "", last: 0, rec: null, hist: [] };
+		st.ids[key] = e;
+	}
+	e.id = id;
+	if (length(call)) e.call = call;
+	e.last = ts;
+	e.rec = {
+		callsign: q.callsign, isId: q.isId, target: q.target, dir: q.dir,
+		slot: q.slot, ts: q.ts, dur: q.dur, ber: q.ber, rssi: q.rssi, gps: q.gps
+	};
+	let hist = (type(e.hist) == "array") ? e.hist : [];
+	/* 历史只存通话组与时间戳，时间由前端按 ts 格式化，避免重复占用存储 */
+	let nh = [{ tg: q.target ?? "", ts: ts }];
+	for (let i = 0; i < length(hist) && length(nh) < LH_MAX_HIST; i++) push(nh, hist[i]);
+	e.hist = nh;
+	return true;
+}
+/* 超过上限时按最后通联时间淘汰最旧的 ID，避免文件无限增长 */
+function lhTrim(st) {
+	let arr = [];
+	for (let k in st.ids) push(arr, k);
+	if (length(arr) <= LH_MAX_IDS) return;
+	for (let i = 0; i < length(arr); i++)
+		for (let j = i + 1; j < length(arr); j++)
+			if ((+st.ids[arr[j]].last || 0) < (+st.ids[arr[i]].last || 0)) {
+				let t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+			}
+	for (let i = 0; i < length(arr) - LH_MAX_IDS; i++) delete st.ids[arr[i]];
+}
+
 function cmdLastheard() {
 	let file = logFileFor("MMDVM");
 	/* 日志与呼号库都没变化时直接返回上次结果（最长 2 分钟刷新一次） */
@@ -996,16 +1067,51 @@ function cmdLastheard() {
 		if (type(v) == "object" && v.sig == sig && type(v.body) == "array") { out(v.body); return; }
 	}
 	let recs = parseQso().recs;
-	let n = length(recs);
-	let slice = [];
-	for (let i = n - 1; i >= 0 && length(slice) < 50; i--) push(slice, recs[i]);
+	/* 合并阶段只解析 ID：ID 记录用呼号本身，纯呼号记录才查 DMRIds.dat */
+	let st = lhLoad();
+	let nidCalls = [], seenC = {};
+	for (let q in recs) {
+		if (q.isId || seenC[q.callsign]) continue;
+		seenC[q.callsign] = true;
+		push(nidCalls, q.callsign);
+	}
+	let c2id = length(nidCalls) ? idFor(nidCalls) : {};
+	let added = false;
+	for (let q in recs) {
+		let id = q.isId ? q.callsign : (c2id[q.callsign] ?? "");
+		let key = length(id) ? id : ("C:" + q.callsign);
+		if (lhTouch(st, key, id, "", q)) added = true;
+	}
+	if (added) { lhTrim(st); lhSave(st); }
+	/* 按最后通联时间倒序取前 50 个 ID */
+	let keys = [];
+	for (let k in st.ids) push(keys, k);
+	for (let i = 0; i < length(keys); i++)
+		for (let j = i + 1; j < length(keys); j++)
+			if ((+st.ids[keys[j]].last || 0) > (+st.ids[keys[i]].last || 0)) {
+				let t = keys[i]; keys[i] = keys[j]; keys[j] = t;
+			}
+	let pick = [];
+	for (let i = 0; i < length(keys) && length(pick) < 50; i++) {
+		let e = st.ids[keys[i]];
+		if (e != null && type(e.rec) == "object" && e.rec != null) push(pick, e);
+	}
+	/* 只为这 50 条反查呼号 / DMR ID / 地址 */
 	let calls = [], idlist = [], seen = {}, seenId = {};
-	for (let q in slice) {
+	for (let e in pick) {
+		let q = e.rec;
 		if (q.isId) {
 			if (!seenId[q.callsign]) { seenId[q.callsign] = true; push(idlist, q.callsign); }
 		} else if (!seen[q.callsign]) { seen[q.callsign] = true; push(calls, q.callsign); }
 	}
-	let ids = idFor(calls);
+	/* 展示阶段：多数呼号已在合并阶段解析，只有旧记录里未覆盖的呼号才补查一次 */
+	let ids = c2id;
+	let miss = [];
+	for (let c in calls) if (ids[c] == null) push(miss, c);
+	if (length(miss)) {
+		let extra = idFor(miss);
+		for (let c in extra) ids[c] = extra[c];
+	}
 	radiowoSync();
 	bgSync();
 	let ids46 = [], ids86 = [], otherIds = [];
@@ -1039,10 +1145,11 @@ function cmdLastheard() {
 	let inf = (ini(INI_DIR + "MMDVM.ini")["Info"] ?? {});
 	let myLat = +trim(inf.Latitude ?? ""), myLon = +trim(inf.Longitude ?? "");
 	let hasMe = ((myLat < 0 ? -myLat : myLat) > 0.0001 || (myLon < 0 ? -myLon : myLon) > 0.0001);
-	for (let q in slice) {
+	for (let e in pick) {
+		let q = e.rec;
 		let call = q.callsign, id = "";
-		if (q.isId) { call = id2call[q.callsign] ?? ""; id = q.callsign; }
-		else id = ids[q.callsign] ?? call2id[q.callsign] ?? "";
+		if (q.isId) { call = id2call[q.callsign] ?? e.call ?? ""; id = q.callsign; }
+		else id = ids[q.callsign] ?? call2id[q.callsign] ?? (e.id ?? "");
 		let g4 = null;
 		if (q.gps != null && q.gps.lat && q.gps.lon) {
 			let a = addrCached(q.gps.lat, q.gps.lon);
@@ -1051,6 +1158,10 @@ function cmdLastheard() {
 			g4 = { lat: q.gps.lat, lon: q.gps.lon, addr: a,
 				dist: (km != null) ? ((km < 10) ? (rnd(km * 10) / 10) : rnd(km)) : null };
 		}
+		/* 历史只回传通话组与时间戳（时间由前端按 ts 格式化），减小响应体积 */
+		let hist = (type(e.hist) == "array") ? e.hist : [];
+		let hout = [];
+		for (let h in hist) push(hout, { tg: h.tg ?? "", ts: h.ts ?? 0 });
 		push(r, {
 			callsign: call,
 			id: id,
@@ -1064,11 +1175,19 @@ function cmdLastheard() {
 			dur: sprintf("%.1f", q.dur),
 			time: hhmmss(q.ts),
 			ts: epochOf(q.ts),
-			gps: g4
+			gps: g4,
+			hist: hout
 		});
 	}
 	writeCache(LH_CACHE, { sig: sig, body: r });
 	out(r);
+}
+
+/* 清除通联记录缓存：保留文件并写入 since 水位，避免日志重新解析后旧记录被再次灌入 */
+function cmdLhClear() {
+	writeCache(LH_STORE, { ver: 1, since: time(), ids: {} });
+	FS.writefile(LH_CACHE, "");
+	out({ ok: true });
 }
 
 function cmdLive() {
@@ -1432,6 +1551,8 @@ if (name == "status") {
 	} else cmdSystem();
 } else if (name == "lastheard") {
 	cmdLastheard();
+} else if (name == "lhclear") {
+	cmdLhClear();
 } else if (name == "live") {
 	out(cmdLive());
 } else if (name == "geo") {

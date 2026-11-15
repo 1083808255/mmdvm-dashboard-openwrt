@@ -455,6 +455,23 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .switch input:checked+i{background:rgba(52,211,153,.22);border-color:var(--accent)}
 .switch input:checked+i::before{transform:translateX(21px);background:var(--accent)}
 
+/* 最近通联：点击呼号查看该 ID 的历史记录（只显示呼号/通话组/时间） */
+.lh-call[data-lhi]{cursor:pointer}
+.lh-call[data-lhi]:hover{color:var(--cyan)}
+.lh-hist-tip{position:fixed;z-index:9999;display:none;max-width:440px;max-height:60vh;overflow-y:auto;
+  padding:12px 16px;border-radius:14px;background:var(--card2);border:1px solid var(--border2);
+  box-shadow:0 16px 44px rgba(0,0,0,.55);font-size:15px;line-height:1.6;color:var(--text);text-align:left}
+.lh-hist-tip.show{display:block}
+.lh-hist-tip .hd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px;font-weight:800;white-space:nowrap}
+.lh-hist-tip .hd i{font-style:normal;font-size:12px;color:var(--faint);font-weight:600}
+.lh-hist-tip .row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:baseline;
+  padding:5px 0;border-top:1px solid var(--border);white-space:nowrap}
+.lh-hist-tip .row:first-of-type{border-top:0}
+.lh-hist-tip .row .cs{min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+.lh-hist-tip .tg{color:var(--violet);font-weight:600}
+.lh-hist-tip .tm{color:var(--faint);font-family:var(--mono);font-size:13px}
+.lh-hist-tip .empty{color:var(--faint);font-size:13px}
+
 /* ===== PC 完整独立（≥861px）===== */
 @media (min-width:861px){
 
@@ -793,9 +810,10 @@ th{font-size:12px}
   #view-system .stat .v{font-size:17px }
   #view-system .sys-meters{gap:14px }
   #view-system .sys-meter{min-width:96px }
-  /* 手机版：进入路由配置与重启设备同行等宽 */
-  #view-system .sys-ops{flex-wrap:nowrap ;gap:10px }
+  /* 手机版：进入路由配置与重启设备同行等宽，清除缓存单独占第二行 */
+  #view-system .sys-ops{flex-wrap:wrap ;gap:10px }
   #view-system .sys-ops > .btn{flex:1 1 0 ;min-width:0 ;justify-content:center ;width:auto ;padding:10px }
+  #view-system #sys-lhclear{flex:1 1 100% ;order:3 }
 
   /* === 窄屏手机（≤600px）—— 系统信息堆叠 === */
   @media (max-width:600px){
@@ -1815,8 +1833,8 @@ function uiClose(v){
 $('#umOk').addEventListener('click', ()=>uiClose(true));
 $('#umCancel').addEventListener('click', ()=>uiClose(false));
 $('#uiModal').addEventListener('click', e=>{ if(e.target.id === 'uiModal') uiClose(false); });
-/* 通联日志里的 GPS 定位图标：在图标旁弹出地址悬浮窗（悬停显示，点击切换） */
-let lhTipEl = null, lhTipTimer = null;
+/* 通联日志里的 GPS 定位图标：悬停显示，点击后固定显示，点击其他区域才消失 */
+let lhTipEl = null, lhTipTimer = null, lhTipPinned = false;
 function lhTipBox(){
   if(lhTipEl) return lhTipEl;
   lhTipEl = document.createElement('div');
@@ -1824,8 +1842,9 @@ function lhTipBox(){
   document.body.appendChild(lhTipEl);
   return lhTipEl;
 }
-function showLhTip(btn){
+function showLhTip(btn, pin){
   clearTimeout(lhTipTimer);
+  if(pin) lhTipPinned = true;
   const t = lhTipBox();
   const addr = btn.dataset.addr || '地址还在解析，稍后自动补上';
   const dist = btn.dataset.dist;
@@ -1840,16 +1859,20 @@ function showLhTip(btn){
   t.style.left = left + 'px';
   t.style.top = top + 'px';
 }
-function hideLhTip(delay){
+/* force 为 true 时忽略固定显示状态（点击其他区域） */
+function hideLhTip(delay, force){
   clearTimeout(lhTipTimer);
+  if(lhTipPinned && !force) return;
+  if(force) lhTipPinned = false;
   lhTipTimer = setTimeout(()=>{ if(lhTipEl) lhTipEl.classList.remove('show'); }, delay == null ? 140 : delay);
 }
 document.addEventListener('click', e=>{
   const b = (e.target && e.target.closest) ? e.target.closest('.lh-geo') : null;
-  if(b){ e.preventDefault(); showLhTip(b); return; }
-  if(lhTipEl && !(e.target.closest && e.target.closest('.lh-geo-tip'))) hideLhTip(0);
+  if(b){ e.preventDefault(); showLhTip(b, true); return; }
+  if(lhTipEl && !(e.target.closest && e.target.closest('.lh-geo-tip'))) hideLhTip(0, true);
 });
 document.addEventListener('mouseover', e=>{
+  if(lhTipPinned) return;
   const b = (e.target && e.target.closest) ? e.target.closest('.lh-geo') : null;
   if(b) showLhTip(b);
 });
@@ -1857,7 +1880,60 @@ document.addEventListener('mouseout', e=>{
   const b = (e.target && e.target.closest) ? e.target.closest('.lh-geo') : null;
   if(b && !b.contains(e.relatedTarget)) hideLhTip();
 });
-window.addEventListener('scroll', ()=>{ if(lhTipEl) lhTipEl.classList.remove('show'); }, true);
+window.addEventListener('scroll', ()=>{ hideLhTip(0); }, true);
+/* 最近通联：点击呼号弹出该 ID 的历史记录（只显示呼号/通话组/时间），点击其他区域才消失 */
+let lhHistEl = null, lhHistData = [];
+function lhHistBox(){
+  if(lhHistEl) return lhHistEl;
+  lhHistEl = document.createElement('div');
+  lhHistEl.className = 'lh-hist-tip';
+  document.body.appendChild(lhHistEl);
+  window.addEventListener('resize', hideLhHist);
+  return lhHistEl;
+}
+function hideLhHist(){ if(lhHistEl) lhHistEl.classList.remove('show'); }
+/* 历史记录时间只显示「月-日 时:分:秒」，不带年份 */
+function fmtHistTime(h){
+  const p = n => String(n).padStart(2, '0');
+  if(h && h.ts){
+    const d = new Date(h.ts * 1000);
+    if(!isNaN(d) && d.getTime() > 0)
+      return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+        p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+  const s = (h && h.time) || '';
+  return s.length >= 19 ? s.slice(5) : s;
+}
+function showLhHist(el){
+  const i = +el.dataset.lhi;
+  const d = lhHistData[i];
+  if(!d) return;
+  const t = lhHistBox();
+  const name = d.call || d.id || '—';
+  const hist = (d.hist || []).slice(0, 30);
+  const rows = hist.map(h=>
+    `<div class="row"><span class="cs">${esc(name)}</span>` +
+    `<span class="tg">${esc(h && h.tg ? h.tg : '')}</span>` +
+    `<span class="tm">${esc(fmtHistTime(h))}</span></div>`
+  ).join('');
+  t.innerHTML = `<div class="hd">${esc(name)}<i>近 ${hist.length} 次通联</i></div>` +
+    (rows || '<div class="empty">暂无历史记录</div>');
+  t.classList.add('show');
+  const r = el.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
+  let left = r.left;
+  if(left + w > window.innerWidth - 8) left = window.innerWidth - w - 8;
+  if(left < 8) left = 8;
+  let top = r.bottom + 6;
+  if(top + h > window.innerHeight - 8) top = r.top - h - 6;
+  if(top < 8) top = 8;
+  t.style.left = left + 'px';
+  t.style.top = top + 'px';
+}
+document.addEventListener('click', e=>{
+  const c = (e.target && e.target.closest) ? e.target.closest('.lh-call[data-lhi]') : null;
+  if(c){ e.preventDefault(); showLhHist(c); return; }
+  if(lhHistEl && !(e.target.closest && e.target.closest('.lh-hist-tip'))) hideLhHist();
+});
 document.addEventListener('keydown', e=>{
   if(!umResolve) return;
   if(e.key === 'Escape'){ e.preventDefault(); uiClose(false); }
@@ -1873,25 +1949,31 @@ function radioNetHtml(nets){
       (pg != null ? pg + 'ms' : '—') + '</span></div>';
   }).join('');
 }
+/* 页头/电台信息网络状态：内容未变时不重写 DOM（每 3 秒轮询一次） */
+let netSnap = '';
 function renderNetworks(nets){
   const el = $('#netStatus');
   if(!el) return;
-  if(!Array.isArray(nets) || !nets.length){
-    el.innerHTML = '<span class="net-item"><span class="net-name">Offline</span><i class="netdot err"></i></span>';
-    return;
-  }
-  el.innerHTML = nets.map(function(n){
-    const nm = esc(n && n.name ? n.name : '');
-    const ok = !!(n && n.connected);
-    const pg = (n && n.ping != null) ? n.ping : null;
-    return '<span class="net-item"><span class="net-name">' + nm + '</span>' +
-      '<i class="netdot ' + (ok ? 'ok' : 'err') + '"></i>' +
-      '<span class="net-ping' + (pg != null && pg >= 200 ? ' warn' : '') + '">' +
-        '<i class="pn">' + (pg != null ? pg : '—') + '</i>' + (pg != null ? 'ms' : '') + '</span></span>';
-  }).join('');
+  const html = (!Array.isArray(nets) || !nets.length)
+    ? '<span class="net-item"><span class="net-name">Offline</span><i class="netdot err"></i></span>'
+    : nets.map(function(n){
+        const nm = esc(n && n.name ? n.name : '');
+        const ok = !!(n && n.connected);
+        const pg = (n && n.ping != null) ? n.ping : null;
+        return '<span class="net-item"><span class="net-name">' + nm + '</span>' +
+          '<i class="netdot ' + (ok ? 'ok' : 'err') + '"></i>' +
+          '<span class="net-ping' + (pg != null && pg >= 200 ? ' warn' : '') + '">' +
+            '<i class="pn">' + (pg != null ? pg : '—') + '</i>' + (pg != null ? 'ms' : '') + '</span></span>';
+      }).join('');
   /* 电台信息页打开时同步刷新页头服务器状态（手机版） */
   const rn = $('#radio-nets');
-  if(rn && rn.offsetParent) rn.innerHTML = radioNetHtml(nets);
+  const radioOn = !!(rn && rn.offsetParent);
+  const rhtml = radioOn ? radioNetHtml(nets) : '';
+  const key = html + '\u0001' + rhtml;
+  if(key === netSnap) return;
+  netSnap = key;
+  el.innerHTML = html;
+  if(radioOn) rn.innerHTML = rhtml;
 }
 
 /* ---------- 路由 ---------- */
@@ -4127,10 +4209,13 @@ async function renderLastheardLog(){
   const snap = JSON.stringify(list);
   if(snap === lhSnapshot) return;
   lhSnapshot = snap;
+  hideLhHist();
   const box = $('#lh-logbox');
   if(!list.length){ box.innerHTML = '<div class="lh-empty">暂无通联记录</div>'; return; }
   const pin = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>';
-  box.innerHTML = list.map(r=>{
+  /* 呼号点击查看历史：数据按当前列表索引缓存，供 lh-hist-tip 使用 */
+  lhHistData = list.map(r=>({ call: r.callsign || '', id: r.id || '', hist: Array.isArray(r.hist) ? r.hist : [] }));
+  box.innerHTML = list.map((r, i)=>{
     const isTx = r.dir === 'TX';
     const call = r.callsign || '';
     const id = r.id || '';
@@ -4147,7 +4232,7 @@ async function renderLastheardLog(){
       <div class="lh-mode-badge">${esc(r.mode||'')}</div>
       <div class="lh-main">
         <div class="lh-top">
-          <span class="lh-call">${esc(call || id || '—')}</span>
+          <span class="lh-call" data-lhi="${i}">${esc(call || id || '—')}</span>
           ${id ? `<span class="lh-id">${call ? esc(id) : ''}</span>` : ''}
           <span class="lh-meta lh-ber">误码率<span class="lh-ber-v${berCls}">${esc(r.ber||'—')}</span></span>
           <span class="lh-dir ${isTx?'tx':'rx'}">${isTx?'TX':'RX'}</span>
@@ -4865,9 +4950,27 @@ async function renderSystem(){
       <p style="color:var(--muted);font-size:14px;margin-bottom:12px">重启后设备会断开约 30–60 秒，期间通联中断，页面会在设备恢复后重新可用。</p>
       <div class="sys-ops" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <a class="btn" href="/cgi-bin/luci" target="_blank" rel="noopener" style="text-decoration:none">进入路由配置</a>
+        <button class="btn" id="sys-lhclear">清除 MMDVM 缓存</button>
         <button class="btn danger" id="sys-reboot">重启设备</button>
       </div>
     </div>`;
+  $('#sys-lhclear').addEventListener('click', async ()=>{
+    if(PREVIEW){ toast('预览模式：不会真正清除缓存'); return; }
+    if(!(await uiConfirm('确定要清除通联记录缓存吗？最近通联与历史记录会被清空。', { title: '清除 MMDVM 缓存', okText: '清除' }))) return;
+    const btn = $('#sys-lhclear');
+    const old = btn.textContent;
+    btn.disabled = true; btn.textContent = '正在清除…';
+    try{
+      const r = await fetch('/api/lhclear', { method:'POST' });
+      const j = await r.json();
+      if(j && j.ok){
+        /* 已持久化的记录被清空，本地快照同步失效，回到通联页会重新拉取 */
+        lhSnapshot = ''; lhHistData = []; lhLastFetch = 0; lhDirty = true;
+        toast('MMDVM 缓存已清除');
+      }else toast((j && j.error) || '清除失败', true);
+    }catch(e){ toast('清除失败', true); }
+    btn.disabled = false; btn.textContent = old;
+  });
   $('#sys-reboot').addEventListener('click', async ()=>{
     if(PREVIEW){ toast('预览模式：不会真正重启设备'); return; }
     if(!(await uiConfirm('确定要重启设备吗？当前通联会中断。', { title: '重启设备', okText: '重启设备' }))) return;
@@ -4885,8 +4988,8 @@ window.addEventListener('DOMContentLoaded', route);
 /* 首次加载（含手动刷新网页）带 ping=1，强制做一次 ping 测试 */
 api('/api/status?ping=1');
 prefetchCfgs();
-/* 右上角网络连接状态：每 3 秒轮询刷新（页面隐藏时跳过），ping 按 10 秒缓存刷新 */
-setInterval(()=>{ if(document.hidden) return; api('/api/status'); }, 3000);
+/* 右上角网络连接状态：每 5 秒轮询刷新（页面隐藏时跳过），通联信息走 /api/live 不受影响 */
+setInterval(()=>{ if(document.hidden) return; api('/api/status'); }, 5000);
 </script>
 </body>
 </html>
