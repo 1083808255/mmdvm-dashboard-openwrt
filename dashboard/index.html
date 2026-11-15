@@ -496,6 +496,7 @@ input.num:focus{outline:none;border-color:var(--accent)}
 /* ===== 最近通联 PC 覆盖 ===== */
 .lh-list{display:flex ;flex-direction:column ;height:70vh ;overflow-y:auto ;overflow-x:hidden ;
   background:#121922 ;border:1px solid var(--border) ;border-radius:12px }
+.lh-card{padding:12px }
 .lh-item{display:grid ;grid-template-columns:auto 82px 56px minmax(0,1fr) 144px 78px repeat(5,minmax(0,1fr)) ;
   align-items:center ;gap:6px ;padding:10px 14px ;min-width:0 ;
   border-bottom:1px solid var(--border) ;transition:background .14s ;position:relative }
@@ -662,7 +663,8 @@ th{font-size:12px}
   .slot.idle .live-call{font-size:18px ;justify-content:center }
 
   /* === Last Heard 列表 === */
-  .lh-list{height:auto ;max-height:none ;overflow:visible ;background:transparent ;border:0 ;border-radius:0 ;gap:8px ;padding:2px }
+  .lh-card{padding:6px }
+  .lh-list{height:auto ;max-height:none ;overflow:visible ;background:transparent ;border:0 ;border-radius:0 ;gap:8px ;padding:0 }
   .lh-item{
     display:grid ;grid-template-columns:40px 1fr ;grid-template-rows:auto auto ;
     gap:3px 10px ;padding:10px 12px ;position:relative ;
@@ -1156,7 +1158,7 @@ th{font-size:12px}
 
     <div style="height:14px"></div>
 
-    <div class="card" style="padding:12px">
+    <div class="card lh-card">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <span style="font-size:16px;font-weight:700">最近通联</span>
         <span class="badge tag" style="font-size:12px">最近 50 条</span>
@@ -3709,7 +3711,7 @@ function stopCalMon(){
   if(sw) sw.checked = false;
   setCalBadge('已停止', 'off');
 }
-const UI_VER = '20261118z47';
+const UI_VER = '20261118z48';
 /* forceMs：指定固定刷新周期（自动校准用 3000ms），省略则跟随下拉框 */
 function startCalMon(forceMs){
   stopCalTimer();
