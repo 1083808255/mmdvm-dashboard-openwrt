@@ -111,7 +111,9 @@ aside{
 .nav-group{display:block}
 @media (min-width:861px){
   .nav-group:hover .submenu{display:block}
-  .topnav{display:flex}
+  /* 电脑版：顶部菜单在剩余空间内居中，右侧状态与时钟保持贴右 */
+  .topnav{display:flex;flex:1;justify-content:center}
+  .hspacer{display:none}
   aside#sidebar{display:none}
 }
 
@@ -471,6 +473,39 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .lh-hist-tip .tg{color:var(--violet);font-weight:600}
 .lh-hist-tip .tm{color:var(--faint);font-family:var(--mono);font-size:13px}
 .lh-hist-tip .empty{color:var(--faint);font-size:13px}
+/* 静态组列表 */
+.tg-row{display:flex;align-items:center;gap:12px;padding:9px 2px;border-bottom:1px solid var(--border);font-size:15px}
+.tg-row:last-child{border-bottom:0}
+.tg-row .tg-num{font-family:var(--mono);font-weight:700}
+.tg-row .tg-slot{color:var(--faint);font-family:var(--mono);font-size:12px}
+.tg-row .btn{margin-left:auto}
+.tg-hint{padding:16px 2px;color:var(--faint);font-size:14px}
+/* 静态组：第一行 DMR ID（宽 110）+ API Key，时隙 1/2 左右两列 */
+.tg-cfg{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
+.tg-cfg .field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.tg-cfg .field label{font-size:13px;color:var(--muted)}
+.tg-cfg .field-dmrid{width:110px;flex:none}
+.tg-cfg .field-dmrid .inp{width:110px;font-family:var(--mono);font-size:13px;padding:8px 6px;text-align:center}
+.tg-cfg .field-apikey{flex:1 1 220px}
+.tg-cfg .field-tgsave{flex:none}
+.tg-slots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tg-slot-card{border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:0}
+.tg-slot-head{font-size:14px;font-weight:700;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.tg-slot-add{display:flex;align-items:center;gap:8px;min-width:0;margin-bottom:6px}
+.tg-slot-add .inp{flex:1 1 0;min-width:0}
+/* 手机版：保持时隙 1/2 与静态组列表左右两列，仅压缩间距与字号 */
+@media (max-width:600px){
+  .tg-cfg{gap:8px}
+  .tg-cfg .field-dmrid{order:1}
+  .tg-cfg .field-tgsave{order:2;margin-left:auto}
+  .tg-cfg .field-apikey{order:3;flex:1 1 100%}
+  .tg-slot-card{padding:8px}
+  .tg-slot-head{font-size:13px;margin-bottom:6px}
+  .tg-slot-add .inp{padding:7px 8px;font-size:13px}
+  .tg-row{gap:6px;padding:7px 0;font-size:13px}
+  .tg-row .tg-num{min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .tg-row .btn{padding:4px 8px;font-size:12px}
+}
 
 /* ===== PC 完整独立（≥861px）===== */
 @media (min-width:861px){
@@ -757,17 +792,19 @@ th{font-size:12px}
     /* overflow:hidden 会截掉呼号超出部分，去掉 */
     /* 覆盖一切可能的 display:contents/grid/block */ }
   .lh-top .lh-call{
-    flex-grow:1 !important ;flex-shrink:1 !important ;flex-basis:0% !important ;
-    min-width:60px !important ;
+    flex:0 1 auto !important ;
+    min-width:0 !important ;
     font-size:16px ;font-weight:800 ;letter-spacing:.02em ;
     white-space:nowrap ;
     text-align:left !important ;
     overflow:visible !important ;
     transform:translateX(-5px) }
+  /* ID 紧跟呼号，随呼号长短一起移动；右侧指标用 auto 外边距顶到最右 */
   .lh-top .lh-id{flex:none !important ;flex-shrink:0 !important ;font-size:11px ;font-weight:700 ;transform:translateX(-2px) }
-  /* BER */
+  /* BER：呼号不再拉伸，用 auto 外边距把 BER/RX/时长顶到右侧 */
   .lh-top .lh-ber{
     flex:none !important ;flex-shrink:0 !important ;min-width:0 !important ;
+    margin-left:auto !important ;
     display:inline-flex !important ;align-items:baseline !important ;
     font-size:10px ;font-family:var(--mono) ;color:var(--faint) ;
     white-space:nowrap ;letter-spacing:0 ;transform:translateX(-2px) }
@@ -799,6 +836,8 @@ th{font-size:12px}
   .lh-sub .lh-time{order:4 ;flex:none !important ;flex-shrink:0 !important ;
     margin-right:0 !important ;
     width:auto ;font-size:11px ;font-family:var(--mono) ;color:var(--faint) ;white-space:nowrap }
+  /* 没有定位图标时不再预留图标位，时间自动贴右显示 */
+  .lh-sub .lh-geo-slot:empty{display:none }
   .lh-sub .lh-mode-pc{display:none }
 
   /* === 系统信息页 === */
@@ -1053,17 +1092,17 @@ th{font-size:12px}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 #toast.err{border-color:var(--red);background:#1a0f12}
 
-/* ===== 确认弹窗 ===== */
-#uiModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
+/* ===== 确认弹窗 / API Key 弹窗 ===== */
+#uiModal,#tgKeyModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
   background:rgba(3,6,9,.72);backdrop-filter:blur(3px)}
-#uiModal.show{display:flex}
-#uiModal .um-box{width:min(470px,100%);max-height:82vh;display:flex;flex-direction:column;
+#uiModal.show,#tgKeyModal.show{display:flex}
+#uiModal .um-box,#tgKeyModal .um-box{width:min(470px,100%);max-height:82vh;display:flex;flex-direction:column;
   background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);
   box-shadow:0 18px 60px rgba(0,0,0,.65);overflow:hidden;animation:umIn .16s ease}
 @keyframes umIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
-#uiModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
-#uiModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
-#uiModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
+#uiModal .um-head,#tgKeyModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
+#uiModal .um-body,#tgKeyModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
+#uiModal .um-foot,#tgKeyModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
 
 /* ===== overlay ===== */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:45;opacity:0;pointer-events:none;transition:.2s}
@@ -1103,6 +1142,7 @@ th{font-size:12px}
       <a href="#/cal" data-view="tools" class="has-sub">工具</a>
       <div class="submenu">
         <a href="#/cal" data-view="cal">校准</a>
+        <a href="#/tg" data-view="tg">BM通话组</a>
       </div>
     </div>
     <div class="nav-group">
@@ -1163,6 +1203,10 @@ th{font-size:12px}
       <a href="#/cal" data-view="cal">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="2"/></svg>
         校准
+      </a>
+      <a href="#/tg" data-view="tg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        BM通话组
       </a>
     </div>
     </div>
@@ -1556,6 +1600,55 @@ th{font-size:12px}
     <div style="margin-top:14px"><button class="btn primary" id="cal-save">保存校准设置</button></div>
   </section>
 
+  <!-- ============ 静态组 ============ -->
+  <section class="view" id="view-tg">
+    <div class="page-head" style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div><h1>静态组和动态组管理</h1><p>BrandMeister 静态通联组管理</p></div>
+      <button class="btn" id="tg-apibtn" type="button">API Key</button>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <h2 style="font-size:17px;margin:0">动态组</h2>
+        <div style="flex:1"></div>
+      </div>
+      <div class="tg-slots">
+        <div class="tg-slot-card">
+          <div class="tg-slot-head"><span>时隙 1 (TS1)</span><button class="btn sm ghost" data-dropslot="1">清空</button></div>
+          <div id="tg-dyn-1"></div>
+        </div>
+        <div class="tg-slot-card">
+          <div class="tg-slot-head"><span>时隙 2 (TS2)</span><button class="btn sm ghost" data-dropslot="2">清空</button></div>
+          <div id="tg-dyn-2"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <h2 style="font-size:17px;margin:0">静态组</h2>
+        <div style="flex:1"></div>
+        <button class="btn sm ghost" id="tg-refresh">刷新</button>
+        <button class="btn sm primary" id="tg-save">保存</button>
+      </div>
+      <div id="tg-hint"></div>
+      <div class="tg-slots">
+        <div class="tg-slot-card">
+          <div class="tg-slot-head"><span>时隙 1 (TS1)</span></div>
+          <div class="tg-slot-add">
+            <input id="tg-id-1" class="inp" type="text" inputmode="numeric" placeholder="TG 编号">
+          </div>
+          <div id="tg-list-1"></div>
+        </div>
+        <div class="tg-slot-card">
+          <div class="tg-slot-head"><span>时隙 2 (TS2)</span></div>
+          <div class="tg-slot-add">
+            <input id="tg-id-2" class="inp" type="text" inputmode="numeric" placeholder="TG 编号">
+          </div>
+          <div id="tg-list-2"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ============ 系统信息 ============ -->
   <section class="view" id="view-system">
     <div class="page-head"><h1>系统信息</h1><p>设备运行状态</p></div>
@@ -1575,6 +1668,24 @@ th{font-size:12px}
     </div>
   </div>
 </div>
+
+<div id="tgKeyModal">
+  <div class="um-box">
+    <div class="um-head">BrandMeister API</div>
+    <div class="um-body" style="white-space:normal">
+      <p style="margin:0 0 12px;color:var(--muted);font-size:13.5px">在 BrandMeister 后台「Profile → API Keys」生成密钥填入下方；查询静态组不需要密钥，添加/删除需要。</p>
+      <div class="tg-cfg">
+        <div class="field field-dmrid"><label>DMR ID</label><input id="tg-dev" class="inp" type="text" inputmode="numeric" placeholder="4612447"></div>
+        <div class="field field-apikey"><label>API Key</label><input id="tg-key" class="inp" type="text" autocomplete="off" placeholder="未配置"></div>
+      </div>
+    </div>
+    <div class="um-foot">
+      <button class="btn" id="tg-keycancel" type="button">取消</button>
+      <button class="btn primary" id="tg-keysave" type="button">保存</button>
+    </div>
+  </div>
+</div>
+
 
 <script>
 /* ================================================================
@@ -1774,8 +1885,11 @@ M: 2026-11-09 13:45:31.200 Mode set to Idle`
 /* ---------- 数据层：API 优先，失败回退 MOCK ---------- */
 let PREVIEW = false;
 async function api(path){
+  /* 8 秒超时：设备忙时请求可能长时间挂住，会让实时通联的轮询链条卡死在上一笔通话 */
+  const ctl = new AbortController();
+  const to = setTimeout(()=>ctl.abort(), 8000);
   try{
-    const r = await fetch(path, { headers:{ 'Accept':'application/json' }, cache:'no-store' });
+    const r = await fetch(path, { headers:{ 'Accept':'application/json' }, cache:'no-store', signal: ctl.signal });
     if(!r.ok) throw new Error(r.status);
     const j = await r.json();
     if(path.startsWith('/api/status')) { PREVIEW=false; renderNetworks(j.networks); }
@@ -1784,7 +1898,12 @@ async function api(path){
     // PREVIEW 仅由 /api/status 探测结果决定，其他接口失败不污染全局状态
     if(path.startsWith('/api/status')) { PREVIEW = true; renderNetworks(null); }
     else console.warn('[api] 请求失败', path, e);
-    return mockFor(path);
+    /* 预览模式才用假数据；实时通联在后端在线时返回 null，让调用方保留上一帧画面，
+       避免偶发请求失败时把假呼号显示出来、看起来像「切换错乱」 */
+    if(PREVIEW) return mockFor(path);
+    return path.startsWith('/api/live') ? null : mockFor(path);
+  }finally{
+    clearTimeout(to);
   }
 }
 function mockFor(path){
@@ -1913,7 +2032,7 @@ function showLhHist(el){
   const hist = (d.hist || []).slice(0, 30);
   const rows = hist.map(h=>
     `<div class="row"><span class="cs">${esc(name)}</span>` +
-    `<span class="tg">${esc(h && h.tg ? h.tg : '')}</span>` +
+    `<span class="tg">${esc(h && h.d ? 'DATA' : (h && h.tg ? h.tg : ''))}</span>` +
     `<span class="tm">${esc(fmtHistTime(h))}</span></div>`
   ).join('');
   t.innerHTML = `<div class="hd">${esc(name)}<i>近 ${hist.length} 次通联</i></div>` +
@@ -1977,7 +2096,7 @@ function renderNetworks(nets){
 }
 
 /* ---------- 路由 ---------- */
-const renderers = { qso:renderQso, config:renderConfig, basic:renderBasic, services:renderServices, adv:renderAdv, cal:renderCal, radio:renderRadio, system:renderSystem };
+const renderers = { qso:renderQso, config:renderConfig, basic:renderBasic, services:renderServices, adv:renderAdv, cal:renderCal, tg:renderTg, radio:renderRadio, system:renderSystem };
 let lastRoute = '';
 /* 高级页进入确认后的一次性放行标记 */
 let advGate = false;
@@ -1988,7 +2107,7 @@ function applyNavActive(sel, view, persistOpen){
     const active = a.dataset.mode ? (view==='config' && a.dataset.mode===cfgMode) : (a.dataset.view===view);
     a.classList.toggle('active', active);
   });
-  const groups = [['config', view==='config'||view==='basic'||view==='services'||view==='adv'], ['tools', view==='cal'], ['info', view==='radio'||view==='system']];
+  const groups = [['config', view==='config'||view==='basic'||view==='services'||view==='adv'], ['tools', view==='cal'||view==='tg'], ['info', view==='radio'||view==='system']];
   groups.forEach(([dv, on])=>{
     const p = $(sel+' a.has-sub[data-view="'+dv+'"]');
     if(p){
@@ -2009,7 +2128,7 @@ function route(){
   $$('#topnav .nav-group').forEach(g=>g.classList.remove('open'));
   const seg = (location.hash.replace(/^#\//,'') || 'qso').split('/');
   let view = seg[0];
-  if(!['qso','config','basic','services','adv','cal','radio','system'].includes(view)) view = 'qso';
+  if(!['qso','config','basic','services','adv','cal','tg','radio','system'].includes(view)) view = 'qso';
   /* 进入高级页（原始 INI 编辑）前二次确认，取消则退回原页面 */
   const prevKey = lastRoute;
   if(view === 'adv' && !(prevKey || '').startsWith('adv') && !advGate){
@@ -2033,6 +2152,7 @@ function route(){
   if(view!=='qso') stopIdleTick();
   if(view!=='qso') stopQsoTick();
   if(view!=='cal'){ stopCalMon(); if(calAuto.on) calAuto.abort = true; }
+  if(view!=='tg') stopTgTick();
   if(renderers[view]) renderers[view]();
   if(view==='radio'){ renderLogTabs(); startLog(); }
 }
@@ -4042,11 +4162,13 @@ let qsoTimer = null, lhSnapshot = '', qsoActive = false;
 let lhLastFetch = 0, lhDirty = true, prevActive = false;
 /* 槽位差分渲染缓存：内容未变时不重写 DOM */
 const slotPrev = {};
+/* 每个时隙当前呼叫的身份（呼号/目标/是否结束），用于在“上一笔↔下一笔”切换时立即刷新最近通联 */
+const liveCallKey = {};
 function stopQsoTick(){ if(qsoTimer){ clearTimeout(qsoTimer); qsoTimer=null; } }
 async function renderQso(){
   stopQsoTick();
   lhDirty = true;
-  await qsoOnce();
+  try { await qsoOnce(); } catch(e) { console.warn('[qso] 首次刷新失败', e); }
   scheduleQso();
 }
 /* 0.7s 轮询：后端只读缓存（地址查询走后台进程），单次响应约几十毫秒。
@@ -4060,7 +4182,8 @@ function scheduleQso(){
   if(!$('#view-qso').classList.contains('on')) return;
   qsoTimer = setTimeout(async ()=>{
     qsoTimer = null;
-    await qsoOnce();
+    /* 用 finally 保证轮询链条不中断：单次渲染异常不应让实时通联停在上一笔通话 */
+    try { await qsoOnce(); } catch(e) { console.warn('[qso] 刷新失败', e); }
     scheduleQso();
   }, qsoDelay());
 }
@@ -4068,7 +4191,8 @@ async function qsoOnce(){
   if(document.hidden) return;
   if(!$('#view-qso').classList.contains('on')) return;
   const x = await api('/api/live');
-  renderLive(x);
+  /* 请求失败（返回 null）时保留上一次画面，避免抖动成假数据 */
+  if(x) renderLive(x);
   const now = Date.now();
   /* 最近通联只在通联结束、首次进入或超 15s 时请求，避免每秒拉取 10KB 列表 */
   if(lhDirty || now - lhLastFetch > 15000){
@@ -4079,6 +4203,8 @@ async function qsoOnce(){
 /* 从后台切回前台时立即刷新一次 */
 document.addEventListener('visibilitychange', ()=>{
   if(document.hidden) return;
+  /* 静态组页面：切回前台立即刷新一次 */
+  if($('#view-tg') && $('#view-tg').classList.contains('on')){ renderTg(); return; }
   if(!$('#view-qso').classList.contains('on')) return;
   stopQsoTick();
   qsoOnce().then(scheduleQso);
@@ -4086,6 +4212,14 @@ document.addEventListener('visibilitychange', ()=>{
 function renderLive(l){
   $('#slot-1').style.display = l.duplex ? '' : 'none';
   const slots = l.slots || {};
+  /* 呼叫身份变化（新呼叫开始 / 呼叫结束）时立即刷新最近通联，
+     不再等 15 秒定时器——连续通联时前后两笔切换不会漏掉 */
+  for(const n of ['1','2']){
+    const s = slots[n] || {};
+    const k = s.active ? [s.callsign||s.id||'', s.target||'', s.ended?'E':'A'].join('|') : '';
+    if(k && k !== liveCallKey[n]) lhDirty = true;
+    liveCallKey[n] = k;
+  }
   const nowActive = !!(slots['1'] && slots['1'].active) || !!(slots['2'] && slots['2'].active);
   if(prevActive && !nowActive) lhDirty = true; /* 有通联刚结束 → 下次刷新最近通联 */
   prevActive = nowActive;
@@ -4912,6 +5046,135 @@ async function onCalAutoToggle(el){
   }
 }
 
+/* ---- 静态组（BrandMeister API） ---- */
+/* 停留在静态组页面时定时刷新，切走/切后台即停止 */
+let tgTimer = null;
+function stopTgTick(){ if(tgTimer){ clearInterval(tgTimer); tgTimer = null; } }
+function startTgTick(){
+  stopTgTick();
+  tgTimer = setInterval(()=>{
+    if(document.hidden) return;
+    if(!$('#view-tg') || !$('#view-tg').classList.contains('on')) return;
+    renderTg();
+  }, 30000);
+}
+async function renderTg(){
+  startTgTick();
+  const hintEl = $('#tg-hint');
+  const l1 = $('#tg-list-1'), l2 = $('#tg-list-2');
+  if(hintEl && !hintEl.innerHTML) hintEl.innerHTML = '<div class="tg-hint">正在从 BrandMeister 读取…</div>';
+  const r = await api('/api/tg');
+  const dev = $('#tg-dev');
+  if(dev && r && r.deviceId) dev.value = r.deviceId;
+  const keyInp = $('#tg-key');
+  if(keyInp && r) keyInp.placeholder = r.configured ? '已配置（留空则不修改）' : '未配置';
+  const setHint = html=>{ if(hintEl) hintEl.innerHTML = html; };
+  const setList = (el, items)=>{
+    if(!el) return;
+    el.innerHTML = items.length ? items.map(t=>
+      `<div class="tg-row"><span class="tg-num">TG ${esc(t.talkgroup)}</span>` +
+      `<button class="btn sm danger" data-del="${esc(t.talkgroup)}" data-slot="${esc(t.slot)}">删除</button></div>`
+    ).join('') : '<div class="tg-hint">暂无</div>';
+  };
+  if(!r){ setHint('<div class="tg-hint">读取失败</div>'); setList(l1, []); setList(l2, []); return; }
+  if(PREVIEW){ setHint('<div class="tg-hint">预览模式：无法访问设备接口</div>'); return; }
+  if(r.ok === false){
+    setHint(`<div class="tg-hint">${esc(r.error || '读取失败')}</div>`);
+    setList(l1, []); setList(l2, []);
+    return;
+  }
+  const list = Array.isArray(r.talkgroups) ? r.talkgroups : [];
+  setHint(r.configured ? '' : '<div class="tg-hint">未配置 API Key：可查看当前静态组，添加/删除需先保存密钥</div>');
+  setList(l1, list.filter(t=>+t.slot === 1).sort((a,b)=>a.talkgroup-b.talkgroup));
+  setList(l2, list.filter(t=>+t.slot === 2).sort((a,b)=>a.talkgroup-b.talkgroup));
+  $$('#view-tg [data-del]').forEach(b=>b.addEventListener('click', ()=>tgPost({ act:'del', tg:+b.dataset.del, slot:+b.dataset.slot })));
+  /* 动态组：只读列表，按 清空 按钮整组清除 */
+  const dyn = Array.isArray(r.dynamic) ? r.dynamic : [];
+  for(const slot of [1, 2]){
+    const el = $('#tg-dyn-' + slot);
+    if(!el) continue;
+    const items = dyn.filter(t=>+t.slot === slot).sort((a,b)=>a.talkgroup-b.talkgroup);
+    el.innerHTML = items.length
+      ? items.map(t=>`<div class="tg-row"><span class="tg-num">TG ${esc(t.talkgroup)}</span></div>`).join('')
+      : '<div class="tg-hint">暂无</div>';
+  }
+}
+async function tgPost(body, quiet){
+  let j = null;
+  try{
+    const r = await fetch('/api/tg', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+    j = await r.json();
+  }catch(e){ j = null; }
+  if(!j || !j.ok){
+    if(!quiet) toast((j && j.error) || '操作失败', true);
+    return j;
+  }
+  if(!quiet){
+    const msg = body.act === 'add' ? '静态组已添加'
+      : body.act === 'del' ? '静态组已删除'
+      : body.act === 'dropdynamic' ? '动态组已清空'
+      : '已保存';
+    toast(msg);
+    renderTg();
+  }
+  return j;
+}
+function bindTg(){
+  /* API Key 弹窗 */
+  const apiBtn = $('#tg-apibtn');
+  const keyModal = $('#tgKeyModal');
+  const closeKey = ()=>{ if(keyModal) keyModal.classList.remove('show'); };
+  if(apiBtn) apiBtn.addEventListener('click', ()=>{
+    if(keyModal) keyModal.classList.add('show');
+    const k = $('#tg-key'); if(k) setTimeout(()=>{ try{ k.focus(); }catch(e){} }, 30);
+  });
+  const keyCancel = $('#tg-keycancel');
+  if(keyCancel) keyCancel.addEventListener('click', closeKey);
+  if(keyModal) keyModal.addEventListener('click', e=>{ if(e.target.id === 'tgKeyModal') closeKey(); });
+  const save = $('#tg-keysave');
+  if(save) save.addEventListener('click', async ()=>{
+    const dev = $('#tg-dev').value.trim();
+    const key = $('#tg-key').value.trim();
+    if(dev && !/^[0-9]{4,9}$/.test(dev)){ toast('DMR ID 应为 4~9 位数字', true); return; }
+    const body = { act:'key', deviceId: dev };
+    if(key) body.apiKey = key;
+    const res = await tgPost(body);
+    if(res && res.ok){ closeKey(); $('#tg-key').value = ''; }
+  });
+  const refresh = $('#tg-refresh');
+  if(refresh) refresh.addEventListener('click', ()=>renderTg());
+  /* 动态组：按 时隙 清空 */
+  $$('#view-tg [data-dropslot]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const slot = +btn.dataset.dropslot;
+    if(!(await uiConfirm(`确定清空时隙 ${slot} 的动态组吗？`, { title: '清空动态组', okText: '清空' }))) return;
+    tgPost({ act:'dropdynamic', slot:slot });
+  }));
+  /* 保存：把时隙 1 / 时隙 2 里填写的 TG 一并添加 */
+  const slotsSave = $('#tg-save');
+  if(slotsSave) slotsSave.addEventListener('click', async ()=>{
+    const jobs = [];
+    for(const slot of [1, 2]){
+      const inp = $('#tg-id-' + slot);
+      if(!inp || !inp.value.trim()) continue;
+      const tg = parseInt(inp.value, 10);
+      if(!(tg > 0)){ toast(`时隙 ${slot} 的 TG 编号无效`, true); inp.focus(); return; }
+      jobs.push({ slot: slot, tg: tg, inp: inp });
+    }
+    if(!jobs.length){ toast('请先在时隙 1 或时隙 2 填写 TG 编号', true); return; }
+    slotsSave.disabled = true;
+    let okN = 0, err = '';
+    for(const j of jobs){
+      const res = await tgPost({ act:'add', tg:j.tg, slot:j.slot }, true);
+      if(res && res.ok){ okN++; j.inp.value = ''; }
+      else err = (res && res.error) || '添加失败';
+    }
+    slotsSave.disabled = false;
+    if(okN) toast(`已添加 ${okN} 个静态组`);
+    else toast(err || '添加失败', true);
+    renderTg();
+  });
+}
+
 /* ---- 系统信息 ---- */
 const CFG_SVC_NAME = { mmdvmhost:'MMDVMHost', dmrgateway:'DMRGateway' };
 /* 保存配置后询问是否重启对应服务，选择后提示保存结果并保持 3 秒 */
@@ -4984,6 +5247,7 @@ async function renderSystem(){
 
 /* ---------- 启动 ---------- */
 bindCal();
+bindTg();
 window.addEventListener('DOMContentLoaded', route);
 /* 首次加载（含手动刷新网页）带 ping=1，强制做一次 ping 测试 */
 api('/api/status?ping=1');

@@ -9,12 +9,18 @@ API=$WEB/api
 BIN=/usr/bin
 INIT=/etc/init.d
 # 前端用到的全部接口，全部指向同一个 api.uc
-ENDPOINTS="basic calibration configs lastheard lhclear live log page services status system"
+ENDPOINTS="basic calibration configs lastheard lhclear live log page services status system tg"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行"; exit 1; }
 command -v ucode >/dev/null 2>&1 || {
 	echo "缺少 ucode，请先执行：opkg update && opkg install ucode uhttpd-mod-ucode"
 	exit 1
+}
+# 静态组页面需要 curl 调 BrandMeister API（带 Authorization 头与 DELETE 方法）
+command -v curl >/dev/null 2>&1 || {
+	echo "未安装 curl，正在安装…"
+	opkg update >/dev/null 2>&1
+	opkg install curl || echo "提示：curl 安装失败，静态组页面将不可用"
 }
 [ -d /etc/mmdvm ] || echo "提示：未发现 /etc/mmdvm，请确认已安装 MMDVMHost"
 

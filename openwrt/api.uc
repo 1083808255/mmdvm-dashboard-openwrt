@@ -60,7 +60,9 @@ function qs() {
 function body() {
 	let b = FS.stdin.read("all") ?? "";
 	if (!length(trim(b))) return null;
-	let v = json(b);
+	/* 请求体不是合法 JSON 时返回 null，避免 ucode 抛错导致 502 */
+	let v = null;
+	try { v = json(b); } catch (e) { v = null; }
 	return (type(v) == "object") ? v : null;
 }
 function ini(file) {
@@ -100,14 +102,15 @@ function writeCache(path, obj) {
 	FS.writefile(tmp, sprintf("%J", obj));
 	FS.rename(tmp, path);
 }
-/* 短缓存：ttl 秒内且来源日志签名未变化时直接复用，命中时不再 fork / 解析日志 */
+/* 短缓存：来源日志签名变化立即失效（优先判断，保证新通话不被 TTL 拖住），
+   日志未变化时才按 ttl 复用，命中时不再 fork / 解析日志 */
 function shortGet(path, ttl, file) {
 	let d = FS.readfile(path);
 	if (d == null || substr(trim(d), 0, 1) != "{") return null;
 	let v = json(d);
 	if (type(v) != "object" || v == null || v.body == null) return null;
-	if (time() - (v.t ?? 0) > ttl) return null;
 	if (length(file) && (v.file != file || v.sig != fileSig(file))) return null;
+	if (time() - (v.t ?? 0) > ttl) return null;
 	return v.body;
 }
 function shortPut(path, body, file) {
@@ -383,6 +386,9 @@ function parseQso(logfile) {
 	let cal = { errs: 0, total: 0, frames: 0, jumps: 0, jsum: 0, ts: "" };
 	/* 每个时隙上一突发的错误比特数；跨发射段重置，避免首尾相接被算成跳变 */
 	let calp = {};
+	/* 每个时隙最后一次在日志里出现活动的时间：网络下行通话没有音频统计行，
+	   用它判断呼叫是否仍在进行，避免只按音频统计超时导致漏显 */
+	let seen = {};
 	/* “Embedded GPS Info” 行带时隙，紧随的 “GPS position” 行不带，用它补上 */
 	let gpsSlot = null;
 	if (!length(file)) return { recs: recs, pend: pend, rt: rt, cal: cal };
@@ -397,7 +403,8 @@ function parseQso(logfile) {
 	/* 日志未变化时直接复用上次解析结果 */
 	if (type(c) == "object" && c != null && c.sig == sig && type(c.recs) == "array" && type(c.pend) == "object")
 		return { recs: c.recs, pend: c.pend, rt: (type(c.rt) == "object") ? c.rt : {},
-			cal: (type(c.cal) == "object" && c.cal != null) ? c.cal : cal };
+			cal: (type(c.cal) == "object" && c.cal != null) ? c.cal : cal,
+			seen: (type(c.seen) == "object" && c.seen != null) ? c.seen : {} };
 	/* 增量解析：只读上次偏移之后的新内容。
 	   整份日志每小时上百 KB，发射时每 60ms 一行音频统计，若固定只读末尾窗口，
 	   长通话的 voice header 会被挤出窗口，导致「正在发射」被误判为空闲 */
@@ -415,6 +422,7 @@ function parseQso(logfile) {
 				if (cal.jsum == null) cal.jsum = 0;
 			}
 			calp = (type(c.calp) == "object" && c.calp != null) ? c.calp : {};
+			seen = (type(c.seen) == "object" && c.seen != null) ? c.seen : {};
 			gpsSlot = (type(c.gpsSlot) == "int") ? c.gpsSlot : null;
 		}
 	}
@@ -443,6 +451,8 @@ function parseQso(logfile) {
 	}
 	for (let line in split(data, "\n")) {
 		let slot = slotOf(line);
+		/* 记录该时隙最后一次活动时间（voice header、talker alias、音频统计、数据突发都算） */
+		if (slot != null) seen[slot] = tsOf(line);
 		/* 内嵌 GPS：先出现带时隙的“Embedded GPS Info”，紧跟一行不带时隙的“GPS position [lat, lon]” */
 		if (index(line, "Embedded GPS Info") >= 0) { gpsSlot = slot; continue; }
 		let gi = index(line, "GPS position [");
@@ -523,9 +533,40 @@ function parseQso(logfile) {
 			delete calp[slot];   /* 新发射段：跳变从本段第一个突发重新起算 */
 			continue;
 		}
+		/* DMR 数据突发（APRS / 短信等）：没有 voice header，单独识别，否则通联记录里看不到 */
+		if (index(line, "data header from ") >= 0) {
+			let rest = substr(line, index(line, "data header from ") + 17);
+			let call = trim(split(trim(rest), " ")[0]);
+			let target = "";
+			let ti = index(rest, " to ");
+			if (ti >= 0) target = trim(substr(rest, ti + 4));
+			if (index(target, ",") >= 0) target = trim(substr(target, 0, index(target, ",")));
+			pend[slot] = {
+				callsign: call, target: target, data: true,
+				isId: (match(call, /^[0-9]+$/) != null),
+				dir: (index(line, "received RF") >= 0) ? "TX" : "RX",
+				ts: tsOf(line)
+			};
+			delete calp[slot];
+			continue;
+		}
+		if (index(line, "ended RF data transmission") >= 0 || index(line, "ended network data transmission") >= 0) {
+			let p = pend[slot];
+			if (p == null || !p.data) continue;
+			let ts = epochOf(p.ts), ets = epochOf(tsOf(line));
+			let dur = (ts && ets && ets >= ts) ? ets - ts : 0;
+			push(recs, {
+				callsign: p.callsign, isId: p.isId, target: p.target, dir: p.dir,
+				slot: slot, ts: p.ts, dur: dur, ber: 0, rssi: null,
+				gps: (p.gps != null) ? p.gps : null, data: true
+			});
+			delete pend[slot];
+			delete calp[slot];
+			continue;
+		}
 		if (index(line, "end of voice transmission") >= 0) {
 			let p = pend[slot];
-			if (p == null) continue;
+			if (p == null || p.data) continue;
 			/* 结束行形如：... to TG 91, 1.3 seconds, 4% packet loss, BER: 0.0% */
 			let dur = 0;
 			let si = index(line, " seconds");
@@ -548,9 +589,27 @@ function parseQso(logfile) {
 			delete calp[slot];
 		} else if (index(line, "network watchdog has expired") >= 0) {
 			/* 网络侧通话可能没有 end of voice transmission，靠看门狗超时收尾。
-			   只清理网络收到的通话：本机 RF 发射期间若混入别的时隙残留看门狗行，会把正在发射的状态误清掉 */
+			   只清理网络收到的通话：本机 RF 发射期间若混入别的时隙残留看门狗行，会把正在发射的状态误清掉。
+			   超时行同样带时长与 BER，按结束行处理，避免这类通话从通联记录里丢失 */
 			let p = pend[slot];
-			if (p != null && p.dir == "RX") delete pend[slot];
+			if (p != null && p.dir == "RX" && !p.data) {
+				let dur = 0;
+				let si = index(line, " seconds");
+				if (si >= 0) {
+					let head = substr(line, 0, si);
+					let ci = rindex(head, ", ");
+					if (ci >= 0) dur = +substr(head, ci + 2) || 0;
+				}
+				let ber = between(line, "BER: ", "%");
+				push(recs, {
+					callsign: p.callsign, isId: p.isId, target: p.target, dir: p.dir,
+					slot: slot, ts: p.ts, dur: dur,
+					ber: (ber != null) ? +ber : 0, rssi: null,
+					gps: (p.gps != null) ? p.gps : null
+				});
+				delete pend[slot];
+				delete calp[slot];
+			}
 		}
 	}
 	/* 历史记录只保留最近 300 条，防止缓存无限增长 */
@@ -559,8 +618,8 @@ function parseQso(logfile) {
 		for (let i = length(recs) - 300; i < length(recs); i++) push(cut, recs[i]);
 		recs = cut;
 	}
-	if (length(sig)) writeCache(QSO_CACHE, { sig: sig, file: file, off: base + consumed, recs: recs, pend: pend, rt: rt, cal: cal, calp: calp, gpsSlot: gpsSlot });
-	return { recs: recs, pend: pend, rt: rt, cal: cal };
+	if (length(sig)) writeCache(QSO_CACHE, { sig: sig, file: file, off: base + consumed, recs: recs, pend: pend, rt: rt, seen: seen, cal: cal, calp: calp, gpsSlot: gpsSlot });
+	return { recs: recs, pend: pend, rt: rt, seen: seen, cal: cal };
 }
 
 /* ---------- 呼号 <-> DMR ID ---------- */
@@ -1063,11 +1122,12 @@ function lhTouch(st, key, id, call, q) {
 	e.last = ts;
 	e.rec = {
 		callsign: q.callsign, isId: q.isId, target: q.target, dir: q.dir,
-		slot: q.slot, ts: q.ts, dur: q.dur, ber: q.ber, rssi: q.rssi, gps: q.gps
+		slot: q.slot, ts: q.ts, dur: q.dur, ber: q.ber, rssi: q.rssi, gps: q.gps,
+		data: q.data ? 1 : 0
 	};
 	let hist = (type(e.hist) == "array") ? e.hist : [];
 	/* 历史只存通话组与时间戳，时间由前端按 ts 格式化，避免重复占用存储 */
-	let nh = [{ tg: q.target ?? "", ts: ts }];
+	let nh = [{ tg: q.target ?? "", ts: ts, d: q.data ? 1 : 0 }];
 	for (let i = 0; i < length(hist) && length(nh) < LH_MAX_HIST; i++) push(nh, hist[i]);
 	e.hist = nh;
 	return true;
@@ -1110,7 +1170,20 @@ function cmdLastheard() {
 	for (let q in recs) {
 		let id = q.isId ? q.callsign : (c2id[q.callsign] ?? "");
 		let key = length(id) ? id : ("C:" + q.callsign);
-		if (lhTouch(st, key, id, "", q)) added = true;
+		if (lhTouch(st, key, id, "", q)) { added = true; continue; }
+		/* 旧数据迁移：已入库的同一时间戳记录补上 data（APRS 等数据突发）标记 */
+		if (!q.data) continue;
+		let e = st.ids[key];
+		if (e == null || type(e) != "object") continue;
+		let qts = epochOf(q.ts), hit = false;
+		if (e.rec != null && type(e.rec) == "object" && epochOf(e.rec.ts) == qts && !e.rec.data) {
+			e.rec.data = 1; hit = true;
+		}
+		let hs = (type(e.hist) == "array") ? e.hist : [];
+		for (let h in hs) {
+			if (h != null && h.ts == qts && !h.d) { h.d = 1; hit = true; }
+		}
+		if (hit) added = true;
 	}
 	if (added) { lhTrim(st); lhSave(st); }
 	/* 按最后通联时间倒序取前 50 个 ID */
@@ -1191,13 +1264,17 @@ function cmdLastheard() {
 		/* 历史只回传通话组与时间戳（时间由前端按 ts 格式化），减小响应体积 */
 		let hist = (type(e.hist) == "array") ? e.hist : [];
 		let hout = [];
-		for (let h in hist) push(hout, { tg: h.tg ?? "", ts: h.ts ?? 0 });
+		for (let h in hist) {
+			let o = { tg: h.tg ?? "", ts: h.ts ?? 0 };
+			if (h.d) o.d = 1;
+			push(hout, o);
+		}
 		push(r, {
 			callsign: call,
 			id: id,
 			addr: (length(id) && addrMap[id]) ? addrMap[id] : (addrCall[call] ?? ""),
 			dir: q.dir,
-			mode: "DMR",
+			mode: q.data ? "DATA" : "DMR",
 			slot: q.slot,
 			target: q.target,
 			rssi: (q.dir == "TX" && q.rssi != null) ? sprintf("%d dBm", q.rssi) : "",
@@ -1220,6 +1297,134 @@ function cmdLhClear() {
 	out({ ok: true });
 }
 
+/* ---------- BrandMeister 静态组（API Key 方式） ---------- */
+const BM_API = "https://api.brandmeister.network/v2";
+/* 当前设备的 DMR ID：优先用静态组页面保存的覆盖值，否则取基础配置里的 DMR ID 1（去掉 ESSID） */
+function bmDeviceId() {
+	let st = state();
+	let ov = trim(st.bmDeviceId ?? "");
+	if (length(ov) && match(ov, /^[0-9]{4,9}$/) != null) return ov;
+	let ids = st.dmrIds;
+	if (type(ids) == "array" && ids[0] != null) {
+		let id = trim(ids[0].id ?? "");
+		if (length(id)) return id;
+	}
+	let m = ini(INI_DIR + "MMDVM.ini");
+	let raw = trim((m["DMR"] ?? {}).Id ?? "");
+	if (length(raw) == 9) raw = substr(raw, 0, 7);
+	return raw;
+}
+function bmKey() { return trim(state().bmApiKey ?? ""); }
+/* 调 BM API：method + 路径 + 可选 JSON body，返回 { code, body }。
+   查询接口无需鉴权，写入接口需要 API Key（未配置时不带 Authorization） */
+function bmReq(method, path, payload) {
+	let key = bmKey();
+	let cmd = "/usr/bin/curl -s -m 8 -w '\\n%{http_code}' -H 'Accept: application/json'";
+	if (length(key)) cmd += " -H 'Authorization: Bearer " + key + "'";
+	if (method == "POST") cmd += " -X POST -H 'Content-Type: application/json' --data '" + payload + "'";
+	else if (method == "DELETE") cmd += " -X DELETE";
+	cmd += " '" + BM_API + path + "' 2>/dev/null";
+	let raw = sh(cmd);
+	let i = rindex(raw, "\n");
+	let code = 0, body = raw;
+	if (i >= 0) { code = int(trim(substr(raw, i + 1))); body = substr(raw, 0, i); }
+	return { code: code, body: body };
+}
+function cmdTgGet() {
+	let dev = bmDeviceId(), key = bmKey();
+	let res = { ok: true, configured: length(key) > 0, deviceId: dev, talkgroups: [], dynamic: [] };
+	if (!length(dev)) { out(res); return; }
+	/* 配置了 Key 时用 profile 一次拿到静态组 + 动态组；未配置时用公开接口只取静态组 */
+	if (length(key)) {
+		let pr = bmReq("GET", "/device/" + dev + "/profile", null);
+		res.status = pr.code;
+		if (pr.code == 200) {
+			let p = null;
+			try { p = json(pr.body); } catch (e) { p = null; }
+			let put = (arr, dst) => {
+				if (type(arr) != "array") return;
+				for (let x in arr) {
+					if (x == null) continue;
+					push(dst, { talkgroup: int(x.talkgroup) || 0, slot: int(x.slot) || 0 });
+				}
+			};
+			if (p != null) {
+				put(p.staticSubscriptions, res.talkgroups);
+				put(p.dynamicSubscriptions, res.dynamic);
+			}
+			out(res);
+			return;
+		}
+		if (pr.code == 401 || pr.code == 403) { res.ok = false; res.error = "API Key 无效或无权访问该设备"; out(res); return; }
+		if (pr.code == 0) { res.ok = false; res.error = "无法连接 BrandMeister（请检查网络）"; out(res); return; }
+		/* 其他异常回落到公开接口，至少能看静态组 */
+	}
+	let r = bmReq("GET", "/device/" + dev + "/talkgroup", null);
+	res.status = r.code;
+	if (r.code == 0) { res.ok = false; res.error = "无法连接 BrandMeister（请检查网络）"; }
+	else if (r.code != 200) { res.ok = false; res.error = "BrandMeister 接口返回 " + r.code; }
+	else {
+		let arr = null;
+		try { arr = json(r.body); } catch (e) { arr = null; }
+		if (type(arr) == "array") {
+			for (let x in arr) {
+				if (x == null) continue;
+				push(res.talkgroups, { talkgroup: int(x.talkgroup) || 0, slot: int(x.slot) || 0 });
+			}
+		}
+	}
+	out(res);
+}
+function cmdTgPost() {
+	let d = body() ?? {};
+	let act = trim(d.act ?? "");
+	if (act == "key") {
+		let st = state();
+		/* 留空表示沿用已保存的密钥，避免误清空 */
+		let nk = trim(d.apiKey ?? "");
+		if (length(nk)) st.bmApiKey = nk;
+		/* DMR ID 允许覆盖（留空则恢复为自动取基础配置的 ID） */
+		let ov = trim(d.deviceId ?? "");
+		if (length(ov)) {
+			if (match(ov, /^[0-9]{4,9}$/) == null) { fail("DMR ID 应为 4~9 位数字"); return; }
+			st.bmDeviceId = ov;
+		} else {
+			delete st.bmDeviceId;
+		}
+		saveState(st);
+		out({ ok: true });
+		return;
+	}
+	/* 清空某个时隙的动态组 */
+	if (act == "dropdynamic") {
+		let slot = int(d.slot ?? 0);
+		if (slot != 1 && slot != 2) { fail("参数不合法"); return; }
+		if (!length(bmKey())) { fail("尚未配置 API Key"); return; }
+		let dev0 = bmDeviceId();
+		if (!length(dev0)) { fail("未找到 DMR ID"); return; }
+		let rr = bmReq("GET", "/device/" + dev0 + "/action/dropDynamicGroups/" + slot, null);
+		if (rr.code == 0) fail("无法连接 BrandMeister（请检查网络）");
+		else if (rr.code == 401 || rr.code == 403) fail("API Key 无效或无权访问该设备");
+		else if (rr.code != 200) fail("BrandMeister 接口返回 " + rr.code);
+		else out({ ok: true });
+		return;
+	}
+	let tg = int(d.tg ?? 0), slot = int(d.slot ?? 0);
+	if (tg <= 0 || tg > 99999999 || (slot != 1 && slot != 2)) { fail("参数不合法"); return; }
+	if (!length(bmKey())) { fail("尚未配置 API Key"); return; }
+	let dev = bmDeviceId();
+	if (!length(dev)) { fail("未找到 DMR ID"); return; }
+	let r;
+	if (act == "add") r = bmReq("POST", "/device/" + dev + "/talkgroup", "{\"group\":" + tg + ",\"slot\":" + slot + "}");
+	else if (act == "del") r = bmReq("DELETE", "/device/" + dev + "/talkgroup/" + slot + "/" + tg, null);
+	else { fail("未知操作"); return; }
+	if (r.code == 0) fail("无法连接 BrandMeister（请检查网络）");
+	else if (r.code == 401 || r.code == 403) fail("API Key 无效或无权访问该设备");
+	else if (r.code != 200) fail("BrandMeister 接口返回 " + r.code);
+	else out({ ok: true });
+}
+
+
 function cmdLive() {
 	let file = logFileFor("MMDVM");
 	/* 2 秒短缓存：日志签名未变（无新通话）时直接返回，避免重复反查与 fork */
@@ -1237,18 +1442,20 @@ function cmdLive() {
 	let slots = { "1": { active: false }, "2": { active: false } };
 	let act = {}, startTs = {};
 
-	/* 正在发射/接收（有 header 尚未 end） */
+	/* 正在发射/接收（有 header 尚未 end）；APRS 等数据突发只在通联记录里显示 */
 	for (let k in q.pend) {
 		let p = q.pend[k];
+		if (p.data) continue;
 		let ts = epochOf(p.ts);
 		if (!ts || now - ts > 600) continue;
-		/* 日志偶发缺 end 行时，靠“最后一个突发”判断是否已经松手：
-		   超过 5 秒没有新突发就当作已结束，避免一直显示发射中并计时 */
-		let rtk = q.rt[k];
-		if (rtk != null) {
-			let rts = epochOf(rtk.ts);
-			if (rts && now - rts > 5) continue;
-		}
+		/* 日志偶发缺 end 行时，靠“最后一次活动”判断是否已经松手：
+		   本机 RF 发射每 60ms 有音频统计行，5 秒无新行即视为结束；
+		   网络下行通话中间可能几十秒没有任何日志行（只有收尾的 end 或看门狗行），
+		   因此给它更长的兜底时间，避免长通话中途被误判为空闲 */
+		let seenMap = (type(q.seen) == "object" && q.seen != null) ? q.seen : {};
+		let ats = epochOf(seenMap[k] ?? ((q.rt[k] != null) ? q.rt[k].ts : ""));
+		let limit = (p.dir == "RX") ? 180 : 5;
+		if (ats && now - ats > limit) continue;
 		act[k] = { p: p, ts: ts };
 	}
 
@@ -1257,6 +1464,7 @@ function cmdLive() {
 	let recs = q.recs;
 	for (let i = length(recs) - 1; i >= 0; i--) {
 		let r = recs[i];
+		if (r.data) continue;   /* 数据突发不进实时通联 */
 		let key = r.slot ?? "1";
 		if (act[key] || last[key]) continue;
 		let ts = epochOf(r.ts);
@@ -1586,6 +1794,9 @@ if (name == "ports") {
 	cmdLastheard();
 } else if (name == "lhclear") {
 	cmdLhClear();
+} else if (name == "tg") {
+	if (method == "POST") cmdTgPost();
+	else cmdTgGet();
 } else if (name == "live") {
 	out(cmdLive());
 } else if (name == "geo") {
