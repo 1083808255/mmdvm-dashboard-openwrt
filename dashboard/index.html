@@ -2407,8 +2407,7 @@ async function renderRadio(){
     ['TX 频率', `${fTx} <small style="color:var(--muted)">MHz</small>`],
     ['Host 版本', esc((m.version||'—').replace('MMDVMHost-',''))],
     ['DMR 网关版本', esc((m.gwVersion||'—').replace('DMRGateway-',''))],
-    ['热点板类型', esc(m.modemType||'—')],
-    ['热点板固件版本', esc(m.modemFirmware||'—')],
+    ['热点板类型', (m.modemType ? esc(m.modemType) + (m.modemFirmware ? ' v' + esc(m.modemFirmware) : '') : '—')],
     ['Dashboard 版本', `<span id="radio-ota-ver">${esc(dashVer())}</span><button class="btn sm" id="radio-ota-btn" type="button" style="margin-left:10px">更新</button><span id="radio-ota-state" style="margin-left:8px;font-size:13px"></span>`],
   ];
   $('#radio-table').innerHTML = rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('');
