@@ -459,6 +459,12 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 .radio-nets .radio-ping.warn{color:var(--amber)}
 .radio-nets .radio-ping.none{color:var(--muted)}
 @media (min-width:861px){ .radio-nets{display:none} }
+/* 电台信息：电脑版呼号与 ID、收发频率各合并为一行 */
+#view-radio .r-pc{display:none}
+@media (min-width:861px){
+  #view-radio .r-mobile{display:none}
+  #view-radio .r-pc{display:table-row}
+}
 /* 高级页：只读状态外观 */
 #view-adv #adv-text[readonly]{background:var(--bg2);cursor:default}
 /* 电台信息表格：手机版紧凑排版 */
@@ -2401,16 +2407,18 @@ async function renderRadio(){
   if(netEl) netEl.innerHTML = radioNetHtml(s.networks);
   const rows = [
     ['运行状态', running?'<span style="color:var(--green)">运行中</span>':'<span style="color:var(--red)">已停止</span>'],
-    ['呼号', esc(m.callsign||'—')],
-    ['DMR ID', esc(m.dmrId||'—')],
-    ['RX 频率', `${fRx} <small style="color:var(--muted)">MHz</small>`],
-    ['TX 频率', `${fTx} <small style="color:var(--muted)">MHz</small>`],
+    ['呼号', esc(m.callsign||'—'), 'r-mobile'],
+    ['DMR ID', esc(m.dmrId||'—'), 'r-mobile'],
+    ['呼号 / DMR ID', `${esc(m.callsign||'—')} · ${esc(m.dmrId||'—')}`, 'r-pc'],
+    ['RX 频率', `${fRx} <small style="color:var(--muted)">MHz</small>`, 'r-mobile'],
+    ['TX 频率', `${fTx} <small style="color:var(--muted)">MHz</small>`, 'r-mobile'],
+    ['RX / TX 频率', `${fRx} / ${fTx} <small style="color:var(--muted)">MHz</small>`, 'r-pc'],
     ['Host 版本', esc((m.version||'—').replace('MMDVMHost-',''))],
     ['DMR 网关版本', esc((m.gwVersion||'—').replace('DMRGateway-',''))],
     ['热点板类型', (m.modemType ? esc(m.modemType) + (m.modemFirmware ? ' v' + esc(m.modemFirmware) : '') : '—')],
     ['Dashboard 版本', `<span id="radio-ota-ver">${esc(dashVer())}</span><button class="btn sm" id="radio-ota-btn" type="button" style="margin-left:10px">更新</button><span id="radio-ota-state" style="margin-left:8px;font-size:13px"></span>`],
   ];
-  $('#radio-table').innerHTML = rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('');
+  $('#radio-table').innerHTML = rows.map(([k,v,cls])=>`<tr${cls?` class="${cls}"`:''}><td>${k}</td><td class="mono">${v}</td></tr>`).join('');
   const otaBtn = $('#radio-ota-btn');
   if(otaBtn) otaBtn.addEventListener('click', openOtaModal);
   radioCheckOta();
