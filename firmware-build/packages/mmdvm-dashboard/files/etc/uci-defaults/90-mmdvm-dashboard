@@ -2,6 +2,23 @@
 # 首次安装时创建 uhttpd 的 dashboard 站点（80 端口）+ 启用呼号库同步服务
 [ -f /etc/config/uhttpd ] || exit 0
 
+# 80 端口留给仪表盘：LuCI 主站点若仍在默认 80/443，改到 8080/8443
+if uci -q get uhttpd.main >/dev/null 2>&1; then
+	case " $(uci -q get uhttpd.main.listen_http) " in
+	*" 0.0.0.0:80 "*|*" [::]:80 "*)
+		uci set uhttpd.main.listen_http='0.0.0.0:8080'
+		uci add_list uhttpd.main.listen_http='[::]:8080'
+		;;
+	esac
+	case " $(uci -q get uhttpd.main.listen_https) " in
+	*" 0.0.0.0:443 "*|*" [::]:443 "*)
+		uci set uhttpd.main.listen_https='0.0.0.0:8443'
+		uci add_list uhttpd.main.listen_https='[::]:8443'
+		;;
+	esac
+	uci commit uhttpd
+fi
+
 if ! uci -q get uhttpd.dashboard >/dev/null 2>&1; then
 	uci set uhttpd.dashboard=uhttpd
 	uci set uhttpd.dashboard.home='/www-dash'
