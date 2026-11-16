@@ -1048,6 +1048,7 @@ function cmdStatus() {
 			slot1: dmrN.Slot1 ?? "",
 			slot2: dmrN.Slot2 ?? "",
 			colorCode: dmr.ColorCode ?? "",
+			selfOnly: dmr.SelfOnly ?? "",
 			beacons: dmr.Beacons ?? "",
 			beaconInterval: dmr.BeaconInterval ?? "",
 			dmrServerName: srvName,
@@ -2164,6 +2165,7 @@ if (name == "ports") {
 		/* 连接：DMR 网络类型/时隙 + 色码/信标/信标时间 */
 		let dmrType = trim(d.dmrType ?? ""), slot1 = trim(d.slot1 ?? ""), slot2 = trim(d.slot2 ?? "");
 		let colorCode = trim(d.colorCode ?? ""), beacons = trim(d.beacons ?? ""), beaconInterval = trim(d.beaconInterval ?? "");
+		let selfOnly = trim(d.selfOnly ?? "");
 		let srvName = trim(d.dmrServerName ?? ""), srvAddr = trim(d.dmrServerAddress ?? ""), srvPort = trim(d.dmrServerPort ?? "");
 		let srvPass = trim(d.dmrServerPassword ?? "");
 		if (!match(cs, /^[A-Za-z0-9]{3,10}$/)) fail("呼号格式不正确");
@@ -2181,6 +2183,7 @@ if (name == "ports") {
 			if (length(slot1) && match(slot1, /^[01]$/) == null) { fail("时隙1 应为 0 或 1"); return; }
 			if (length(slot2) && match(slot2, /^[01]$/) == null) { fail("时隙2 应为 0 或 1"); return; }
 			if (length(colorCode) && match(colorCode, /^([0-9]|1[0-5])$/) == null) { fail("色码应为 0~15"); return; }
+			if (length(selfOnly) && match(selfOnly, /^[01]$/) == null) { fail("隐私应为公共或隐私"); return; }
 			if (length(beacons) && match(beacons, /^[0-9]$/) == null) { fail("信标应为 0 或 1"); return; }
 			if (length(beaconInterval) && (match(beaconInterval, /^[0-9]{1,5}$/) == null || +beaconInterval < 1)) { fail("信标时间应为正整数"); return; }
 			/* 服务器地址/端口校验（直连模式使用） */
@@ -2278,6 +2281,7 @@ if (name == "ports") {
 			if (length(slot1)) setIniSec(f, "DMR Network", "Slot1", slot1);
 			if (length(slot2)) setIniSec(f, "DMR Network", "Slot2", slot2);
 			if (length(colorCode)) setIniSec(f, "DMR", "ColorCode", colorCode);
+			if (length(selfOnly)) setIniSec(f, "DMR", "SelfOnly", selfOnly);
 			if (length(beacons)) setIniSec(f, "DMR", "Beacons", beacons);
 			if (length(beaconInterval)) setIniSec(f, "DMR", "BeaconInterval", beaconInterval);
 			/* 网关模式：MMDVM.ini 的 [DMR Network] 指向本机 DMRGateway；直连模式连到所选服务器 */

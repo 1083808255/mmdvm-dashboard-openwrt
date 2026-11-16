@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+﻿﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -1101,6 +1101,7 @@ th{font-size:12px}
   #basic-udpaddr{width:200px}
   #basic-udpport{width:110px}
   #basic-dmrtype{width:130px}
+  #basic-selfonly{width:130px}
   #basic-colorcode{width:90px}
   #basic-beaconinterval{width:120px}
   #view-basic .port-combobox{width:240px}
@@ -1496,6 +1497,12 @@ th{font-size:12px}
           <select id="basic-dmrtype" class="inp">
             <option value="Gateway">Gateway</option>
             <option value="Direct">Direct</option>
+          </select>
+        </div>
+        <div class="field field-selfonly" data-brow="6"><label>隐私 <small>(SelfOnly)</small></label>
+          <select id="basic-selfonly" class="inp">
+            <option value="0">公共</option>
+            <option value="1">隐私</option>
           </select>
         </div>
         <div class="field field-slot1" data-brow="8"><label>时隙1 <small>(Slot1)</small></label><label class="cfg-chk"><input type="checkbox" id="basic-slot1"></label></div>
@@ -2868,6 +2875,7 @@ async function renderBasic(){
   $('#basic-url').value = m.url || '';
   /* 连接：DMR 网络类型/时隙 + 色码/信标/信标时间 */
   $('#basic-dmrtype').value = (m.dmrType === 'Direct') ? 'Direct' : 'Gateway';
+  $('#basic-selfonly').value = (String(m.selfOnly) === '1') ? '1' : '0';
   $('#basic-slot1').checked = String(m.slot1 ?? '') === '1';
   $('#basic-slot2').checked = String(m.slot2 ?? '') === '1';
   $('#basic-colorcode').value = String(m.colorCode ?? '') || '1';
@@ -3193,6 +3201,7 @@ function saveBasic(){
       description: $('#basic-description').value.trim(),
       url: $('#basic-url').value.trim(),
       dmrType: $('#basic-dmrtype').value,
+      selfOnly: $('#basic-selfonly').value,
       slot1: $('#basic-slot1').checked ? '1' : '0',
       slot2: $('#basic-slot2').checked ? '1' : '0',
       colorCode: $('#basic-colorcode').value,
