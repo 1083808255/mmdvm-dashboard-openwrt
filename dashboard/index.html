@@ -232,6 +232,11 @@ tr:hover td{background:rgba(255,255,255,.015)}
 .cfg-sec.collapsed > .cfg-grid,
 .cfg-sec.collapsed .cfg-more-toggle,
 .cfg-sec.collapsed .cfg-more{display:none !important}
+/* 折叠后卡片更矮 */
+.cfg-sec.collapsed{padding-top:8px !important;padding-bottom:8px !important}
+.cfg-sec.collapsed > .cfg-sec-head{margin-bottom:0}
+/* XLX 网络内容不是 .cfg-grid，折叠时隐藏除标题外的内容 */
+.cfg-sec.collapsed[data-sec-name="XLX Network"] > :not(.cfg-sec-head){display:none !important}
 /* 高级页编辑框：内容超出时内部滚动 */
 #view-adv #adv-text{overflow:auto;white-space:pre;resize:none}
 /* INI 表单化：注释行和空行占位 */
@@ -4025,15 +4030,16 @@ function renderSections(content){
     const hasKv = s.tokens.some(t=>t.type==='kv');
     const hasVisible = s.tokens.some(t=>t.type==='kv' && !isHiddenKey(s.name,t.key));
     if(hasKv && !hasVisible) return '';
-    /* 未启用的 DMR 网络默认折叠，点标题展开 */
+    /* 未启用的 DMR 网络 / XLX 网络默认折叠，点标题展开 */
     const isDmrSec = /^DMR Network\s+\d+$/.test(s.name);
+    const canFold = isDmrSec || isXlxSec;
     const enTok = s.tokens.find(t=>t.type === 'kv' && t.key === 'Enabled');
     const secEnabled = enTok ? String(enTok.value).trim() === '1' : true;
     const secOpen = !!(window._cfgSecOpen || {})[s.name];
-    const collapsed = isDmrSec && !secEnabled && !secOpen;
+    const collapsed = canFold && !secEnabled && !secOpen;
     return `<div class="cfg-sec card${collapsed ? ' collapsed' : ''}" style="margin-bottom:12px" data-sec-name="${esc(s.name)}">
-      <div class="cfg-sec-head${isDmrSec ? ' cfg-sec-h' : ''}">
-        ${isDmrSec ? '<span class="sec-arrow">▾</span>' : ''}
+      <div class="cfg-sec-head${canFold ? ' cfg-sec-h' : ''}">
+        ${canFold ? '<span class="sec-arrow">▾</span>' : ''}
         <div class="cfg-sec-title">
           ${secCn(s.name) ? `<span>${esc(secCn(s.name))}</span>` : ''}
           <span class="mono">[${esc(s.name)}]</span>
@@ -4053,11 +4059,11 @@ function renderSections(content){
       if(e.target.closest('.rw-row')) fitRwInputs(card);
     });
     card.addEventListener('click', (e)=>{
-      /* 点 DMR 网络标题：展开/折叠该段 */
+      /* 点 DMR 网络 / XLX 网络标题：展开/折叠该段 */
       const head = e.target.closest('.cfg-sec-h');
       if(head){
         const secName = card.dataset.secName || '';
-        if(/^DMR Network\s+\d+$/.test(secName)){
+        if(/^DMR Network\s+\d+$/.test(secName) || secName === 'XLX Network'){
           const nowCollapsed = card.classList.toggle('collapsed');
           (window._cfgSecOpen = window._cfgSecOpen || {})[secName] = !nowCollapsed;
           if(!nowCollapsed){ layoutCfgGrids(); fitNameSelects(card); fitRwInputs(card); }
