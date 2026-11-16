@@ -1855,15 +1855,15 @@ th{font-size:12px}
     <div class="um-body" style="white-space:normal">
       <p style="margin:0 0 12px">只更新网页界面和 API，不重启设备。安装前会校验 sha256，并自动保留上一版本用于回滚。</p>
       <div class="field" style="margin-bottom:10px"><label>当前版本</label><span id="ota-m-cur" class="mono">—</span></div>
-      <div class="field" style="margin-bottom:10px"><label>更新源 <small>(manifest)</small></label>
+      <div class="field" style="margin-bottom:10px;display:none"><label>更新源 <small>(manifest)</small></label>
         <input id="ota-m-src" class="inp" type="text" autocomplete="off"></div>
-      <div id="ota-m-msg" style="color:var(--muted);font-size:14px;line-height:1.6;min-height:20px;margin-bottom:10px;white-space:pre-line"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn" id="ota-m-check" type="button">检查更新</button>
         <button class="btn primary" id="ota-m-install" type="button" disabled>安装更新</button>
         <button class="btn" id="ota-m-rollback" type="button" disabled>回滚上一版本</button>
-        <button class="btn" id="ota-m-save" type="button">保存更新源</button>
+        <button class="btn" id="ota-m-save" type="button" style="display:none">保存更新源</button>
       </div>
+      <div id="ota-m-msg" style="color:var(--muted);font-size:14px;line-height:1.6;min-height:20px;margin-top:10px;white-space:pre-line"></div>
     </div>
     <div class="um-foot">
       <button class="btn" id="ota-m-close" type="button">关闭</button>
@@ -2411,7 +2411,7 @@ async function renderRadio(){
     ['TX 频率', `${fTx} <small style="color:var(--muted)">MHz</small>`],
     ['Host 版本', esc((m.version||'—').replace('MMDVMHost-',''))],
     ['DMR 网关版本', esc((m.gwVersion||'—').replace('DMRGateway-',''))],
-    ['Dashboard 版本', `<span>${esc(dashVer())}</span> <span id="radio-ota-state" style="margin-left:8px;font-size:13px"></span><button class="btn sm" id="radio-ota-btn" type="button" style="margin-left:8px">更新</button>`],
+    ['Dashboard 版本', `<span id="radio-ota-ver">${esc(dashVer())}</span><span style="display:inline-block;vertical-align:top;margin-left:10px"><button class="btn sm" id="radio-ota-btn" type="button">更新</button><div id="radio-ota-state" style="margin-top:6px;font-size:12.5px;line-height:1.5"></div></span>`],
   ];
   $('#radio-table').innerHTML = rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('');
   const otaBtn = $('#radio-ota-btn');
@@ -2431,9 +2431,13 @@ async function radioCheckOta(){
   const st = $('#radio-ota-state'), b = $('#radio-ota-btn');
   if(!st || !b) return;
   const j = radioOtaCache.data;
+  const verEl = $('#radio-ota-ver');
+  /* 当前版本只显示 OTA 版本（即原括号内的版本号） */
+  if(verEl && j && j.current) verEl.textContent = j.current;
   if(j && j.updateAvailable){
-    st.textContent = '有新版本 ' + j.latest;
+    st.textContent = '有新版本 ' + j.latest + (j.notes ? '\n' + j.notes : '');
     st.style.color = 'var(--amber)';
+    st.style.whiteSpace = 'pre-line';
     b.classList.add('primary');
   }else if(j){
     st.textContent = '已是最新';
@@ -5746,13 +5750,13 @@ async function renderSystem(){
       <h2 style="font-size:17px;margin-bottom:8px">仪表盘更新 <small style="color:var(--faint);font-weight:400">(Dashboard OTA)</small></h2>
       <p style="color:var(--muted);font-size:14px;margin-bottom:12px">只更新网页界面和 API，不重启设备，不影响当前通联。更新包会先校验 sha256 再安装，并自动保留上一版本用于回滚。</p>
       <div class="field" style="margin-bottom:10px"><label>当前版本</label><span id="ota-cur" class="mono">—</span></div>
-      <div class="field" style="margin-bottom:10px"><label>更新源 <small>(manifest URL)</small></label>
+      <div class="field" style="margin-bottom:10px;display:none"><label>更新源 <small>(manifest URL)</small></label>
         <input id="ota-src" class="inp" type="text" placeholder="http://192.168.8.200:8088/dashboard.json" autocomplete="off"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn" id="ota-check">检查更新</button>
         <button class="btn primary" id="ota-install" disabled>安装更新</button>
         <button class="btn" id="ota-rollback" disabled>回滚上一版本</button>
-        <button class="btn" id="ota-save">保存更新源</button>
+        <button class="btn" id="ota-save" style="display:none">保存更新源</button>
       </div>
       <div id="ota-msg" style="color:var(--muted);font-size:14px;line-height:1.6;white-space:pre-line"></div>
     </div>`;

@@ -1842,6 +1842,13 @@ function otaPrune() {
 	let a = split(out, "\n");
 	for (let i = 5; i < length(a); i++) sh("rm -f " + sq(trim(a[i])));
 }
+/* 版本比较：V0.<数字> 按数字大小比较，其它格式退回字符串比较 */
+function otaNewer(a, b) {
+	let ma = match(a, /^V0\.([0-9]+)$/);
+	let mb = match(b, /^V0\.([0-9]+)$/);
+	if (ma != null && mb != null) return +ma[1] > +mb[1];
+	return a > b;
+}
 function cmdOta() {
 	let q = qs();
 	let act = q.act ?? "info";
@@ -1868,7 +1875,7 @@ function cmdOta() {
 		let latest = trim(m.version ?? "");
 		if (!length(latest)) return fail("更新清单缺少 version");
 		return out({ ok: true, current: cur, latest: latest,
-			updateAvailable: (cur == "unknown") || (latest > cur),
+			updateAvailable: (cur == "unknown") || otaNewer(latest, cur),
 			size: m.size ?? 0, notes: m.notes ?? "", source: src });
 	}
 	if (act == "install") {
