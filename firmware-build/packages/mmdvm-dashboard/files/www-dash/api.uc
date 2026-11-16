@@ -983,6 +983,30 @@ function cmdStatus() {
 	}
 	if (length(gwVer) && (gwVerCache == null || trim(gwVerCache) != gwVer))
 		try { FS.writefile("/tmp/dashboard_gwver", gwVer + "\n"); } catch (e) {}
+	/* 热点板型号与固件版本：取自 MMDVMHost 启动日志的 protocol 行
+	   形如 “MMDVM protocol version: 1, description: MMDVM_HS_Dual_Hat-v1.5.2 20201108 ...” */
+	let modemType = "", modemFw = "";
+	let mdCache = null;
+	try { mdCache = json(FS.readfile("/tmp/dashboard_modem.json") ?? ""); } catch (e) { mdCache = null; }
+	if (type(mdCache) == "object" && mdCache != null && (time() - (+(mdCache.t ?? 0))) <= 120) {
+		modemType = mdCache.type ?? "";
+		modemFw = mdCache.fw ?? "";
+	} else {
+		let ln = trim(sh("grep -ah 'MMDVM protocol version:' /var/log/mmdvm/MMDVM-*.log 2>/dev/null | tail -1"));
+		let d = between(ln, "description: ", null);
+		if (d != null) {
+			let tok = split(trim(d), " ")[0];
+			let p = index(tok, "-v");
+			if (p > 0) { modemType = substr(tok, 0, p); modemFw = substr(tok, p + 2); }
+			else modemType = tok;
+		}
+		if (length(modemType)) {
+			try { FS.writefile("/tmp/dashboard_modem.json", sprintf("%J", { t: time(), type: modemType, fw: modemFw }) + "\n"); } catch (e) {}
+		} else if (type(mdCache) == "object" && mdCache != null) {
+			modemType = mdCache.type ?? "";
+			modemFw = mdCache.fw ?? "";
+		}
+	}
 
 	let body = {
 		hostname: hostname(),
@@ -1031,7 +1055,9 @@ function cmdStatus() {
 			dmrServerPort: srvPort,
 			dmrServerPassword: srvPass,
 			version: ver,
-			gwVersion: gwVer
+			gwVersion: gwVer,
+			modemType: modemType,
+			modemFirmware: modemFw
 		}
 	};
 	shortPut(STATUS_CACHE, body, lf);
@@ -1757,6 +1783,8 @@ const OTA_CONF = "/etc/mmdvm/dashboard-ota.json";
 const OTA_DIR = "/tmp/dashboard-ota";
 const OTA_CACHE = "/tmp/dashboard-ota-cache.json";
 const OTA_DEFAULT_SRC = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
+/* API 被限流或不可达时的备用清单（ghproxy 代理 raw，可能有缓存延迟） */
+const OTA_DEFAULT_RAW = "https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main/dashboard.json";
 const DASH_ENDPOINTS = ["basic","calibration","configs","lastheard","lhclear","live","log","ota","page","ports","services","status","system","tg","xlxhosts"];
 
 function sq(s) {
@@ -1821,8 +1849,13 @@ function otaManifest(url) {
 	let c = otaCacheGet(300, url);
 	if (c != null) return c;
 	let m = otaFetch(url);
-	if (m != null) { otaCachePut(url, m); return m; }
-	return otaCacheGet(0, url);
+	if (m == null && url == OTA_DEFAULT_SRC) m = otaFetch(OTA_DEFAULT_RAW);
+	let old = otaCacheGet(0, url);
+	let best = m;
+	if (best == null) best = old;
+	else if (old != null && otaNewer(trim(old.version ?? ""), trim(best.version ?? ""))) best = old;
+	if (m != null && best == m) otaCachePut(url, m);
+	return best;
 }
 /* 清单里的 url 可以是相对路径，按清单地址所在目录拼接 */
 function otaAbs(base, u) {

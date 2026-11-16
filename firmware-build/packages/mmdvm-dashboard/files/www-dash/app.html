@@ -1254,6 +1254,8 @@ th{font-size:12px}
 #uiModal .um-head,#tgKeyModal .um-head,#xlxModal .um-head,#otaModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
 #uiModal .um-body,#tgKeyModal .um-body,#xlxModal .um-body,#otaModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
 #uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot,#otaModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
+/* 确认框要盖在更新弹窗之上，否则从更新弹窗点安装时看不到确认提示 */
+#uiModal{z-index:200}
 
 /* ===== overlay ===== */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:45;opacity:0;pointer-events:none;transition:.2s}
@@ -2405,6 +2407,8 @@ async function renderRadio(){
     ['TX 频率', `${fTx} <small style="color:var(--muted)">MHz</small>`],
     ['Host 版本', esc((m.version||'—').replace('MMDVMHost-',''))],
     ['DMR 网关版本', esc((m.gwVersion||'—').replace('DMRGateway-',''))],
+    ['热点板类型', esc(m.modemType||'—')],
+    ['热点板固件版本', esc(m.modemFirmware||'—')],
     ['Dashboard 版本', `<span id="radio-ota-ver">${esc(dashVer())}</span><button class="btn sm" id="radio-ota-btn" type="button" style="margin-left:10px">更新</button><span id="radio-ota-state" style="margin-left:8px;font-size:13px"></span>`],
   ];
   $('#radio-table').innerHTML = rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('');
@@ -2503,14 +2507,23 @@ function bindOtaModal(){
   $('#ota-m-install').addEventListener('click', async ()=>{
     if(!(await uiConfirm('确定安装仪表盘更新吗？安装过程中请勿关闭页面。', { title:'仪表盘更新', okText:'安装' }))) return;
     const b = $('#ota-m-install'); b.disabled = true; b.textContent = '安装中…';
-    otaModalMsg('正在下载并校验更新包…');
+    $('#ota-m-check').disabled = true;
+    otaModalMsg('正在安装，请勿关闭页面…');
     try{
       const j = await fetch('/api/ota?act=install', { method:'POST' }).then(r=>r.json());
       if(j.ok){
         otaModalMsg('已更新到 ' + (j.version || '新版本') + '，页面即将刷新…');
         setTimeout(()=>location.reload(), 1200);
-      }else{ otaModalMsg(j.error || '安装失败', true); b.disabled = false; b.textContent = '安装更新'; }
-    }catch(e){ otaModalMsg('安装失败', true); b.disabled = false; b.textContent = '安装更新'; }
+      }else{
+        otaModalMsg(j.error || '安装失败', true);
+        b.disabled = false; b.textContent = '安装更新';
+        $('#ota-m-check').disabled = false;
+      }
+    }catch(e){
+      otaModalMsg('安装失败', true);
+      b.disabled = false; b.textContent = '安装更新';
+      $('#ota-m-check').disabled = false;
+    }
   });
   $('#ota-m-rollback').addEventListener('click', async ()=>{
     if(!(await uiConfirm('确定回滚到上一版本的仪表盘吗？', { title:'回滚仪表盘', okText:'回滚' }))) return;
