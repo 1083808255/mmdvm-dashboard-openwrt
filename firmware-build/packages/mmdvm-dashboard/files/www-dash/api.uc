@@ -1831,6 +1831,14 @@ function otaFetch(url) {
 	}
 	return v;
 }
+/* 版本比较：V0.<数字> 按数字大小比较，其它格式退回字符串比较
+   注意：ucode 不支持函数前向引用，必须定义在使用它的函数之前 */
+function otaNewer(a, b) {
+	let ma = match(a, /^V0\.([0-9]+)$/);
+	let mb = match(b, /^V0\.([0-9]+)$/);
+	if (ma != null && mb != null) return +ma[1] > +mb[1];
+	return a > b;
+}
 /* 清单短时缓存：正常检查走缓存，减少 GitHub API 调用；拉取失败时退回旧缓存 */
 function otaCacheGet(ttl, url) {
 	let d = FS.readfile(OTA_CACHE);
@@ -1916,13 +1924,6 @@ function otaHealth(ver) {
 	if (type(j) != "object" || j == null || !(j.ok ?? false)) return false;
 	if (length(ver) && trim(j.current ?? "") != ver) return false;
 	return true;
-}
-/* 版本比较：V0.<数字> 按数字大小比较，其它格式退回字符串比较 */
-function otaNewer(a, b) {
-	let ma = match(a, /^V0\.([0-9]+)$/);
-	let mb = match(b, /^V0\.([0-9]+)$/);
-	if (ma != null && mb != null) return +ma[1] > +mb[1];
-	return a > b;
 }
 function cmdOta() {
 	let q = qs();
