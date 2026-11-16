@@ -1782,6 +1782,16 @@ if (name == "ports") {
 			else { FS.writefile(INI_DIR + fn, d.content); out({ ok: true }); }
 		}
 	} else cmdConfigs();
+} else if (name == "xlxhosts") {
+	if (method == "POST") {
+		let d = body();
+		if (d == null || type(d.content) != "string") fail("缺少内容");
+		else { FS.writefile(INI_DIR + "XLXHosts.txt", d.content); out({ ok: true }); }
+	} else {
+		let c = FS.readfile(INI_DIR + "XLXHosts.txt");
+		if (c == null) fail("文件不存在");
+		else out({ ok: true, content: c });
+	}
 } else if (name == "system") {
 	if (method == "POST") {
 		let q = qs();

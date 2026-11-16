@@ -217,6 +217,14 @@ tr:hover td{background:rgba(255,255,255,.015)}
 .cfg-sec-text{width:100%;min-height:120px;background:#0a0e13;border:1px solid var(--border);border-radius:var(--radius);
   color:var(--text);font-family:var(--mono);font-size:14.5px;padding:12px;resize:vertical;line-height:1.6;overflow:hidden}
 .cfg-sec-text:focus{outline:none;border-color:var(--accent)}
+/* DMR 网络段折叠：未启用时默认收起，点标题展开/收起 */
+.cfg-sec-h{cursor:pointer;user-select:none}
+.cfg-sec-h .sec-arrow{display:inline-block;transition:transform .18s ease;color:var(--muted);
+  font-size:22px;line-height:1;width:26px;text-align:center}
+.cfg-sec.collapsed .sec-arrow{transform:rotate(-90deg)}
+.cfg-sec.collapsed > .cfg-grid,
+.cfg-sec.collapsed .cfg-more-toggle,
+.cfg-sec.collapsed .cfg-more{display:none !important}
 /* 高级页编辑框：内容超出时内部滚动 */
 #view-adv #adv-text{overflow:auto;white-space:pre;resize:none}
 /* INI 表单化：注释行和空行占位 */
@@ -229,6 +237,20 @@ tr:hover td{background:rgba(255,255,255,.015)}
 .cfg-gw-id select.inp{width:auto;min-width:120px}
 /* DMR 网络：ID 与密码同一行，密码紧随 ID 选择框宽度左右移动 */
 .cfg-idpw{grid-column:1/-1;display:flex;align-items:flex-start;gap:24px;flex-wrap:nowrap;min-width:0}
+/* XLX 网络：启用+密码一行，时隙+重载时间一行，端口排在文件后面 */
+.xlx-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px}
+.xlx-row .xlx-en{flex:0 0 150px}
+.xlx-row .xlx-pw{flex:1 1 220px}
+.xlx-row .xlx-slot{flex:0 0 170px}
+.xlx-row .xlx-reload{flex:0 0 115px;margin-left:35px;min-width:0}
+.xlx-row .xlx-chk{flex:0 0 auto;margin-right:18px}
+.cfg-xl-port{max-width:150px}
+/* 手机版 XLX 网络：时隙减半、端口减 1/3、重载时间减半并右移 35px */
+@media (max-width:860px){
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-slot{flex:0 0 95px}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-row .xlx-reload{flex:0 0 calc(10% + 40px);margin-left:35px;min-width:0}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .cfg-xl-port{max-width:100px}
+}
 .cfg-idpw > .field{min-width:0}
 .cfg-idpw > .cfg-gw-id{flex:0 1 auto}
 .cfg-idpw > .cfg-gw-pw{flex:0 1 auto;min-width:0}
@@ -480,6 +502,12 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .tg-row .tg-slot{color:var(--faint);font-family:var(--mono);font-size:12px}
 .tg-row .btn{margin-left:auto}
 .tg-hint{padding:16px 2px;color:var(--faint);font-size:14px}
+/* 时隙卡片里的「暂无」居中 */
+#tg-list-1 > .tg-hint, #tg-list-2 > .tg-hint,
+#tg-dyn-1 > .tg-hint, #tg-dyn-2 > .tg-hint{text-align:center}
+/* 卡片标题后的读取状态提示（静态组/动态组） */
+#tg-hint, #tg-dyn-hint{display:inline-flex;align-items:center;min-width:0}
+#tg-hint .tg-hint, #tg-dyn-hint .tg-hint{padding:0;font-size:13px}
 /* 静态组：第一行 DMR ID（宽 110）+ API Key，时隙 1/2 左右两列 */
 .tg-cfg{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
 .tg-cfg .field{display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -1093,16 +1121,17 @@ th{font-size:12px}
 #toast.err{border-color:var(--red);background:#1a0f12}
 
 /* ===== 确认弹窗 / API Key 弹窗 ===== */
-#uiModal,#tgKeyModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
+#uiModal,#tgKeyModal,#xlxModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
   background:rgba(3,6,9,.72);backdrop-filter:blur(3px)}
-#uiModal.show,#tgKeyModal.show{display:flex}
-#uiModal .um-box,#tgKeyModal .um-box{width:min(470px,100%);max-height:82vh;display:flex;flex-direction:column;
+#uiModal.show,#tgKeyModal.show,#xlxModal.show{display:flex}
+#uiModal .um-box,#tgKeyModal .um-box,#xlxModal .um-box{width:min(470px,100%);max-height:82vh;display:flex;flex-direction:column;
   background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);
   box-shadow:0 18px 60px rgba(0,0,0,.65);overflow:hidden;animation:umIn .16s ease}
+#xlxModal .um-box{width:min(860px,100%)}
 @keyframes umIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
-#uiModal .um-head,#tgKeyModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
-#uiModal .um-body,#tgKeyModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
-#uiModal .um-foot,#tgKeyModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
+#uiModal .um-head,#tgKeyModal .um-head,#xlxModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
+#uiModal .um-body,#tgKeyModal .um-body,#xlxModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
+#uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
 
 /* ===== overlay ===== */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:45;opacity:0;pointer-events:none;transition:.2s}
@@ -1302,8 +1331,9 @@ th{font-size:12px}
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
         <span style="font-size:16px;font-weight:700">实时日志</span>
         <div style="flex:1"></div>
-        <button class="btn sm ghost" id="logPause">暂停</button>
         <button class="btn sm ghost" id="logClear">清空</button>
+        <button class="btn sm ghost" id="logPause">暂停</button>
+        <button class="btn sm" id="logRestart">重启</button>
       </div>
       <div class="log-toolbar" id="logTabs" style="margin-bottom:8px"></div>
       <div class="logbox" id="logbox" style="height:42vh"></div>
@@ -1489,7 +1519,7 @@ th{font-size:12px}
 
   <!-- ============ 服务控制 ============ -->
   <section class="view" id="view-services">
-    <div class="page-head"><h1>服务控制</h1><p>MMDVMHost 与各网关的启动、停止与开机自启</p></div>
+    <div class="page-head"><h1>服务控制</h1><p>MMDVMHost 与各网关的启动、停止与重启</p></div>
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px">
         <h2 style="font-size:17px">服务列表</h2>
@@ -1609,6 +1639,7 @@ th{font-size:12px}
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <h2 style="font-size:17px;margin:0">动态组</h2>
+        <div id="tg-dyn-hint"></div>
         <div style="flex:1"></div>
       </div>
       <div class="tg-slots">
@@ -1625,11 +1656,10 @@ th{font-size:12px}
     <div class="card">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <h2 style="font-size:17px;margin:0">静态组</h2>
+        <div id="tg-hint"></div>
         <div style="flex:1"></div>
-        <button class="btn sm ghost" id="tg-refresh">刷新</button>
         <button class="btn sm primary" id="tg-save">保存</button>
       </div>
-      <div id="tg-hint"></div>
       <div class="tg-slots">
         <div class="tg-slot-card">
           <div class="tg-slot-head"><span>时隙 1 (TS1)</span></div>
@@ -1682,6 +1712,18 @@ th{font-size:12px}
     <div class="um-foot">
       <button class="btn" id="tg-keycancel" type="button">取消</button>
       <button class="btn primary" id="tg-keysave" type="button">保存</button>
+    </div>
+  </div>
+</div>
+<div id="xlxModal">
+  <div class="um-box">
+    <div class="um-head">编辑 XLXHosts.txt</div>
+    <div class="um-body" style="white-space:normal">
+      <textarea id="xlx-text" class="cfg-sec-text" spellcheck="false" style="height:46vh;min-height:46vh;white-space:pre;overflow:auto"></textarea>
+    </div>
+    <div class="um-foot">
+      <button class="btn" id="xlx-cancel" type="button">取消</button>
+      <button class="btn primary" id="xlx-save" type="button">保存</button>
     </div>
   </div>
 </div>
@@ -1807,7 +1849,12 @@ Name=BM
 Address=4602.master.brandmeister.network
 Port=62031
 Password=xy147258
-TGRewrite=1,1,1,1,9999998
+TGRewrite=1,46000,1,46000,1000
+TGRewrite=1,91,1,91,1
+TGRewrite=1,460000,1,460000,10000
+TGRewrite=2,46000,2,46000,1000
+TGRewrite=2,91,2,91,1
+TGRewrite=2,460000,2,460000,10000
 PassAllPC=1
 
 [DMR Network 2]
@@ -2242,7 +2289,6 @@ async function renderServices(){
         <button class="btn sm ${s.running?'':'primary'}" data-act="start" data-svc="${s.key}" ${s.running?'disabled':''}>启动</button>
         <button class="btn sm danger" data-act="stop" data-svc="${s.key}" ${s.running?'':'disabled'}>停止</button>
         <button class="btn sm" data-act="restart" data-svc="${s.key}">重启</button>
-        <button class="btn sm ghost" data-act="${s.enabled?'disable':'enable'}" data-svc="${s.key}">${s.enabled?'取消自启':'开机自启'}</button>
       </div>
     </div>`).join('');
   $$('#svc-list [data-act]').forEach(b=>b.addEventListener('click', ()=> svcAction(b.dataset.act, b.dataset.svc)));
@@ -2477,11 +2523,14 @@ document.addEventListener('click', (e)=>{
       }
       if(pos >= 0){
         lines.splice(pos, 1);
-        let n = 0;
-        for(let i = sIdx + 1; i < lines.length; i++){
-          if(/^\s*\[/.test(lines[i])) break;
-          const m = lines[i].match(new RegExp('^' + base + '\\d+='));
-          if(m) lines[i] = base + (n++) + '=' + lines[i].slice(m[0].length);
+        /* TG 改写保留原编号，保证与灰色默认提示一一对应；单呼改写仍重新编号 */
+        if(base !== 'TGRewrite'){
+          let n = 0;
+          for(let i = sIdx + 1; i < lines.length; i++){
+            if(/^\s*\[/.test(lines[i])) break;
+            const m = lines[i].match(new RegExp('^' + base + '\\d+='));
+            if(m) lines[i] = base + (n++) + '=' + lines[i].slice(m[0].length);
+          }
         }
         renderSections(lines.join('\n'));
         setDirty(true);
@@ -3059,6 +3108,8 @@ $('#logPause').addEventListener('click', function(){
   logPaused = !logPaused; this.textContent = logPaused?'继续':'暂停';
 });
 $('#logClear').addEventListener('click', clearLog);
+/* 日志卡片：按当前模式重启服务（网关模式重启两个，直连模式只重启 MMDVMHost） */
+$('#logRestart').addEventListener('click', ()=> svcAction('restart', 'mmdvmhost', false, true));
 
 /* ---- 高级：所有 INI 文件原文编辑（一次显示一个） ---- */
 let advCfgs = null, advCurrent = '';
@@ -3161,6 +3212,7 @@ async function openConfig(name){
   }
   const c = CFG_CACHE[name]; if(!c) return;
   cfgCurrent = name; cfgOriginal = c.content; setDirty(false);
+  window._cfgSecOpen = {};
   $('#cfg-editor').style.display='block';
   await loadGwDmrIds(name);
   renderSections(c.content);
@@ -3303,13 +3355,30 @@ const isMoreSpecialTok = k => ['Location','Debug','Options','__PASSALL0__','__PA
 const GW_NET_DEFAULTS = {
   Location: '0',
   Debug: '0',
-  Options: '',
-  TGRewrite0: '1,1,1,1,9999999',
-  TGRewrite1: '2,1,2,1,9999999'
+  Options: ''
+};
+/* DMR 网络的默认 TG 改写规则：只在输入框里以灰色提示显示 */
+const GW_TG_DEFAULTS = {
+  'DMR Network 1': [
+    '1,46000,1,46000,1000',
+    '1,91,1,91,1',
+    '1,460000,1,460000,10000',
+    '2,46000,2,46000,1000',
+    '2,91,2,91,1',
+    '2,460000,2,460000,10000'
+  ],
+  'DMR Network 2': [
+    '1,86000,1,86000,1000',
+    '1,860,1,860,1',
+    '1,860000,1,860000,10000',
+    '2,86000,2,86000,1000',
+    '2,860,2,860,1',
+    '2,860000,2,860000,10000'
+  ]
 };
 /* 改写规则填写说明（标题后「?」展开） */
 const RW_HELP = {
-  TGRewrite: '格式：源时隙,源通话组,目标时隙,目标通话组,范围。例 1,1,1,1,9999999：把时隙 1 上从通话组 1 开始的 9999999 个通话组，转发到时隙 1 的通话组 1 起。时隙填 1 或 2；多个通话组各写一条。',
+  TGRewrite: '格式：源时隙,源通话组,目标时隙,目标通话组,范围。例 1,46000,1,46000,1000：把时隙 1 上从通话组 46000 开始的 1000 个通话组，转发到时隙 1 的通话组 46000 起。时隙填 1 或 2；多个通话组各写一条。灰色的值是默认规则提示，直接输入即可覆盖；删除行后按剩下的规则保存。',
   PCRewrite: '格式：源时隙,源ID,目标时隙,目标ID,范围。例 2,2620000,2,262000,20：把时隙 2 上 ID 2620000 的呼叫，转发到时隙 2 上从 ID 262000 开始的连续 20 个 ID。时隙填 1 或 2；单个 ID 把范围写 1。'
 };
 const GW_HOST_PRESETS = [
@@ -3380,9 +3449,9 @@ function renderSections(content){
   const secs = parseSections(content);
   gwInjectIds(secs);
   window._cfgSecCache = {};
-  /* DMRGateway 的常规/日志/语音/信息段不需要在页面上调整，仅保留在文件中原样写回 */
+  /* DMRGateway 的常规/日志/语音/信息/远程控制/动态组控制/GPSD/APRS 段不在页面展示，仅保留在文件中原样写回 */
   const hideSec = n => {
-    if(cfgCurrent === 'DMRGateway.ini') return ['Info','General','Log','Voice'].includes(n);
+    if(cfgCurrent === 'DMRGateway.ini') return ['Info','General','Log','Voice','Remote Control','Dynamic TG Control','GPSD','APRS'].includes(n);
     /* 主机配置：这些模式与查询段不在页面展示，仍按原内容写回文件 */
     if(cfgCurrent === 'MMDVM.ini') return [
       'Info',
@@ -3408,10 +3477,11 @@ function renderSections(content){
                       .map(x=>x.s);
   $('#cfgSections').innerHTML = viewSecs.map(s=>{
     if(hideSec(s.name)) return '';
-    /* 改写规则：默认的两行始终保留；单呼改写无记录时补一条空行，保证行内有「＋」 */
+    /* 改写规则：没有规则时补一条空行，保证行内有「＋」；已有行（含删除后剩下的）原样保留 */
     if(cfgCurrent === 'DMRGateway.ini' && /^DMR Network\s+\d+$/.test(s.name)){
-      const hasKey = k => s.tokens.some(t=>t.type === 'kv' && t.key === k);
-      ['TGRewrite0','TGRewrite1'].forEach(k=>{ if(!hasKey(k)) s.tokens.push({ type:'kv', key:k, value:'' }); });
+      /* 段里一条 TG 改写都没有时补一条空行方便添加；已有的行（含删除后剩下的）原样保留 */
+      if(!s.tokens.some(t=>t.type === 'kv' && /^TGRewrite\d+$/.test(t.key)))
+        s.tokens.push({ type:'kv', key:'TGRewrite0', value:'' });
       if(!s.tokens.some(t=>t.type === 'kv' && /^PCRewrite\d+$/.test(t.key)))
         s.tokens.push({ type:'kv', key:'PCRewrite0', value:'' });
     }
@@ -3440,6 +3510,7 @@ function renderSections(content){
     }
     const toks = gwViewTokens(s.name, s.tokens);
     const isDmrNetSec = (cfgCurrent === 'DMRGateway.ini' && /^DMR Network\s+\d+$/.test(s.name));
+    const isXlxSec = (cfgCurrent === 'DMRGateway.ini' && s.name === 'XLX Network');
     const isMoreTok = ({t})=> isDmrNetSec && t.type==='kv' && DMR_NET_MAIN_KEYS.indexOf(t.key) < 0;
     const isRwTok = ({t})=> isDmrNetSec && t.type==='kv' && /^(TGRewrite|PCRewrite)\d+$/.test(t.key);
     const renderTok = ({t, i})=>{
@@ -3447,7 +3518,7 @@ function renderSections(content){
         if(isHiddenKey(s.name, t.key)) return '';
         const cn = keyCn(t.key);
         const lab = cn ? `<span>${esc(cn)}</span> <span class="mono" style="color:var(--faint);font-size:12px">${esc(t.key)}</span>` : esc(t.key);
-        if(cfgCurrent === 'DMRGateway.ini' && /^DMR Network\s+\d+$/.test(s.name) && t.key === 'Enabled'){
+        if(cfgCurrent === 'DMRGateway.ini' && (/^DMR Network\s+\d+$/.test(s.name) || s.name === 'XLX Network') && t.key === 'Enabled'){
           const on = String(t.value).trim() === '1';
           return `<div class="field cfg-kv cfg-gw-en" data-tok="${i}">
             <label class="cfg-chk"><input type="checkbox" data-key="${esc(t.key)}"${on ? ' checked' : ''}>
@@ -3489,6 +3560,16 @@ function renderSections(content){
             <select class="inp" data-key="${esc(t.key)}" title="从已保存的 DMR ID 中选择">${opts.map(o=>`<option value="${esc(o.v)}"${o.v===cur?' selected':''}>${esc(o.label)}</option>`).join('')}</select>
           </div>`;
         }
+        if(isXlxSec && t.key === 'Slot'){
+          const cur = String(t.value || '1').trim();
+          return `<div class="field cfg-kv" data-tok="${i}">
+            <label>${lab}</label>
+            <select class="inp" data-key="${esc(t.key)}">
+              <option value="1"${cur === '1' ? ' selected' : ''}>时隙 1</option>
+              <option value="2"${cur === '2' ? ' selected' : ''}>时隙 2</option>
+            </select>
+          </div>`;
+        }
         if(t.key === 'Password'){
           return `<div class="field cfg-kv${(/^DMR Network\s+\d+$/.test(s.name) && cfgCurrent === 'DMRGateway.ini') ? ' cfg-gw-pw' : ''}" data-tok="${i}">
             <label>${lab}</label>
@@ -3521,6 +3602,24 @@ function renderSections(content){
             <input class="inp" data-key="Options" value="${esc(t.value)}" placeholder="留空则不发送">
           </div>`;
         }
+        if(isXlxSec && t.key === 'Port'){
+          return `<div class="field cfg-kv cfg-xl-port" data-tok="${i}">
+            <label>${lab}</label>
+            <input class="inp" data-key="${esc(t.key)}" value="${esc(t.value)}">
+          </div>`;
+        }
+        if(isXlxSec && t.key === 'ReloadTime'){
+          return `<div class="field cfg-kv cfg-xl-reload" data-tok="${i}">
+            <label>${lab}</label>
+            <input class="inp" data-key="${esc(t.key)}" value="${esc(t.value)}">
+          </div>`;
+        }
+        if(isXlxSec && (t.key === 'Debug' || t.key === 'UserControl')){
+          const on = String(t.value).trim() === '1';
+          return `<div class="field cfg-kv more-chk" data-tok="${i}">
+            <label class="cfg-chk"><input type="checkbox" data-key="${esc(t.key)}"${on ? ' checked' : ''}> ${lab}</label>
+          </div>`;
+        }
         /* 改写规则统一在「更多设置」底部按类型分组渲染 */
         /* DMR 网络的「更多设置」：ini 里为空时把默认值以灰色占位显示，点进去即可编辑 */
         const hasDef = isDmrNetSec && (t.key in GW_NET_DEFAULTS);
@@ -3551,8 +3650,25 @@ function renderSections(content){
         ? `<div class="cfg-idpw">${idpwToks.map(renderTok).join('')}</div>`
         : '';
       const head = htmlOf('Enabled');
-      const tail = mainToks.filter(x=>!['Enabled','Id','Password'].includes(x.t.key)).map(renderTok).join('');
-      mainHtml = head + idpw + tail;
+      /* 名称 → 端口 → 地址 的顺序显示 */
+      const tailOrder = ['Name','Port','Address'];
+      const tailToks = mainToks.filter(x=>!['Enabled','Id','Password'].includes(x.t.key));
+      tailToks.sort((a,b)=>{
+        const ia = tailOrder.indexOf(a.t.key), ib = tailOrder.indexOf(b.t.key);
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+      });
+      mainHtml = head + idpw + tailToks.map(renderTok).join('');
+    } else if(isXlxSec){
+      /* XLX 网络：启用+密码一行，时隙+重载时间一行，端口在文件后面 */
+      const byK = k => mainToks.filter(x=>x.t.key === k).map(renderTok).join('');
+      const topKeys = ['Enabled','Password','Slot','ReloadTime','Debug','UserControl','File'];
+      const rest = mainToks.filter(x=>topKeys.indexOf(x.t.key) < 0).map(renderTok).join('');
+      mainHtml =
+        `<div class="xlx-row"><div class="xlx-en">${byK('Enabled')}</div><div class="xlx-pw">${byK('Password')}</div></div>` +
+        `<div class="xlx-row"><div class="xlx-slot">${byK('Slot')}</div><div class="xlx-reload">${byK('ReloadTime')}</div></div>` +
+        (rest ? `<div class="grid cfg-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${rest}</div>` : '') +
+        `<div class="xlx-row" style="margin-top:10px;margin-bottom:0"><div class="xlx-chk">${byK('Debug')}</div><div class="xlx-chk">${byK('UserControl')}</div></div>` +
+        `<div class="xlx-row" style="margin-top:10px;margin-bottom:0"><button type="button" class="btn sm" data-xl-edit>编辑XLXHosts.txt</button></div>`;
     } else {
       mainHtml = mainToks.map(renderTok).join('');
     }
@@ -3570,16 +3686,18 @@ function renderSections(content){
       const arr = toks.filter(x=>x.t.type === 'kv' && new RegExp('^' + base + '\\d+$').test(x.t.key));
       if(!arr.length) return '';
       const nm = keyCn(base) || base;
+      const tgDefs = GW_TG_DEFAULTS[s.name] || [];
       const rows = arr.map((x, idx)=>{
         const isLast = idx === arr.length - 1;
-        /* 带默认值的行（TGRewrite0/1）与各类型第 1 行不可删除；空值时灰色显示默认值 */
-        const def = (x.t.key in GW_NET_DEFAULTS) ? String(GW_NET_DEFAULTS[x.t.key]) : '';
-        const isFixed = !!def || x.t.key === base + '0';
-        const ph = def || (base === 'PCRewrite' ? '2,2620000,2,262000,20' : '1,1,1,1,9999999');
+        const num = parseInt(String(x.t.key).replace(/^\D+/, ''), 10) || 0;
+        /* 默认规则用灰色占位提示；所有行都可删除，删除后按剩下的行保存 */
+        const def = (base === 'TGRewrite' && tgDefs[num]) ? tgDefs[num] : '';
+        const ph = def || (base === 'PCRewrite' ? '2,2620000,2,262000,20' : '');
+        const val = (def && String(x.t.value).trim() === def) ? '' : x.t.value;
         return `<div class="rw-row" data-tok="${x.i}">
-          <input class="inp" data-key="${esc(x.t.key)}" value="${esc(x.t.value)}" placeholder="${esc(ph)}">
+          <input class="inp" data-key="${esc(x.t.key)}" value="${esc(val)}" placeholder="${esc(ph)}">
           <div class="rw-acts">
-            ${isFixed ? '' : `<button type="button" class="btn rw-del" data-del="${esc(x.t.key)}" data-sec="${esc(s.name)}" title="删除${esc(nm)}">−</button>`}
+            <button type="button" class="btn rw-del" data-del="${esc(x.t.key)}" data-sec="${esc(s.name)}" title="删除${esc(nm)}">−</button>
             ${isLast ? `<button type="button" class="btn rw-add" data-add="${base}" data-sec="${esc(s.name)}" title="添加${esc(nm)}">＋</button>` : ''}
           </div>
         </div>`;
@@ -3597,16 +3715,21 @@ function renderSections(content){
     const hasKv = s.tokens.some(t=>t.type==='kv');
     const hasVisible = s.tokens.some(t=>t.type==='kv' && !isHiddenKey(s.name,t.key));
     if(hasKv && !hasVisible) return '';
-    return `<div class="cfg-sec card" style="margin-bottom:12px" data-sec-name="${esc(s.name)}">
-      <div style="display:flex;align-items:center;justify-content:center;margin-bottom:10px;gap:10px">
+    /* 未启用的 DMR 网络默认折叠，点标题展开 */
+    const isDmrSec = /^DMR Network\s+\d+$/.test(s.name);
+    const enTok = s.tokens.find(t=>t.type === 'kv' && t.key === 'Enabled');
+    const secEnabled = enTok ? String(enTok.value).trim() === '1' : true;
+    const secOpen = !!(window._cfgSecOpen || {})[s.name];
+    const collapsed = isDmrSec && !secEnabled && !secOpen;
+    return `<div class="cfg-sec card${collapsed ? ' collapsed' : ''}" style="margin-bottom:12px" data-sec-name="${esc(s.name)}">
+      <div class="${isDmrSec ? 'cfg-sec-h' : ''}" style="display:flex;align-items:center;justify-content:center;margin-bottom:10px;gap:10px">
+        ${isDmrSec ? '<span class="sec-arrow">▾</span>' : ''}
         <div style="display:flex;align-items:baseline;gap:7px;font-weight:700;color:var(--cyan);flex-wrap:wrap;justify-content:center">
           ${secCn(s.name) ? `<span>${esc(secCn(s.name))}</span>` : ''}
           <span class="mono">[${esc(s.name)}]</span>
         </div>
       </div>
-      <div class="grid cfg-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
-        ${mainHtml}
-      </div>
+      ${isXlxSec ? mainHtml : `<div class="grid cfg-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${mainHtml}</div>`}
       ${moreBlock}
     </div>`;
   }).join('').replace(/（/g, '(').replace(/）/g, ')');
@@ -3619,6 +3742,22 @@ function renderSections(content){
       if(e.target.classList && e.target.closest('.cfg-gw-addr')) fitNameSelects(card);
     });
     card.addEventListener('click', (e)=>{
+      /* 点 DMR 网络标题：展开/折叠该段 */
+      const head = e.target.closest('.cfg-sec-h');
+      if(head){
+        const secName = card.dataset.secName || '';
+        if(/^DMR Network\s+\d+$/.test(secName)){
+          const nowCollapsed = card.classList.toggle('collapsed');
+          (window._cfgSecOpen = window._cfgSecOpen || {})[secName] = !nowCollapsed;
+          if(!nowCollapsed) layoutCfgGrids();
+        }
+        return;
+      }
+      /* XLX 网络：弹窗编辑 XLXHosts.txt */
+      if(e.target.closest('[data-xl-edit]')){
+        openXlxEditor();
+        return;
+      }
       /* 密码框旁的查看/隐藏按钮 */
       const eye = e.target.closest('.pw-eye');
       if(eye){
@@ -3952,9 +4091,13 @@ function rebuildContent(keepEmpty){
             : 'PassAllPC1=2\nPassAllTG1=2';
         }
         if(v === '\u0000DROP') return null;
-        /* 新增的改写规则留空时不写入；带默认值的行（TGRewrite0/1）留空则写回默认值 */
-        if(!keepEmpty && /^(TGRewrite|PCRewrite)\d+$/.test(t.key) && String(v).trim() === ''
-           && !(t.key in GW_NET_DEFAULTS)) return null;
+        /* 改写规则留空：输入框为空但文件里原来有值（灰色默认提示）时按原值保存；
+           原本就没有值的空行不写入。删除行后按剩下的行保存 */
+        if(/^(TGRewrite|PCRewrite)\d+$/.test(t.key) && String(v).trim() === ''){
+          const orig = String(t.value ?? '').trim();
+          if(orig) v = orig;
+          else if(!keepEmpty) return null;
+        }
         /* DMR 网络：「更多设置」里没填内容的字段写回默认值 */
         if(/^DMR Network\s+\d+$/.test(name) && String(v).trim() === '' && (t.key in GW_NET_DEFAULTS))
           v = GW_NET_DEFAULTS[t.key];
@@ -5061,14 +5204,17 @@ function startTgTick(){
 async function renderTg(){
   startTgTick();
   const hintEl = $('#tg-hint');
+  const dynHintEl = $('#tg-dyn-hint');
   const l1 = $('#tg-list-1'), l2 = $('#tg-list-2');
   if(hintEl && !hintEl.innerHTML) hintEl.innerHTML = '<div class="tg-hint">正在从 BrandMeister 读取…</div>';
+  if(dynHintEl && !dynHintEl.innerHTML) dynHintEl.innerHTML = '<div class="tg-hint">正在从 BrandMeister 读取…</div>';
   const r = await api('/api/tg');
   const dev = $('#tg-dev');
   if(dev && r && r.deviceId) dev.value = r.deviceId;
   const keyInp = $('#tg-key');
   if(keyInp && r) keyInp.placeholder = r.configured ? '已配置（留空则不修改）' : '未配置';
   const setHint = html=>{ if(hintEl) hintEl.innerHTML = html; };
+  const setDynHint = html=>{ if(dynHintEl) dynHintEl.innerHTML = html; };
   const setList = (el, items)=>{
     if(!el) return;
     el.innerHTML = items.length ? items.map(t=>
@@ -5076,15 +5222,17 @@ async function renderTg(){
       `<button class="btn sm danger" data-del="${esc(t.talkgroup)}" data-slot="${esc(t.slot)}">删除</button></div>`
     ).join('') : '<div class="tg-hint">暂无</div>';
   };
-  if(!r){ setHint('<div class="tg-hint">读取失败</div>'); setList(l1, []); setList(l2, []); return; }
-  if(PREVIEW){ setHint('<div class="tg-hint">预览模式：无法访问设备接口</div>'); return; }
+  if(!r){ setHint('<div class="tg-hint">读取失败</div>'); setDynHint('<div class="tg-hint">读取失败</div>'); setList(l1, []); setList(l2, []); return; }
+  if(PREVIEW){ setHint('<div class="tg-hint">预览模式：无法访问设备接口</div>'); setDynHint('<div class="tg-hint">预览模式：无法访问设备接口</div>'); return; }
   if(r.ok === false){
     setHint(`<div class="tg-hint">${esc(r.error || '读取失败')}</div>`);
+    setDynHint(`<div class="tg-hint">${esc(r.error || '读取失败')}</div>`);
     setList(l1, []); setList(l2, []);
     return;
   }
   const list = Array.isArray(r.talkgroups) ? r.talkgroups : [];
   setHint(r.configured ? '' : '<div class="tg-hint">未配置 API Key：可查看当前静态组，添加/删除需先保存密钥</div>');
+  setDynHint(r.configured ? '' : '<div class="tg-hint">未配置 API Key：动态组需要密钥才能读取</div>');
   setList(l1, list.filter(t=>+t.slot === 1).sort((a,b)=>a.talkgroup-b.talkgroup));
   setList(l2, list.filter(t=>+t.slot === 2).sort((a,b)=>a.talkgroup-b.talkgroup));
   $$('#view-tg [data-del]').forEach(b=>b.addEventListener('click', ()=>tgPost({ act:'del', tg:+b.dataset.del, slot:+b.dataset.slot })));
@@ -5119,6 +5267,17 @@ async function tgPost(body, quiet){
   }
   return j;
 }
+function openXlxEditor(){
+  const m = $('#xlxModal');
+  const t = $('#xlx-text');
+  if(!m || !t) return;
+  t.value = '加载中…';
+  m.classList.add('show');
+  api('/api/xlxhosts').then(r=>{
+    if(r && r.ok) t.value = r.content || '';
+    else t.value = (r && r.error) ? ('读取失败：' + r.error) : '读取失败';
+  }).catch(()=>{ t.value = '读取失败'; });
+}
 function bindTg(){
   /* API Key 弹窗 */
   const apiBtn = $('#tg-apibtn');
@@ -5131,6 +5290,23 @@ function bindTg(){
   const keyCancel = $('#tg-keycancel');
   if(keyCancel) keyCancel.addEventListener('click', closeKey);
   if(keyModal) keyModal.addEventListener('click', e=>{ if(e.target.id === 'tgKeyModal') closeKey(); });
+  /* XLXHosts.txt 编辑弹窗 */
+  const xlxModal = $('#xlxModal');
+  if(xlxModal){
+    const closeXlx = ()=> xlxModal.classList.remove('show');
+    const xlxCancel = $('#xlx-cancel');
+    if(xlxCancel) xlxCancel.addEventListener('click', closeXlx);
+    xlxModal.addEventListener('click', e=>{ if(e.target.id === 'xlxModal') closeXlx(); });
+    const xlxSave = $('#xlx-save');
+    if(xlxSave) xlxSave.addEventListener('click', async ()=>{
+      try{
+        const r = await fetch('/api/xlxhosts', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ content: $('#xlx-text').value }) });
+        const j = await r.json();
+        if(j && j.ok){ toast('XLXHosts.txt 已保存'); closeXlx(); }
+        else toast((j && j.error) || '保存失败', true);
+      }catch(e){ toast('保存失败', true); }
+    });
+  }
   const save = $('#tg-keysave');
   if(save) save.addEventListener('click', async ()=>{
     const dev = $('#tg-dev').value.trim();
@@ -5141,8 +5317,6 @@ function bindTg(){
     const res = await tgPost(body);
     if(res && res.ok){ closeKey(); $('#tg-key').value = ''; }
   });
-  const refresh = $('#tg-refresh');
-  if(refresh) refresh.addEventListener('click', ()=>renderTg());
   /* 动态组：按 时隙 清空 */
   $$('#view-tg [data-dropslot]').forEach(btn=>btn.addEventListener('click', async ()=>{
     const slot = +btn.dataset.dropslot;
