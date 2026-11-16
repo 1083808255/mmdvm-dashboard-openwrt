@@ -544,6 +544,7 @@ input.num:focus{outline:none;border-color:var(--accent)}
   display:flex;align-items:center;justify-content:center;background:#1b2734}
 .live-flag svg{width:100%;height:100%;display:block}
 .live-flag .flag-emoji{font-size:38px;line-height:1;font-family:'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif}
+.live-flag .flag-img,.lh-flag .flag-img{width:100%;height:100%;object-fit:cover;display:block}
 .live-body{flex:1;min-width:180px}
 .live-top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .live-call{font-size:46px;font-weight:800;font-family:var(--mono);letter-spacing:.02em;line-height:1.05;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
@@ -694,6 +695,7 @@ th{font-size:12px}
   display:flex;align-items:center;justify-content:center;background:#1b2734}
 .live-flag svg{width:100%;height:100%;display:block}
 .live-flag .flag-emoji{font-size:38px;line-height:1;font-family:'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif}
+.live-flag .flag-img,.lh-flag .flag-img{width:100%;height:100%;object-fit:cover;display:block}
 .live-body{flex:1;min-width:180px}
 .live-top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .live-call{font-size:46px;font-weight:800;font-family:var(--mono);letter-spacing:.02em;line-height:1.05;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
@@ -4194,12 +4196,13 @@ const CALL_RULES = [
   [/^E7/, '波黑', 'ba'],
   [/^ZA/, '阿尔巴尼亚', 'al'],
   [/^9H/, '马耳他', 'mt'],
+  [/^9[YZ]/, '特立尼达和多巴哥', 'tt'],
   [/^5B/, '塞浦路斯', 'cy'],
   [/^(4J|4K)/, '阿塞拜疆', 'az'],
   [/^4L/, '格鲁吉亚', 'ge'],
   [/^EK/, '亚美尼亚', 'am'],
   [/^UN/, '哈萨克斯坦', 'kz'],
-  [/^UZ/, '乌兹别克斯坦', 'uz'],
+  [/^U[J-M]/, '乌兹别克斯坦', 'uz'],
   [/^EX/, '吉尔吉斯斯坦', 'kg'],
   [/^EY/, '塔吉克斯坦', 'tj'],
   [/^EZ/, '土库曼斯坦', 'tm'],
@@ -4231,15 +4234,16 @@ const CALL_RULES = [
   [/^D[A-R]/, '德国', 'de'],
   [/^I/, '意大利', 'it'],
   [/^ES/, '爱沙尼亚', 'ee'],
-  [/^E[ABCDH]/, '西班牙', 'es'],
-  [/^C[QT]/, '葡萄牙', 'pt'],
+  [/^E[A-H]/, '西班牙', 'es'],
+  [/^C[Q-U]/, '葡萄牙', 'pt'],
   [/^P[A-I]/, '荷兰', 'nl'],
   [/^(O[UZ]|5[PQ])/, '丹麦', 'dk'],
   [/^O[N-T]/, '比利时', 'be'],
   [/^LX/, '卢森堡', 'lu'],
+  [/^HB0/, '列支敦士登', 'li'],
   [/^H[BE]/, '瑞士', 'ch'],
   [/^OE/, '奥地利', 'at'],
-  [/^(S[OPQN]|3Z)/, '波兰', 'pl'],
+  [/^(S[OPQN]|3Z|HF)/, '波兰', 'pl'],
   [/^S[A-M]/, '瑞典', 'se'],
   [/^L[A-N]/, '挪威', 'no'],
   [/^O[F-J]/, '芬兰', 'fi'],
@@ -4272,7 +4276,7 @@ const CALL_RULES = [
   [/^(A[P-S]|6[P-S])/, '巴基斯坦', 'pk'],
   [/^S[23]/, '孟加拉', 'bd'],
   [/^4S/, '斯里兰卡', 'lk'],
-  [/^(P[PYU]|Z[V-Z])/, '巴西', 'br'],
+  [/^(P[P-Y]|Z[V-Z])/, '巴西', 'br'],
   [/^(L[O-W]|A[YZ])/, '阿根廷', 'ar'],
   [/^(C[A-E]|X[Q-R]|3G)/, '智利', 'cl'],
   [/^(X[EF]|4[A-C]|6[D-J])/, '墨西哥', 'mx']
@@ -4293,7 +4297,12 @@ function flagForCallsign(call, id){
   if(p === '46' || p === '86') return FLAGS['中国'];
   const info = callInfo(call);
   if(FLAGS[info.name]) return FLAGS[info.name];
-  if(info.iso) return `<span class="flag-emoji" title="${esc(info.name)}">${isoFlagEmoji(info.iso)}</span>`;
+  if(info.iso){
+    const em = isoFlagEmoji(info.iso);
+    /* 没有内置 SVG 的国家用图片，Windows 不支持国旗 emoji（会显示成字母），这里用 flagcdn 兜底 */
+    return `<img class="flag-img" src="https://flagcdn.com/w80/${info.iso}.png" alt="${esc(info.name)}" title="${esc(info.name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">` +
+           `<span class="flag-emoji" style="display:none" title="${esc(info.name)}">${em}</span>`;
+  }
   return FLAGS['未知'];
 }
 const addrIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>`;
