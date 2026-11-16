@@ -1880,12 +1880,13 @@ function otaLinks(list) {
 	}
 }
 function otaInstallFrom(dir, endpoints, version) {
-	otaInstallFile(dir + "/app.html", "/www-dash/app.html", "0644");
-	otaInstallFile(dir + "/index.html", "/www-dash/index.html", "0644");
-	otaInstallFile(dir + "/api/api.uc", "/www-dash/api/api.uc", "0755");
+	let ok = otaInstallFile(dir + "/app.html", "/www-dash/app.html", "0644");
+	if (!otaInstallFile(dir + "/index.html", "/www-dash/index.html", "0644")) ok = false;
+	if (!otaInstallFile(dir + "/api/api.uc", "/www-dash/api/api.uc", "0755")) ok = false;
 	if (length(version)) FS.writefile("/www-dash/VERSION", version + "\n");
 	else otaInstallFile(dir + "/VERSION", "/www-dash/VERSION", "0644");
 	otaLinks(endpoints);
+	return ok;
 }
 function otaBackup() {
 	let f = "/root/dashboard-backup-" + time() + ".tar.gz";
@@ -1898,6 +1899,23 @@ function otaPrune() {
 	if (!length(out)) return;
 	let a = split(out, "\n");
 	for (let i = 5; i < length(a); i++) sh("rm -f " + sq(trim(a[i])));
+}
+/* 安装后自检：页面文件完整，新 API 能正常响应且版本号正确 */
+function otaHealth(ver) {
+	let ast = FS.stat("/www-dash/app.html");
+	if (ast == null || ast.size < 10000) return false;
+	let html = FS.readfile("/www-dash/app.html");
+	if (html == null || index(html, "</html>") < 0) return false;
+	let f = OTA_DIR + "/health.json";
+	sh("rm -f " + sq(f));
+	sh("uclient-fetch -q -T 10 -O " + sq(f) + " 'http://127.0.0.1/api/ota?act=info' 2>/dev/null");
+	let d = FS.readfile(f);
+	if (d == null || !length(trim(d))) return false;
+	let j = null;
+	try { j = json(d); } catch (e) { j = null; }
+	if (type(j) != "object" || j == null || !(j.ok ?? false)) return false;
+	if (length(ver) && trim(j.current ?? "") != ver) return false;
+	return true;
 }
 /* 版本比较：V0.<数字> 按数字大小比较，其它格式退回字符串比较 */
 function otaNewer(a, b) {
@@ -1967,14 +1985,31 @@ function cmdOta() {
 		}
 		let stage = OTA_DIR + "/stage";
 		sh("mkdir -p " + sq(stage) + " && tar -xzf " + sq(pkg) + " -C " + sq(stage) + " 2>/dev/null");
+		/* 安装前先检查新 api.uc 语法，避免把接口文件写坏 */
+		let chk = sh("ucode -c -o " + sq(OTA_DIR + "/syntax.ucb") + " " + sq(stage + "/api/api.uc") + " 2>&1; echo EXIT:$?");
+		if (index(chk, "EXIT:0") < 0) return fail("更新包内 api.uc 未通过语法检查，已中止安装");
 		let bak = otaBackup();
 		let eps = (type(m.endpoints) == "array") ? m.endpoints : DASH_ENDPOINTS;
-		otaInstallFrom(stage, eps, trim(m.version ?? ""));
+		let nv = trim(m.version ?? "");
+		let insOk = otaInstallFrom(stage, eps, nv);
+		/* 安装后自检：文件替换失败或新接口异常时，用刚才的备份自动回滚 */
+		if (!insOk || !otaHealth(nv)) {
+			if (length(bak)) {
+				let rs = OTA_DIR + "/rollback";
+				sh("mkdir -p " + sq(rs));
+				sh("tar -xzf " + sq(bak) + " -C " + sq(rs) + " 2>/dev/null");
+				otaInstallFrom(rs, DASH_ENDPOINTS, "");
+				sh("rm -rf " + sq(OTA_DIR));
+				return fail("安装后自检失败，已自动回滚到上一版本");
+			}
+			sh("rm -rf " + sq(OTA_DIR));
+			return fail("安装后自检失败，且没有可用备份，请手动处理");
+		}
 		otaPrune();
-		let c = otaConf(); c.last = time(); c.lastVersion = trim(m.version ?? "");
+		let c = otaConf(); c.last = time(); c.lastVersion = nv;
 		FS.writefile(OTA_CONF, sprintf("%J", c) + "\n");
 		sh("rm -rf " + sq(OTA_DIR));
-		return out({ ok: true, version: trim(m.version ?? ""), backup: length(bak) > 0 });
+		return out({ ok: true, version: nv, backup: length(bak) > 0, verified: true });
 	}
 	if (act == "rollback") {
 		if (method != "POST") return fail("需要 POST");
