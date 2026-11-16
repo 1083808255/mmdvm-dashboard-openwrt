@@ -1854,18 +1854,12 @@ th{font-size:12px}
     <div class="um-head">仪表盘更新</div>
     <div class="um-body" style="white-space:normal">
       <p style="margin:0 0 12px">只更新网页界面和 API，不重启设备。安装前会校验 sha256，并自动保留上一版本用于回滚。</p>
-      <div class="field" style="margin-bottom:10px"><label>当前版本</label><span id="ota-m-cur" class="mono">—</span></div>
-      <div class="field" style="margin-bottom:10px;display:none"><label>更新源 <small>(manifest)</small></label>
-        <input id="ota-m-src" class="inp" type="text" autocomplete="off"></div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn" id="ota-m-check" type="button">检查更新</button>
-        <button class="btn primary" id="ota-m-install" type="button" disabled>安装更新</button>
-        <button class="btn" id="ota-m-rollback" type="button" disabled>回滚上一版本</button>
-        <button class="btn" id="ota-m-save" type="button" style="display:none">保存更新源</button>
-      </div>
-      <div id="ota-m-msg" style="color:var(--muted);font-size:14px;line-height:1.6;min-height:20px;margin-top:10px;white-space:pre-line"></div>
+      <div id="ota-m-msg" style="color:var(--muted);font-size:14px;line-height:1.6;min-height:20px;white-space:pre-line"></div>
     </div>
-    <div class="um-foot">
+    <div class="um-foot" style="flex-wrap:wrap">
+      <button class="btn" id="ota-m-check" type="button">检查更新</button>
+      <button class="btn primary" id="ota-m-install" type="button" disabled>安装更新</button>
+      <button class="btn" id="ota-m-rollback" type="button" disabled>回滚上一版本</button>
       <button class="btn" id="ota-m-close" type="button">关闭</button>
     </div>
   </div>
@@ -2435,9 +2429,8 @@ async function radioCheckOta(){
   /* 当前版本只显示 OTA 版本（即原括号内的版本号） */
   if(verEl && j && j.current) verEl.textContent = j.current;
   if(j && j.updateAvailable){
-    st.textContent = '有新版本 ' + j.latest + (j.notes ? '\n' + j.notes : '');
+    st.textContent = '有更新';
     st.style.color = 'var(--amber)';
-    st.style.whiteSpace = 'pre-line';
     b.classList.add('primary');
   }else if(j){
     st.textContent = '已是最新';
@@ -2454,6 +2447,12 @@ function otaModalMsg(t, bad){
   el.textContent = t || '';
   el.style.color = bad ? 'var(--red)' : 'var(--muted)';
 }
+/* 更新说明按条目拆行并编号 */
+function otaNotesText(notes){
+  const raw = (notes || '').trim();
+  if(!raw) return '';
+  return raw.split(/\r?\n|；|;/).map(s=>s.trim()).filter(Boolean).map((s,i)=>(i+1) + '. ' + s).join('\n');
+}
 function openOtaModal(){
   const m = $('#otaModal');
   if(!m) return;
@@ -2461,15 +2460,14 @@ function openOtaModal(){
   $('#ota-m-install').disabled = true;
   m.classList.add('show');
   api('/api/ota?act=info').then(oi=>{
-    $('#ota-m-cur').textContent = oi.current || 'unknown';
-    $('#ota-m-src').value = oi.source || '';
     $('#ota-m-rollback').disabled = !oi.hasBackup;
   }).catch(()=>{});
   api('/api/ota?act=check').then(j=>{
     if(!j || !j.ok){ otaModalMsg((j && j.error) || '检查失败', true); return; }
     radioOtaCache = { t: Date.now(), data: j };
     if(j.updateAvailable){
-      otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (j.notes ? '\n' + j.notes : ''));
+      const nt = otaNotesText(j.notes);
+      otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (nt ? '\n' + nt : ''));
       $('#ota-m-install').disabled = false;
     }else{
       otaModalMsg('已是最新版本 ' + j.current);
@@ -2482,17 +2480,6 @@ function bindOtaModal(){
   if(!m) return;
   $('#ota-m-close').addEventListener('click', ()=>m.classList.remove('show'));
   m.addEventListener('click', e=>{ if(e.target === m) m.classList.remove('show'); });
-  $('#ota-m-save').addEventListener('click', async ()=>{
-    const url = $('#ota-m-src').value.trim();
-    if(!url){ otaModalMsg('请填写更新源地址', true); return; }
-    const b = $('#ota-m-save'); b.disabled = true;
-    try{
-      const j = await fetch('/api/ota?act=seturl&url=' + encodeURIComponent(url), { method:'POST' }).then(r=>r.json());
-      if(j.ok){ otaModalMsg('更新源已保存'); radioOtaCache = { t: 0, data: null }; }
-      else otaModalMsg(j.error || '保存失败', true);
-    }catch(e){ otaModalMsg('保存失败', true); }
-    b.disabled = false;
-  });
   $('#ota-m-check').addEventListener('click', async ()=>{
     const b = $('#ota-m-check'), old = b.textContent;
     b.disabled = true; b.textContent = '检查中…';
@@ -2502,7 +2489,8 @@ function bindOtaModal(){
       else{
         radioOtaCache = { t: Date.now(), data: j };
         if(j.updateAvailable){
-          otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (j.notes ? '\n' + j.notes : ''));
+          const nt = otaNotesText(j.notes);
+          otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (nt ? '\n' + nt : ''));
           $('#ota-m-install').disabled = false;
         }else{
           otaModalMsg('已是最新版本 ' + j.current);
@@ -5815,7 +5803,8 @@ async function renderSystem(){
       if(!j.ok){ otaMsg(j.error || '检查失败', true); $('#ota-install').disabled = true; return; }
       otaLatest = j;
       if(j.updateAvailable){
-        otaMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (j.notes ? '\n' + j.notes : ''));
+        const nt = otaNotesText(j.notes);
+        otaMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (nt ? '\n' + nt : ''));
         $('#ota-install').disabled = false;
       }else{
         otaMsg('已是最新版本 ' + j.current);
