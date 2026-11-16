@@ -1242,17 +1242,18 @@ th{font-size:12px}
 #toast.err{border-color:var(--red);background:#1a0f12}
 
 /* ===== 确认弹窗 / API Key 弹窗 ===== */
-#uiModal,#tgKeyModal,#xlxModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
+#uiModal,#tgKeyModal,#xlxModal,#otaModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
   background:rgba(3,6,9,.72);backdrop-filter:blur(3px)}
-#uiModal.show,#tgKeyModal.show,#xlxModal.show{display:flex}
-#uiModal .um-box,#tgKeyModal .um-box,#xlxModal .um-box{width:min(470px,100%);max-height:82vh;display:flex;flex-direction:column;
+#uiModal.show,#tgKeyModal.show,#xlxModal.show,#otaModal.show{display:flex}
+#uiModal .um-box,#tgKeyModal .um-box,#xlxModal .um-box,#otaModal .um-box{width:min(470px,100%);max-height:82vh;display:flex;flex-direction:column;
   background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);
   box-shadow:0 18px 60px rgba(0,0,0,.65);overflow:hidden;animation:umIn .16s ease}
 #xlxModal .um-box{width:min(860px,100%)}
+#otaModal .um-box{width:min(560px,100%)}
 @keyframes umIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
-#uiModal .um-head,#tgKeyModal .um-head,#xlxModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
-#uiModal .um-body,#tgKeyModal .um-body,#xlxModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
-#uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
+#uiModal .um-head,#tgKeyModal .um-head,#xlxModal .um-head,#otaModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
+#uiModal .um-body,#tgKeyModal .um-body,#xlxModal .um-body,#otaModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
+#uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot,#otaModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
 
 /* ===== overlay ===== */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:45;opacity:0;pointer-events:none;transition:.2s}
@@ -1848,6 +1849,27 @@ th{font-size:12px}
     </div>
   </div>
 </div>
+<div id="otaModal">
+  <div class="um-box">
+    <div class="um-head">仪表盘更新</div>
+    <div class="um-body" style="white-space:normal">
+      <p style="margin:0 0 12px">只更新网页界面和 API，不重启设备。安装前会校验 sha256，并自动保留上一版本用于回滚。</p>
+      <div class="field" style="margin-bottom:10px"><label>当前版本</label><span id="ota-m-cur" class="mono">—</span></div>
+      <div class="field" style="margin-bottom:10px"><label>更新源 <small>(manifest)</small></label>
+        <input id="ota-m-src" class="inp" type="text" autocomplete="off"></div>
+      <div id="ota-m-msg" style="color:var(--muted);font-size:14px;line-height:1.6;min-height:20px;margin-bottom:10px;white-space:pre-line"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn" id="ota-m-check" type="button">检查更新</button>
+        <button class="btn primary" id="ota-m-install" type="button" disabled>安装更新</button>
+        <button class="btn" id="ota-m-rollback" type="button" disabled>回滚上一版本</button>
+        <button class="btn" id="ota-m-save" type="button">保存更新源</button>
+      </div>
+    </div>
+    <div class="um-foot">
+      <button class="btn" id="ota-m-close" type="button">关闭</button>
+    </div>
+  </div>
+</div>
 
 
 <script>
@@ -2389,9 +2411,126 @@ async function renderRadio(){
     ['TX 频率', `${fTx} <small style="color:var(--muted)">MHz</small>`],
     ['Host 版本', esc((m.version||'—').replace('MMDVMHost-',''))],
     ['DMR 网关版本', esc((m.gwVersion||'—').replace('DMRGateway-',''))],
-    ['Dashboard 版本', esc(dashVer())],
+    ['Dashboard 版本', `<span>${esc(dashVer())}</span> <span id="radio-ota-state" style="margin-left:8px;font-size:13px"></span><button class="btn sm" id="radio-ota-btn" type="button" style="margin-left:8px">更新</button>`],
   ];
   $('#radio-table').innerHTML = rows.map(([k,v])=>`<tr><td>${k}</td><td class="mono">${v}</td></tr>`).join('');
+  const otaBtn = $('#radio-ota-btn');
+  if(otaBtn) otaBtn.addEventListener('click', openOtaModal);
+  radioCheckOta();
+}
+
+/* ---- 电台信息：仪表盘 OTA 状态与更新弹窗 ---- */
+let radioOtaCache = { t: 0, data: null };
+async function radioCheckOta(){
+  if(!radioOtaCache.data || Date.now() - radioOtaCache.t > 10 * 60 * 1000){
+    try{
+      const j = await api('/api/ota?act=check');
+      radioOtaCache = { t: Date.now(), data: (j && j.ok) ? j : null };
+    }catch(e){ radioOtaCache = { t: Date.now(), data: null }; }
+  }
+  const st = $('#radio-ota-state'), b = $('#radio-ota-btn');
+  if(!st || !b) return;
+  const j = radioOtaCache.data;
+  if(j && j.updateAvailable){
+    st.textContent = '有新版本 ' + j.latest;
+    st.style.color = 'var(--amber)';
+    b.classList.add('primary');
+  }else if(j){
+    st.textContent = '已是最新';
+    st.style.color = 'var(--muted)';
+    b.classList.remove('primary');
+  }else{
+    st.textContent = '';
+    b.classList.remove('primary');
+  }
+}
+function otaModalMsg(t, bad){
+  const el = $('#ota-m-msg');
+  if(!el) return;
+  el.textContent = t || '';
+  el.style.color = bad ? 'var(--red)' : 'var(--muted)';
+}
+function openOtaModal(){
+  const m = $('#otaModal');
+  if(!m) return;
+  otaModalMsg('正在检查更新…');
+  $('#ota-m-install').disabled = true;
+  m.classList.add('show');
+  api('/api/ota?act=info').then(oi=>{
+    $('#ota-m-cur').textContent = oi.current || 'unknown';
+    $('#ota-m-src').value = oi.source || '';
+    $('#ota-m-rollback').disabled = !oi.hasBackup;
+  }).catch(()=>{});
+  api('/api/ota?act=check').then(j=>{
+    if(!j || !j.ok){ otaModalMsg((j && j.error) || '检查失败', true); return; }
+    radioOtaCache = { t: Date.now(), data: j };
+    if(j.updateAvailable){
+      otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (j.notes ? '\n' + j.notes : ''));
+      $('#ota-m-install').disabled = false;
+    }else{
+      otaModalMsg('已是最新版本 ' + j.current);
+      $('#ota-m-install').disabled = true;
+    }
+  }).catch(()=>otaModalMsg('检查失败', true));
+}
+function bindOtaModal(){
+  const m = $('#otaModal');
+  if(!m) return;
+  $('#ota-m-close').addEventListener('click', ()=>m.classList.remove('show'));
+  m.addEventListener('click', e=>{ if(e.target === m) m.classList.remove('show'); });
+  $('#ota-m-save').addEventListener('click', async ()=>{
+    const url = $('#ota-m-src').value.trim();
+    if(!url){ otaModalMsg('请填写更新源地址', true); return; }
+    const b = $('#ota-m-save'); b.disabled = true;
+    try{
+      const j = await fetch('/api/ota?act=seturl&url=' + encodeURIComponent(url), { method:'POST' }).then(r=>r.json());
+      if(j.ok){ otaModalMsg('更新源已保存'); radioOtaCache = { t: 0, data: null }; }
+      else otaModalMsg(j.error || '保存失败', true);
+    }catch(e){ otaModalMsg('保存失败', true); }
+    b.disabled = false;
+  });
+  $('#ota-m-check').addEventListener('click', async ()=>{
+    const b = $('#ota-m-check'), old = b.textContent;
+    b.disabled = true; b.textContent = '检查中…';
+    try{
+      const j = await api('/api/ota?act=check');
+      if(!j.ok){ otaModalMsg(j.error || '检查失败', true); $('#ota-m-install').disabled = true; }
+      else{
+        radioOtaCache = { t: Date.now(), data: j };
+        if(j.updateAvailable){
+          otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (j.notes ? '\n' + j.notes : ''));
+          $('#ota-m-install').disabled = false;
+        }else{
+          otaModalMsg('已是最新版本 ' + j.current);
+          $('#ota-m-install').disabled = true;
+        }
+      }
+    }catch(e){ otaModalMsg('检查失败', true); }
+    b.disabled = false; b.textContent = old;
+  });
+  $('#ota-m-install').addEventListener('click', async ()=>{
+    if(!(await uiConfirm('确定安装仪表盘更新吗？安装过程中请勿关闭页面。', { title:'仪表盘更新', okText:'安装' }))) return;
+    const b = $('#ota-m-install'); b.disabled = true; b.textContent = '安装中…';
+    otaModalMsg('正在下载并校验更新包…');
+    try{
+      const j = await fetch('/api/ota?act=install', { method:'POST' }).then(r=>r.json());
+      if(j.ok){
+        otaModalMsg('已更新到 ' + (j.version || '新版本') + '，页面即将刷新…');
+        setTimeout(()=>location.reload(), 1200);
+      }else{ otaModalMsg(j.error || '安装失败', true); b.disabled = false; b.textContent = '安装更新'; }
+    }catch(e){ otaModalMsg('安装失败', true); b.disabled = false; b.textContent = '安装更新'; }
+  });
+  $('#ota-m-rollback').addEventListener('click', async ()=>{
+    if(!(await uiConfirm('确定回滚到上一版本的仪表盘吗？', { title:'回滚仪表盘', okText:'回滚' }))) return;
+    const b = $('#ota-m-rollback'); b.disabled = true;
+    try{
+      const j = await fetch('/api/ota?act=rollback', { method:'POST' }).then(r=>r.json());
+      if(j.ok){
+        otaModalMsg('已回滚到 ' + (j.version || '上一版本') + '，页面即将刷新…');
+        setTimeout(()=>location.reload(), 1200);
+      }else{ otaModalMsg(j.error || '回滚失败', true); b.disabled = false; }
+    }catch(e){ otaModalMsg('回滚失败', true); b.disabled = false; }
+  });
 }
 
 /* ---- 服务控制 ---- */
@@ -5713,6 +5852,7 @@ async function renderSystem(){
 /* ---------- 启动 ---------- */
 bindCal();
 bindTg();
+bindOtaModal();
 window.addEventListener('DOMContentLoaded', route);
 /* 首次加载（含手动刷新网页）带 ping=1，强制做一次 ping 测试 */
 api('/api/status?ping=1');
