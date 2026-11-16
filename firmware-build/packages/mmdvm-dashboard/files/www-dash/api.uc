@@ -1755,6 +1755,7 @@ let pi = pathinfo();
 
 const OTA_CONF = "/etc/mmdvm/dashboard-ota.json";
 const OTA_DIR = "/tmp/dashboard-ota";
+const OTA_CACHE = "/tmp/dashboard-ota-cache.json";
 const OTA_DEFAULT_SRC = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
 const DASH_ENDPOINTS = ["basic","calibration","configs","lastheard","lhclear","live","log","ota","page","ports","services","status","system","tg","xlxhosts"];
 
@@ -1779,9 +1780,11 @@ function dashVersion() {
 	return (v == null) ? "unknown" : (trim(v) || "unknown");
 }
 function otaFetch(url) {
-	/* 用固件自带的 uclient-fetch（curl 不一定预装） */
+	/* 用固件自带的 uclient-fetch（curl 不一定预装）；加时间戳参数避开 CDN 缓存 */
 	let f = "/tmp/dashboard-ota-manifest.json";
-	sh("uclient-fetch -q -T 20 -O " + sq(f) + " " + sq(url) + " 2>/dev/null");
+	let u = url + ((index(url, "?") >= 0) ? "&" : "?") + "t=" + time();
+	sh("rm -f " + sq(f));
+	sh("uclient-fetch -q -T 20 -O " + sq(f) + " " + sq(u) + " 2>/dev/null");
 	let o = FS.readfile(f);
 	if (o == null || !length(trim(o))) return null;
 	let v = null;
@@ -1799,6 +1802,27 @@ function otaFetch(url) {
 		return (type(m) == "object" && m != null) ? m : null;
 	}
 	return v;
+}
+/* 清单短时缓存：正常检查走缓存，减少 GitHub API 调用；拉取失败时退回旧缓存 */
+function otaCacheGet(ttl, url) {
+	let d = FS.readfile(OTA_CACHE);
+	if (d == null) return null;
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	if (type(v) != "object" || v == null) return null;
+	if ((v.url ?? "") != url) return null;
+	if (ttl > 0 && (time() - (+(v.t ?? 0))) > ttl) return null;
+	return (type(v.m) == "object") ? v.m : null;
+}
+function otaCachePut(url, m) {
+	FS.writefile(OTA_CACHE, sprintf("%J", { t: time(), url: url, m: m }) + "\n");
+}
+function otaManifest(url) {
+	let c = otaCacheGet(300, url);
+	if (c != null) return c;
+	let m = otaFetch(url);
+	if (m != null) { otaCachePut(url, m); return m; }
+	return otaCacheGet(0, url);
 }
 /* 清单里的 url 可以是相对路径，按清单地址所在目录拼接 */
 function otaAbs(base, u) {
@@ -1869,7 +1893,7 @@ function cmdOta() {
 	}
 	if (act == "check") {
 		let src = otaSource();
-		let m = otaFetch(src);
+		let m = otaManifest(src);
 		if (m == null) return fail("无法获取更新清单：" + src);
 		let cur = dashVersion();
 		let latest = trim(m.version ?? "");
@@ -1881,7 +1905,7 @@ function cmdOta() {
 	if (act == "install") {
 		if (method != "POST") return fail("需要 POST");
 		let src = otaSource();
-		let m = otaFetch(src);
+		let m = otaManifest(src);
 		if (m == null) return fail("无法获取更新清单");
 		let u = otaAbs(src, trim(m.url ?? ""));
 		if (!length(u)) return fail("更新清单缺少 url");
