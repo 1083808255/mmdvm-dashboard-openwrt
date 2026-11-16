@@ -1755,7 +1755,7 @@ let pi = pathinfo();
 
 const OTA_CONF = "/etc/mmdvm/dashboard-ota.json";
 const OTA_DIR = "/tmp/dashboard-ota";
-const OTA_DEFAULT_SRC = "http://192.168.8.200:8088/dashboard.json";
+const OTA_DEFAULT_SRC = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
 const DASH_ENDPOINTS = ["basic","calibration","configs","lastheard","lhclear","live","log","ota","page","ports","services","status","system","tg","xlxhosts"];
 
 function sq(s) {
@@ -1786,7 +1786,19 @@ function otaFetch(url) {
 	if (o == null || !length(trim(o))) return null;
 	let v = null;
 	try { v = json(o); } catch (e) { v = null; }
-	return (type(v) == "object" && v != null) ? v : null;
+	if (type(v) != "object" || v == null) return null;
+	/* GitHub contents API 返回 base64 内容，解码后再解析清单 */
+	if (index(url, "api.github.com") >= 0 && v.content != null) {
+		let b = "";
+		for (let p in split(v.content, "\n")) b = b + trim(p);
+		let t = null;
+		try { t = b64dec(b); } catch (e) { t = null; }
+		if (t == null) return null;
+		let m = null;
+		try { m = json(t); } catch (e) { m = null; }
+		return (type(m) == "object" && m != null) ? m : null;
+	}
+	return v;
 }
 /* 清单里的 url 可以是相对路径，按清单地址所在目录拼接 */
 function otaAbs(base, u) {

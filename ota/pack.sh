@@ -11,6 +11,8 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 VER=${1:-$(cat "$ROOT/dashboard/VERSION")}
 NOTES=${2:-"仪表盘更新 $VER"}
+# 更新包下载地址前缀（GitHub 仓库通过 jsDelivr 分发）
+BASE=${OTA_BASE_URL:-https://cdn.jsdelivr.net/gh/1083808255/dashboard-ota@main}
 OUT="$ROOT/ota/dist"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
@@ -29,7 +31,7 @@ SIZE=$(wc -c < "$TAR" | tr -d ' ')
 cat > "$OUT/dashboard.json" <<EOF
 {
   "version": "$VER",
-  "url": "dashboard-$VER.tar.gz",
+  "url": "$BASE/dashboard-$VER.tar.gz",
   "sha256": "$SHA",
   "size": $SIZE,
   "notes": "$NOTES",

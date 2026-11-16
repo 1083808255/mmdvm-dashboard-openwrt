@@ -26,6 +26,9 @@ openwrt/luci-redirect.html
 # 编译产物（固件镜像等，体积大，不入库）
 firmware/
 
+# OTA 发布产物（提交到独立的 dashboard-ota 仓库）
+ota/dist/
+
 # 通用
 *.bak
 *.bak-*
