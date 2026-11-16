@@ -183,7 +183,7 @@ reboot
 OpenWrt 默认地址是 **192.168.1.1**，不是小米的 192.168.31.1。
 
 1. 电脑网线接路由器 **LAN1 或 LAN2**，网卡设为自动获取 IP（DHCP）。
-2. 浏览器打开 <http://192.168.1.1>。本固件同时装了仪表盘和 LuCI，二者默认都想用 80 端口，**先按下面步骤把 LuCI 挪到 8080**。
+2. 浏览器打开 <http://192.168.1.1>。本固件首次启动会自动把 LuCI 主站点从 80 挪到 **8080**，80 端口留给 MMDVM 仪表盘，**不需要手动改端口**。
 
 SSH 登录（初始 root 无密码）：
 
@@ -197,11 +197,11 @@ ssh root@192.168.1.1
 passwd
 ```
 
-把 LuCI 主站点移到 8080，80 留给 MMDVM 仪表盘：
+只有在「保留了旧配置升级」或端口仍被 LuCI 占用时，才需要手动执行：
 
 ```sh
 uci set uhttpd.main.listen_http='0.0.0.0:8080'
-uci set uhttpd.main.listen_http='[::]:8080'
+uci add_list uhttpd.main.listen_http='[::]:8080'
 uci commit uhttpd
 /etc/init.d/uhttpd restart
 ```
@@ -366,7 +366,7 @@ mtd write /tmp/breed-mt7621-xiaomi-r3g.bin Bootloader
 | `miwifi_ssh.bin` 装不上 | U 盘根目录不能同时有 `miwifi.bin`；按住 reset 到黄灯闪再松手 |
 | SSH 密码错误 | 以 `d.miwifi.com/rom/ssh` 页面给出的密码为准；重新申请一次 |
 | 刷完搜不到 WiFi | OpenWrt 默认关闭无线，用网线进 LuCI 手动启用 |
-| 仪表盘打不开 / 80 被占 | 按第 6 步把 LuCI 改到 8080，`/etc/init.d/uhttpd restart` |
+| 仪表盘打不开 / 80 被占 | 首次启动会自动把 LuCI 改到 8080；保留旧配置升级时按第 6 步手动改，再 `/etc/init.d/uhttpd restart` |
 | 找不到 `/dev/ttyUSB0` | `lsusb` 确认有 `1a86:7523`；换 USB 口/线；`dmesg` 看驱动是否加载 |
 | 找不到 `/dev/i2c-0` | 确认 CH341A 是 `1a86:5512` 且已插入；`echo i2c-dev > /etc/modules.d/i2c-dev` 后重启；`dmesg | grep ch341` |
 | 开机进不去系统 | 重新写 kernel1/rootfs0；或走第 10 节恢复 |
@@ -377,9 +377,9 @@ mtd write /tmp/breed-mt7621-xiaomi-r3g.bin Bootloader
 
 ```text
 9675230ab55fd4b5a1998f5eff4888016790be082bcb1aee78a760cd7b121b44  openwrt-ramips-mt7621-xiaomi_mi-router-3g-squashfs-kernel1.bin
-0a23fd24a347162c0cac907e00cd177ced97de588ad8dd90334151d5e69f7868  openwrt-ramips-mt7621-xiaomi_mi-router-3g-squashfs-rootfs0.bin
-ab013fbd8eeade1a6a71c67e28aff4dc6e2db0a067815f7f1ce8c06673e833e7  openwrt-ramips-mt7621-xiaomi_mi-router-3g-squashfs-sysupgrade.bin
-c42247c185ec1152426e7db8909f88e2af24b1d15b032aed8b13e681b00b6af8  openwrt-ramips-mt7621-xiaomi_mi-router-3g-initramfs-kernel.bin
+a079bf2ec36961f100bd611e2f84431f5480a2f682a9e57d32463a37c0a85324  openwrt-ramips-mt7621-xiaomi_mi-router-3g-squashfs-rootfs0.bin
+17a2176be95c41829b1a1d1265a7fb3482800c24da28fa97d83d7bd586072b82  openwrt-ramips-mt7621-xiaomi_mi-router-3g-squashfs-sysupgrade.bin
+aac29ee0577f3caea7075ef75575ac9edd01718e57c41d40d06f657100af758b  openwrt-ramips-mt7621-xiaomi_mi-router-3g-initramfs-kernel.bin
 ```
 
 Windows 校验命令：
@@ -399,7 +399,7 @@ Get-FileHash .\openwrt-ramips-mt7621-xiaomi_mi-router-3g-squashfs-kernel1.bin -A
 - [ ] 已备份 Bootloader / Config / Bdata / factory
 - [ ] kernel1 与 rootfs0 已传到 `/tmp` 且 SHA256 正确
 - [ ] `mtd write` 期间未断电
-- [ ] 刷完后把 LuCI 改到 8080，仪表盘占用 80
+- [ ] 仪表盘占用 80，LuCI 自动在 8080（保留旧配置升级时需手动改）
 - [ ] 已设置 root 密码
 - [ ] `lsusb` 能看到 CH340，`/dev/ttyUSB0` 存在
 - [ ] 仪表盘能打开并完成 MMDVM 基础配置
