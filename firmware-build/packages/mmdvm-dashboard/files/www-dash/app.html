@@ -115,6 +115,10 @@ aside{
   .topnav{display:flex;flex:1;justify-content:center}
   .hspacer{display:none}
   aside#sidebar{display:none}
+  /* 电脑版配置页：仅设置项右移 100px，卡片边框与标题不动 */
+  #view-config .cfg-sec > :not(.cfg-sec-h):not(.cfg-sec-head){margin-left:100px}
+  /* 电脑版基础配置：设置项同样右移 100px，卡片边框与标题不动 */
+  #view-basic .card > :not(.basic-sec-title){margin-left:100px}
 }
 
 /* ===== Main ===== */
@@ -217,6 +221,9 @@ tr:hover td{background:rgba(255,255,255,.015)}
 .cfg-sec-text{width:100%;min-height:120px;background:#0a0e13;border:1px solid var(--border);border-radius:var(--radius);
   color:var(--text);font-family:var(--mono);font-size:14.5px;padding:12px;resize:vertical;line-height:1.6;overflow:hidden}
 .cfg-sec-text:focus{outline:none;border-color:var(--accent)}
+/* 配置卡片标题：统一居左 */
+.cfg-sec-head{display:flex;align-items:center;justify-content:flex-start;margin-bottom:10px;gap:10px}
+.cfg-sec-title{display:flex;align-items:baseline;gap:7px;font-weight:700;color:var(--text);flex-wrap:wrap;justify-content:flex-start}
 /* DMR 网络段折叠：未启用时默认收起，点标题展开/收起 */
 .cfg-sec-h{cursor:pointer;user-select:none}
 .cfg-sec-h .sec-arrow{display:inline-block;transition:transform .18s ease;color:var(--muted);
@@ -237,12 +244,19 @@ tr:hover td{background:rgba(255,255,255,.015)}
 .cfg-gw-id select.inp{width:auto;min-width:120px}
 /* DMR 网络：ID 与密码同一行，密码紧随 ID 选择框宽度左右移动 */
 .cfg-idpw{grid-column:1/-1;display:flex;align-items:flex-start;gap:24px;flex-wrap:nowrap;min-width:0}
-/* XLX 网络：启用+密码一行，时隙+重载时间一行，端口排在文件后面 */
+/* XLX 网络：启用单独一行；密码+时隙+端口一行；重载时间+通话组+基准一行 */
 .xlx-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px}
 .xlx-row .xlx-en{flex:0 0 150px}
-.xlx-row .xlx-pw{flex:1 1 220px}
-.xlx-row .xlx-slot{flex:0 0 170px}
-.xlx-row .xlx-reload{flex:0 0 115px;margin-left:35px;min-width:0}
+.xlx-row .xlx-pw,
+.xlx-row .xlx-slot,
+.xlx-row .xlx-port{flex:1 1 0;min-width:0}
+.xlx-row .xlx-reload,
+.xlx-row .xlx-tg,
+.xlx-row .xlx-base,
+.xlx-row .xlx-startup,
+.xlx-row .xlx-relink{flex:1 1 0;min-width:0}
+.xlx-row .xlx-edit{flex:0 0 auto;display:flex;align-items:flex-end}
+.xlx-row .xlx-port .field{max-width:none}
 .xlx-row .xlx-chk{flex:0 0 auto;margin-right:18px}
 .cfg-xl-port{max-width:150px}
 /* 手机版 XLX 网络：时隙减半、端口减 1/3、重载时间减半并右移 35px */
@@ -250,6 +264,21 @@ tr:hover td{background:rgba(255,255,255,.015)}
   #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-slot{flex:0 0 95px}
   #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-row .xlx-reload{flex:0 0 calc(10% + 40px);margin-left:35px;min-width:0}
   #cfgSections .cfg-sec[data-sec-name="XLX Network"] .cfg-xl-port{max-width:100px}
+}
+/* 电脑版 XLX 网络：各输入框按要求缩短，后续字段依次向左补位 */
+@media (min-width:861px){
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-pw{flex:0 0 240px}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-slot,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-port{flex:0 0 87px}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-reload{flex:0 0 130px}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-tg{flex:0 0 130px}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-base{flex:0 0 87px}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-startup{flex:0 0 130px}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-relink{flex:0 0 76px}
+  /* 窄框内边距收窄，保证数值完整显示 */
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-slot .inp,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-port .inp,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-base .inp{padding-left:8px;padding-right:8px}
 }
 .cfg-idpw > .field{min-width:0}
 .cfg-idpw > .cfg-gw-id{flex:0 1 auto}
@@ -278,14 +307,14 @@ tr:hover td{background:rgba(255,255,255,.015)}
 #cfgSections .cfg-add:hover{color:var(--text);border-color:var(--cyan)}
 /* 改写规则：同类只显示一个标题，行内加减号与 DMR ID 一致 */
 #cfgSections .rw-group{flex:1 1 100%;display:flex;flex-direction:column;gap:8px}
-#cfgSections .rw-title{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;color:var(--cyan);line-height:1.3}
+#cfgSections .rw-title{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;color:var(--text);line-height:1.3}
 #cfgSections .rw-help-btn{flex:none;width:16px;height:16px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1;color:var(--muted);border-color:var(--border2);background:transparent}
 #cfgSections .rw-help-btn:hover{color:var(--cyan);border-color:var(--cyan)}
 #cfgSections .rw-help{font-size:12px;line-height:1.65;color:var(--muted);background:rgba(148,163,184,.08);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
 #cfgSections .rw-row{display:flex;align-items:center;gap:6px;min-width:0}
 #cfgSections .rw-row > .inp{flex:1 1 auto;min-width:0}
-#cfgSections .rw-acts{flex:none;width:36px;display:flex;gap:4px;justify-content:flex-start}
-#cfgSections .rw-acts .btn{width:16px;height:16px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1}
+#cfgSections .rw-acts{flex:none;width:44px;display:flex;gap:4px;justify-content:flex-start}
+#cfgSections .rw-acts .btn{width:20px;height:20px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-family:var(--mono);line-height:1}
 #cfgSections .rw-acts .rw-add{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.12)}
 #cfgSections .rw-acts .rw-add:hover{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.24)}
 #cfgSections .rw-acts .rw-del{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.14)}
@@ -299,9 +328,9 @@ tr:hover td{background:rgba(255,255,255,.015)}
   #cfgSections[data-cfg="host"] .field .pw-wrap .inp{width:calc(100% - 34px)}
   #cfgSections[data-cfg="host"] .field .port-combobox .inp{width:100%}
 }
-#cfgSections .cfg-chk{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--cyan);font-weight:600;margin-bottom:0;white-space:nowrap;cursor:pointer}
+#cfgSections .cfg-chk{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--text);font-weight:600;margin-bottom:0;white-space:nowrap;cursor:pointer}
 .cfg-chk input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--accent);cursor:pointer}
-.field label{display:block;font-size:14px;color:var(--cyan);font-weight:600;margin-bottom:2px}
+.field label{display:block;font-size:14px;color:var(--text);font-weight:600;margin-bottom:2px}
 label small{font-size:0.78em;color:var(--faint);font-weight:400;letter-spacing:.02em}
 /* 基础配置页：勾选式字段（时隙）与输入框对齐 */
 #view-basic .cfg-chk{display:inline-flex;align-items:center;gap:8px;height:36px;white-space:nowrap;cursor:pointer;margin-bottom:0}
@@ -313,7 +342,8 @@ label small{font-size:0.78em;color:var(--faint);font-weight:400;letter-spacing:.
 .uart-custom .inp{flex:1 1 auto;min-width:0}
 /* 端口自定义删除按钮（位于标题右侧，红色背景文字按钮） */
 .port-del-btn{background:#ff4d4f;color:#fff;border:none;border-radius:5px;
-  font-size:12px;line-height:1;cursor:pointer;padding:4px 8px;margin-left:auto}
+  font-size:13px;line-height:1;cursor:pointer;padding:5px 10px;margin-left:auto;
+  display:inline-flex;align-items:center;align-self:center}
 .inp{width:100%;height:36px;box-sizing:border-box;background:var(--card2);border:1px solid var(--border2);border-radius:9px;color:var(--text);
   padding:8px 12px;font-size:14px;font-weight:400;font-family:inherit}
 .inp:focus{outline:none;border-color:var(--accent)}
@@ -348,7 +378,8 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 /* 基本信息说明文字：（内容）小字号；单双工说明与身份信息提示保持相同的上间距 */
 .basic-hint{font-size:11.5px;color:var(--faint);line-height:1.5}
 .basic-hint.hint-duplex{margin-top:10px;font-family:"KaiTi","STKaiti",serif}
-.basic-sec-title{font-size:15px;color:var(--cyan);font-weight:700;margin:0 0 10px;text-align:center}
+.basic-sec-title{font-size:16px;color:var(--text);font-weight:700;margin:0 0 10px;text-align:left}
+.basic-sec-title small{font-size:.72em;color:var(--faint);font-weight:400;letter-spacing:.02em}
 /* 服务器名称：可直接输入 + 下拉选预置（combobox），宽度 200px */
 #view-basic .field-srvname .port-combobox{width:200px;max-width:100%}
 #view-basic .field-srvname .port-combobox .inp{width:100%}
@@ -381,7 +412,7 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 .dmr-id-list{display:flex;flex-direction:column;gap:12px}
 .dmr-id-row{display:flex;align-items:flex-end;gap:10px;min-width:0}
 .dmr-col{display:flex;flex-direction:column;gap:2px;min-width:0}
-.dmr-col > label{font-size:14px;font-weight:600;color:var(--cyan);line-height:1.3;white-space:nowrap}
+.dmr-col > label{font-size:14px;font-weight:600;color:var(--text);line-height:1.3;white-space:nowrap}
 .dmr-id-row .dmr-inp{flex:none;width:240px}
 .dmr-id-row .dmr-col + .dmr-col{margin-left:-5px}
 .dmr-id-row .dmr-essid{flex:none;width:75px}
@@ -391,7 +422,7 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 .dmr-id-row .dmr-save:not(:disabled):hover{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.24)}
 .dmr-id-row .dmr-save:disabled{color:var(--faint);border-color:var(--border);background:var(--card);opacity:.55;cursor:default}
 .dmr-acts{flex:none;display:flex;gap:4px;align-self:flex-end;margin-bottom:10px}
-.dmr-acts .btn{width:16px;height:16px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1}
+.dmr-acts .btn{width:20px;height:20px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-family:var(--mono);line-height:1}
 .dmr-acts .dmr-add-sm{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.12)}
 .dmr-acts .dmr-add-sm:hover{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.24)}
 .dmr-acts .dmr-del{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.14)}
@@ -443,7 +474,7 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 
 /* ===== calibration ===== */
 .cal-row{display:flex;align-items:center;gap:14px;margin-bottom:15px}
-.cal-row label{width:96px;flex:none;font-size:14.5px;color:var(--cyan);font-weight:600}
+.cal-row label{width:96px;flex:none;font-size:14.5px;color:var(--text);font-weight:600}
 .cal-row input[type=range]{flex:0 0 50%;accent-color:var(--accent);height:22px}
 .cal-row .val{width:52px;text-align:right;font-family:var(--mono);font-size:15px}
 .cal-k{font-size:13px;color:var(--muted)}
@@ -522,6 +553,16 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .tg-slot-add{display:flex;align-items:center;gap:8px;min-width:0;margin-bottom:6px}
 .tg-slot-add .inp{flex:1 1 0;min-width:0}
 /* 手机版：保持时隙 1/2 与静态组列表左右两列，仅压缩间距与字号 */
+@media (min-width:861px){
+  /* 静态组：TG 编号输入框放大到占满时隙卡片；TG 显示字号放大 */
+  .tg-slot-add .inp{flex:1 1 auto;width:100%}
+  .tg-row{font-size:17px}
+  .tg-row .tg-slot{font-size:13px}
+  /* 时隙 1/2 卡片缩小一半并整体居中 */
+  .tg-slots{grid-template-columns:repeat(2, minmax(0, 1fr));width:50%;gap:24px;margin-left:auto;margin-right:auto}
+  /* 保存按钮保持位于时隙2正上方并右对齐 */
+  #view-tg #tg-save{margin-right:25%}
+}
 @media (max-width:600px){
   .tg-cfg{gap:8px}
   .tg-cfg .field-dmrid{order:1}
@@ -1070,13 +1111,13 @@ th{font-size:12px}
   #view-config .inp,
   #view-adv .inp{font-size:15.5px;height:40px;padding:9px 13px}
   #view-basic .cfg-chk,
-  #view-config .cfg-chk{font-size:15.5px}
+  #view-config .cfg-chk{font-size:16px}
   #view-config .cfg-comment{font-size:14px}
   #view-config .cfg-sec > div:first-child{font-size:17.5px}
-  #view-basic .basic-sec-title{font-size:16.5px}
-  #view-basic .basic-hint{font-size:12.5px}
-  #view-basic .basic-hint.hint-duplex{font-size:16px;font-family:inherit;color:var(--text)}
-  #view-basic .dmr-col > label{font-size:15.5px}
+  #view-basic .basic-sec-title{font-size:17.5px}
+  #view-basic .basic-hint{font-size:14.5px;color:var(--text)}
+  #view-basic .basic-hint.hint-duplex{font-family:inherit;margin-top:10px}
+  #view-basic .dmr-col > label{font-size:16px}
   #view-config .editor textarea,
   #view-config .cfg-sec-text,
   #view-adv .cfg-sec-text{font-size:16px}
@@ -1113,6 +1154,84 @@ th{font-size:12px}
   #view-cal table td{font-size:15.5px}
   #view-cal #cal-save{font-size:15.5px;padding:9px 16px}
   #view-cal .cal-sub{font-size:15.5px}
+}
+
+/* ===== 配置页：电脑版字段统一为「标题在左，控件在右」 ===== */
+@media (min-width:861px){
+  #view-basic .field,
+  #view-config .field{display:flex;align-items:center;gap:12px;min-width:0}
+  #view-basic .field > label,
+  #view-config .field > label{flex:0 0 auto;margin:0;white-space:nowrap;overflow:visible;text-align:left}
+  #view-basic .field > .inp,
+  #view-config .field > .inp{flex:1 1 auto;width:auto;min-width:110px;max-width:none}
+  #view-basic .field > .pw-wrap,
+  #view-config .field > .pw-wrap{flex:1 1 auto;width:auto;min-width:150px;max-width:none}
+  #view-basic .field > .port-combobox,
+  #view-config .field > .port-combobox{flex:1 1 auto;width:auto;min-width:130px;max-width:none}
+  #view-basic .field > .uart-custom{flex:1 1 auto;width:auto;min-width:0}
+  #view-basic .field > .cfg-chk,
+  #view-config .field > .cfg-chk{flex:1 1 auto;min-width:0}
+  /* 勾选框项：标题在左，勾选框在右 */
+  #view-basic .cfg-chk,
+  #view-config .cfg-chk{display:flex;align-items:center;gap:8px}
+  #view-basic .cfg-chk > input[type=checkbox],
+  #view-config .cfg-chk > input[type=checkbox]{order:2;margin-left:auto}
+  /* DMR 网络的启用勾选框紧挨标题显示 */
+  #cfgSections .cfg-gw-en .cfg-chk{flex:0 0 auto}
+  #cfgSections .cfg-gw-en .cfg-chk > input[type=checkbox]{margin-left:0}
+  /* DMR ID / ESSID 项：标题在左，框在右 */
+  #view-basic .dmr-col{display:flex;flex-direction:row;align-items:center;gap:8px}
+  #view-basic .dmr-col > label{margin:0;white-space:nowrap}
+  /* DMR 网络 Id 与密码一行，放不下时自动换行 */
+  .cfg-idpw{flex-wrap:wrap}
+  /* XLX 网络：取消固定窄列，宽度按标签和控件内容自适应 */
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-en{flex:1 1 auto}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-pw,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-slot,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-port,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-reload,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-tg,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-base,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-startup,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-relink{flex:0 0 auto}
+  /* XLX 各输入框保持窄宽度，标签在左不挤占控件 */
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-slot .inp,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-port .inp,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-base .inp{flex:0 0 87px;width:87px;padding-left:8px;padding-right:8px}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-reload .inp,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-relink .inp{flex:0 0 44px;width:44px;padding-left:8px;padding-right:8px}
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-tg .inp,
+  #cfgSections .cfg-sec[data-sec-name="XLX Network"] .xlx-startup .inp{flex:0 0 130px;width:130px}
+  /* DMR 网络「更多设置」：选项框缩短一半；两组改写规则两列显示 */
+  #cfgSections .cfg-more .more-opts > .inp{flex:0 0 50%;width:50%}
+  #cfgSections .cfg-more .rw-group{flex:1 1 calc(50% - 5px);min-width:0}
+  /* 单呼改写（第二组）整体左移 50px */
+  #cfgSections .cfg-more .rw-group + .rw-group{transform:translateX(-50px)}
+  /* 所有设置项标题统一字号（字族继承页面正文字体） */
+  #cfgSections .rw-title{font-size:16px}
+  /* 基础配置：部分输入框缩短一半；时隙1/2 同行 */
+  #view-basic .field > #basic-location,
+  #view-basic .field > #basic-description,
+  #view-basic .field > #basic-url{flex:0 0 50%;width:50%}
+  #view-basic .field > #basic-callsign,
+  #view-basic .field > #basic-beaconinterval,
+  #view-basic .field > #basic-rxfreq,
+  #view-basic .field > #basic-txfreq{flex:0 0 110px;width:110px}
+  #view-basic .field > #basic-uartspeed{flex:0 0 80px;width:80px;padding-left:8px;padding-right:8px}
+  #view-basic .field > #basic-latitude,
+  #view-basic .field > #basic-longitude,
+  #view-basic .field > #basic-height{flex:0 0 90px;width:90px}
+  #view-basic .field > #basic-colorcode{flex:0 0 60px;width:60px}
+  #view-basic .brow > .field-slot1{margin-top:0}
+  #view-basic .brow > .field-slot2{margin-top:0}
+  /* DMR 网络：名称/端口/地址各占一行，宽度由脚本按内容自适应 */
+  #cfgSections .cfg-gw-name,
+  #cfgSections .cfg-gw-port,
+  #cfgSections .cfg-gw-addr{grid-column:1/-1 !important}
+  .dmr-id-row .dmr-inp{flex:none;width:120px}
+  #view-basic .dmr-id-row{align-items:center}
+  #view-basic .dmr-id-row .dmr-save{align-self:center;margin-bottom:0}
+  #view-basic .dmr-acts{align-self:center;margin-bottom:0;height:24px;align-items:center}
 }
 
 /* ===== toast ===== */
@@ -1346,7 +1465,7 @@ th{font-size:12px}
   <section class="view" id="view-basic">
     <div class="page-head"><h1>基本信息</h1><p>呼号、ID 与射频参数配置</p></div>
     <div class="card" style="margin-bottom:14px">
-      <h2 class="basic-sec-title">位置信息</h2>
+      <h2 class="basic-sec-title">位置信息 <small>(Location)</small></h2>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
         <div class="field field-latitude" data-brow="35"><label>纬度 <small>(Latitude)</small></label><input id="basic-latitude" class="inp" type="text" inputmode="decimal" placeholder="0.0"></div>
         <div class="field field-longitude" data-brow="35"><label>经度 <small>(Longitude)</small></label><input id="basic-longitude" class="inp" type="text" inputmode="decimal" placeholder="0.0"></div>
@@ -1357,7 +1476,7 @@ th{font-size:12px}
       </div>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 class="basic-sec-title">连接设置</h2>
+      <h2 class="basic-sec-title">连接设置 <small>(Connection)</small></h2>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
         <div class="field field-dmrtype" data-brow="6"><label>工作模式 <small>(Type)</small></label>
           <select id="basic-dmrtype" class="inp">
@@ -1366,7 +1485,7 @@ th{font-size:12px}
           </select>
         </div>
         <div class="field field-slot1" data-brow="8"><label>时隙1 <small>(Slot1)</small></label><label class="cfg-chk"><input type="checkbox" id="basic-slot1"></label></div>
-        <div class="field field-slot2" data-brow="85"><label>时隙2 <small>(Slot2)</small></label><label class="cfg-chk"><input type="checkbox" id="basic-slot2"></label></div>
+        <div class="field field-slot2" data-brow="8"><label>时隙2 <small>(Slot2)</small></label><label class="cfg-chk"><input type="checkbox" id="basic-slot2"></label></div>
         <div class="field field-beacons" data-brow="9"><label>信标 <small>(Beacons)</small></label><label class="cfg-chk"><input type="checkbox" id="basic-beacons"></label></div>
         <div class="field field-beaconinterval" data-brow="9"><label>信标时间 <small>(BeaconInterval)</small></label><input id="basic-beaconinterval" class="inp" type="text" inputmode="numeric" placeholder="60"></div>
         <div class="field field-colorcode" data-brow="95"><label>色码 <small>(ColorCode)</small></label>
@@ -1392,7 +1511,7 @@ th{font-size:12px}
       </div>
     </div>
     <div class="card" id="card-dmrserver" style="margin-bottom:14px;display:none">
-      <h2 class="basic-sec-title">服务器配置</h2>
+      <h2 class="basic-sec-title">服务器配置 <small>(Server)</small></h2>
       <div class="grid">
         <div class="field field-srvname" data-brow="6"><label>服务器名称 <small>(Name)</small></label>
           <div class="port-combobox">
@@ -1419,7 +1538,7 @@ th{font-size:12px}
       </div>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 class="basic-sec-title">身份信息</h2>
+      <h2 class="basic-sec-title">身份信息 <small>(Identity)</small></h2>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
         <div class="field field-callsign" data-brow="1"><label>呼号 <small>(Callsign)</small></label><input id="basic-callsign" class="inp" type="text"></div>
         <div class="field field-dmrids" data-brow="2">
@@ -1429,7 +1548,7 @@ th{font-size:12px}
       <div class="basic-hint" id="dmr-hint" style="margin-top:10px">（保存的DMR ID信息在DMR网关配置页面中可在不同的DMR网络下选择需要的ID）</div>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 class="basic-sec-title">频率设置</h2>
+      <h2 class="basic-sec-title">频率设置 <small>(Frequency)</small></h2>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
         <div class="field field-rxfreq" data-brow="3"><label>RX 频率 <small>(MHz)</small></label><input id="basic-rxfreq" class="inp" type="text"></div>
         <div class="field field-txfreq" data-brow="3"><label>TX 频率 <small>(MHz)</small></label><input id="basic-txfreq" class="inp" type="text"></div>
@@ -1437,7 +1556,7 @@ th{font-size:12px}
       </div>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 class="basic-sec-title">射频接口</h2>
+      <h2 class="basic-sec-title">射频接口 <small>(RF Interface)</small></h2>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
         <div class="field field-protocol" data-brow="4"><label>RF 来源</label>
           <select id="basic-protocol" class="inp">
@@ -1449,7 +1568,7 @@ th{font-size:12px}
         </div>
         <div class="field field-uartport" data-brow="4"><label style="display:flex;justify-content:space-between;align-items:center">UART 端口 <button type="button" class="port-del-btn" id="uart-del-btn" style="display:none" title="删除该自定义端口">删除</button></label>
           <div class="port-combobox">
-            <input id="basic-uartport" class="inp" type="text" placeholder="未检出" autocomplete="off">
+            <input id="basic-uartport" class="inp" type="text" placeholder="" autocomplete="off">
             <button type="button" class="port-arrow" data-for="basic-uartport">▾</button>
             <div class="port-dropdown" id="basic-uartport-dropdown"></div>
           </div>
@@ -1460,7 +1579,7 @@ th{font-size:12px}
         <div class="field field-i2cport" data-brow="4" style="display:none">
           <label style="display:flex;justify-content:space-between;align-items:center">I2C 总线 <button type="button" class="port-del-btn" id="i2c-del-btn" style="display:none" title="删除该自定义端口">删除</button></label>
           <div class="port-combobox" id="modem-bus-box">
-            <input id="basic-i2cport" class="inp" type="text" placeholder="未检出" autocomplete="off">
+            <input id="basic-i2cport" class="inp" type="text" placeholder="" autocomplete="off">
             <button type="button" class="port-arrow" data-for="basic-i2cport">▾</button>
             <div class="port-dropdown" id="basic-i2cport-dropdown"></div>
           </div>
@@ -1484,7 +1603,7 @@ th{font-size:12px}
       </div>
     </div>
     <div class="card" style="margin-bottom:14px">
-      <h2 class="basic-sec-title">显示设置</h2>
+      <h2 class="basic-sec-title">显示设置 <small>(Display)</small></h2>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
         <div class="field field-screentype" data-brow="5"><label>屏幕类型</label>
           <select id="basic-screentype" class="inp">
@@ -1502,7 +1621,7 @@ th{font-size:12px}
             <div class="port-dropdown" id="basic-screenport-dropdown"></div>
           </div>
           <div class="port-combobox" id="screen-bus-box" style="display:none">
-            <input id="basic-i2cbus" class="inp" type="text" placeholder="未检出" autocomplete="off">
+            <input id="basic-i2cbus" class="inp" type="text" placeholder="" autocomplete="off">
             <button type="button" class="port-arrow" data-for="basic-i2cbus">▾</button>
             <div class="port-dropdown" id="basic-i2cbus-dropdown"></div>
           </div>
@@ -2330,9 +2449,9 @@ function renderUartPortSelect(current){
   const dd = $('#basic-uartport-dropdown');
   if(dd) dd.innerHTML = vals.length
     ? vals.map(v=>`<div class="port-opt" data-val="${esc(v)}">${esc(v)}</div>`).join('')
-    : '<div class="port-opt">未检出</div>';
+    : '';
   inp.value = (current && vals.includes(current)) ? current : '';
-  inp.placeholder = '未检出';
+  inp.placeholder = '';
   syncUartDelBtn();
 }
 /* 屏幕端口自定义（独立列表） */
@@ -2402,7 +2521,12 @@ function togglePortDropdown(inputId){
     if(stat){ stat(); return; }
     const rerender = PORT_RERENDER[inputId];
     if(rerender){
-      refreshPortLists().then(()=>{ if(dd.classList.contains('show')) rerender(); });
+      refreshPortLists().then(()=>{
+        if(!dd.classList.contains('show')) return;
+        rerender();
+        /* 没有可用选项时不展开空面板 */
+        if(!dd.children.length) dd.classList.remove('show');
+      });
     }
   }
 }
@@ -2497,6 +2621,7 @@ document.addEventListener('click', (e)=>{
         }
         const inp = card.querySelector(`input[data-key="${key}"]`);
         if(inp) inp.focus();
+        fitRwInputs(card);
       }
     }
     return;
@@ -2558,6 +2683,7 @@ document.addEventListener('click', (e)=>{
       box.style.display = open ? 'none' : '';
       const ar = mt.querySelector('.cfg-more-arrow');
       if(ar) ar.textContent = open ? '▾' : '▴';
+      if(!open) fitRwInputs(mt.closest('.cfg-sec'));
     }
     return;
   }
@@ -2615,6 +2741,7 @@ async function renderBasic(){
   syncProtocolFields();
   syncDmrTypeRule();
   layoutBasicRows();
+  fitPortBoxes();
 }
 /* 电脑端把基本信息字段按 5 行分组，手机端保持原有平铺网格 */
 function layoutBasicRows(){
@@ -2654,7 +2781,7 @@ function layoutBasicRows(){
     }
   });
 }
-window.addEventListener('resize', ()=>{ layoutBasicRows(); });
+window.addEventListener('resize', ()=>{ layoutBasicRows(); fitPortBoxes(); fitNameSelects(); fitRwInputs(); });
 /* ---------- DMR ID 列表（最多 5 个，每个可配 ESSID） ---------- */
 const DMR_MAX = 5;
 function essidOptions(sel){
@@ -2666,9 +2793,9 @@ function dmrRowHtml(n, item, removable){
   const id = (item && item.id) || '', es = (item && item.essid) || '';
   const save = removable ? '<button type="button" class="btn dmr-save" title="保存该 DMR ID">保存</button>' : '';
   const del = removable ? '<button type="button" class="btn dmr-del" title="删除该 DMR ID">−</button>' : '';
-  /* 标题只在第一个输入行显示，后续添加的行直接沿用 */
-  const lblId = (n === 1) ? '<label>DMR ID</label>' : '';
-  const lblEs = (n === 1) ? '<label>ESSID</label>' : '';
+  /* 标题只在第一个输入行显示；后续行的标题隐藏但保留占位，保证各输入框对齐 */
+  const lblId = (n === 1) ? '<label>DMR ID</label>' : '<label style="visibility:hidden">DMR ID</label>';
+  const lblEs = (n === 1) ? '<label>ESSID</label>' : '<label style="visibility:hidden">ESSID</label>';
   return `<div class="dmr-id-row" data-n="${n}">
     <div class="dmr-col">
       ${lblId}
@@ -2679,7 +2806,7 @@ function dmrRowHtml(n, item, removable){
       <select class="inp dmr-essid">${essidOptions(es)}</select>
     </div>
     ${save}
-    <div class="dmr-acts"><button type="button" class="btn dmr-add-sm" title="添加 DMR ID" style="display:none">＋</button>${del}</div>
+    <div class="dmr-acts"><button type="button" class="btn dmr-add-sm" title="添加 DMR ID" style="display:none">+</button>${del}</div>
   </div>`;
 }
 /* 直连模式：仅保留第 1 个 DMR ID 显示（其余行隐藏但保留数据，切回网关自动恢复） */
@@ -2811,6 +2938,7 @@ function syncScreenFields(){
   const addr = $('#basic-screenaddr');
   if(addr) addr.placeholder = (t === 'HD44780') ? '0x27' : '0x3C';
   renderScreenAddrOptions();
+  fitPortBoxes();
 }
 /* I2C 总线列表来自后端（/dev/i2c-N），未检测到时允许手填 */
 let I2C_BUSES = [];
@@ -2818,7 +2946,7 @@ function busOptionsHtml(){
   const vals = I2C_BUSES.slice().sort((a, b)=>a - b);
   return vals.length
     ? vals.map(n=>`<div class="port-opt" data-val="/dev/i2c-${n}">/dev/i2c-${n}</div>`).join('')
-    : '<div class="port-opt">未检出</div>';
+    : '';
 }
 /* 总线框只保留当前真实存在的总线，并统一显示成 /dev/i2c-N */
 function applyBusField(inpId){
@@ -2826,7 +2954,7 @@ function applyBusField(inpId){
   if(!inp) return;
   const m = /i2c-?([0-9]+)$/.exec(String(inp.value || '').trim());
   inp.value = (m && I2C_BUSES.includes(+m[1])) ? ('/dev/i2c-' + m[1]) : '';
-  inp.placeholder = '未检出';
+  inp.placeholder = '';
 }
 function renderI2cBusOptions(){
   const dd = $('#basic-i2cbus-dropdown');
@@ -2858,6 +2986,32 @@ $('#basic-i2cbus').addEventListener('input', fitI2cBusBox);
 $('#basic-i2cbus').addEventListener('change', ()=>{ applyBusField('#basic-i2cbus'); fitI2cBusBox(); });
 $('#basic-i2cport').addEventListener('input', fitModemBusBox);
 $('#basic-i2cport').addEventListener('change', ()=>{ applyBusField('#basic-i2cport'); fitModemBusBox(); });
+/* UART 端口 / I2C 端口与 I2C 地址：电脑版按显示内容自适应宽度 */
+function fitAutoBox(box, inp){
+  if(!box || !inp) return;
+  if(!window.matchMedia('(min-width:861px)').matches){ box.style.width = ''; box.style.flex = ''; return; }
+  const cs = getComputedStyle(inp);
+  const font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+  const txt = inp.value || inp.placeholder || '';
+  const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + 30;
+  box.style.width = Math.ceil(measureTextPx(txt, font) + pad) + 'px';
+  box.style.flex = '0 0 auto';
+}
+function fitPortBoxes(){
+  const uart = $('#basic-uartport');
+  if(uart) fitAutoBox(uart.closest('.port-combobox'), uart);
+  fitAutoBox($('#screen-port-box'), $('#basic-screenport'));
+  fitAutoBox($('#modem-bus-box'), $('#basic-i2cport'));
+  fitAutoBox($('#screen-bus-box'), $('#basic-i2cbus'));
+  fitAutoBox($('#screenaddr-box'), $('#basic-screenaddr'));
+  fitAutoBox($('#modemaddr-box'), $('#basic-modemaddr'));
+}
+['basic-uartport','basic-screenport','basic-i2cport','basic-i2cbus','basic-screenaddr','basic-modemaddr'].forEach(id=>{
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.addEventListener('input', fitPortBoxes);
+  el.addEventListener('change', fitPortBoxes);
+});
 function saveBasic(){
   if(PREVIEW){ toast('预览模式：基本信息已“保存”（后端就绪后生效）'); return; }
   let uartPort = $('#basic-uartport').value.trim();
@@ -2971,6 +3125,7 @@ function syncProtocolFields(){
   }
   /* UDP 端口预置 3334 */
   if(isUdp && !$('#basic-udpport').value.trim()) $('#basic-udpport').value = '3334';
+  fitPortBoxes();
 }
 $('#basic-protocol').addEventListener('change', syncProtocolFields);
 $('#basic-screentype').addEventListener('change', syncScreenFields);
@@ -3661,16 +3816,18 @@ function renderSections(content){
       });
       mainHtml = head + idpw + tailToks.map(renderTok).join('');
     } else if(isXlxSec){
-      /* XLX 网络：启用+密码一行，时隙+重载时间一行，端口在文件后面 */
+      /* XLX 网络：启用一行；密码+时隙+端口一行；重载时间+通话组+基准一行 */
       const byK = k => mainToks.filter(x=>x.t.key === k).map(renderTok).join('');
-      const topKeys = ['Enabled','Password','Slot','ReloadTime','Debug','UserControl','File'];
+      const topKeys = ['Enabled','Password','Slot','Port','ReloadTime','TG','Base','Startup','Relink','Debug','UserControl','File'];
       const rest = mainToks.filter(x=>topKeys.indexOf(x.t.key) < 0).map(renderTok).join('');
       mainHtml =
-        `<div class="xlx-row"><div class="xlx-en">${byK('Enabled')}</div><div class="xlx-pw">${byK('Password')}</div></div>` +
-        `<div class="xlx-row"><div class="xlx-slot">${byK('Slot')}</div><div class="xlx-reload">${byK('ReloadTime')}</div></div>` +
+        `<div class="xlx-row"><div class="xlx-en">${byK('Enabled')}</div></div>` +
+        `<div class="xlx-row"><div class="xlx-pw">${byK('Password')}</div></div>` +
+        `<div class="xlx-row"><div class="xlx-slot">${byK('Slot')}</div><div class="xlx-port">${byK('Port')}</div></div>` +
+        `<div class="xlx-row"><div class="xlx-reload">${byK('ReloadTime')}</div><div class="xlx-tg">${byK('TG')}</div><div class="xlx-base">${byK('Base')}</div></div>` +
+        `<div class="xlx-row"><div class="xlx-startup">${byK('Startup')}</div><div class="xlx-relink">${byK('Relink')}</div><div class="xlx-edit"><button type="button" class="btn sm" data-xl-edit>编辑XLXHosts.txt</button></div></div>` +
         (rest ? `<div class="grid cfg-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">${rest}</div>` : '') +
-        `<div class="xlx-row" style="margin-top:10px;margin-bottom:0"><div class="xlx-chk">${byK('Debug')}</div><div class="xlx-chk">${byK('UserControl')}</div></div>` +
-        `<div class="xlx-row" style="margin-top:10px;margin-bottom:0"><button type="button" class="btn sm" data-xl-edit>编辑XLXHosts.txt</button></div>`;
+        `<div class="xlx-row" style="margin-top:10px;margin-bottom:0"><div class="xlx-chk">${byK('Debug')}</div><div class="xlx-chk">${byK('UserControl')}</div></div>`;
     } else {
       mainHtml = mainToks.map(renderTok).join('');
     }
@@ -3700,7 +3857,7 @@ function renderSections(content){
           <input class="inp" data-key="${esc(x.t.key)}" value="${esc(val)}" placeholder="${esc(ph)}">
           <div class="rw-acts">
             <button type="button" class="btn rw-del" data-del="${esc(x.t.key)}" data-sec="${esc(s.name)}" title="删除${esc(nm)}">−</button>
-            ${isLast ? `<button type="button" class="btn rw-add" data-add="${base}" data-sec="${esc(s.name)}" title="添加${esc(nm)}">＋</button>` : ''}
+            ${isLast ? `<button type="button" class="btn rw-add" data-add="${base}" data-sec="${esc(s.name)}" title="添加${esc(nm)}">+</button>` : ''}
           </div>
         </div>`;
       }).join('');
@@ -3724,9 +3881,9 @@ function renderSections(content){
     const secOpen = !!(window._cfgSecOpen || {})[s.name];
     const collapsed = isDmrSec && !secEnabled && !secOpen;
     return `<div class="cfg-sec card${collapsed ? ' collapsed' : ''}" style="margin-bottom:12px" data-sec-name="${esc(s.name)}">
-      <div class="${isDmrSec ? 'cfg-sec-h' : ''}" style="display:flex;align-items:center;justify-content:center;margin-bottom:10px;gap:10px">
+      <div class="cfg-sec-head${isDmrSec ? ' cfg-sec-h' : ''}">
         ${isDmrSec ? '<span class="sec-arrow">▾</span>' : ''}
-        <div style="display:flex;align-items:baseline;gap:7px;font-weight:700;color:var(--cyan);flex-wrap:wrap;justify-content:center">
+        <div class="cfg-sec-title">
           ${secCn(s.name) ? `<span>${esc(secCn(s.name))}</span>` : ''}
           <span class="mono">[${esc(s.name)}]</span>
         </div>
@@ -3740,8 +3897,9 @@ function renderSections(content){
       setDirty(true);
       /* 密码框随输入内容实时调整宽度，查看按钮跟随右移 */
       if(e.target.dataset && e.target.dataset.key === 'Password') fitPwWidth(e.target);
-      /* 手动编辑服务器地址时，输入框宽度随内容实时调整 */
-      if(e.target.classList && e.target.closest('.cfg-gw-addr')) fitNameSelects(card);
+      /* 手动编辑服务器地址/端口/名称时，输入框宽度随内容实时调整 */
+      if(e.target.classList && e.target.closest('.cfg-gw-addr, .cfg-gw-port, .cfg-gw-name')) fitNameSelects(card);
+      if(e.target.closest('.rw-row')) fitRwInputs(card);
     });
     card.addEventListener('click', (e)=>{
       /* 点 DMR 网络标题：展开/折叠该段 */
@@ -3751,7 +3909,7 @@ function renderSections(content){
         if(/^DMR Network\s+\d+$/.test(secName)){
           const nowCollapsed = card.classList.toggle('collapsed');
           (window._cfgSecOpen = window._cfgSecOpen || {})[secName] = !nowCollapsed;
-          if(!nowCollapsed) layoutCfgGrids();
+          if(!nowCollapsed){ layoutCfgGrids(); fitNameSelects(card); fitRwInputs(card); }
         }
         return;
       }
@@ -3796,11 +3954,12 @@ function renderSections(content){
   });
   /* 服务器名称自定义输入框：下拉选项的 change 不冒泡，这里直接绑定 */
   $$('#cfgSections .cfg-gw-name-custom').forEach(inp=>{
-    inp.addEventListener('input', ()=>setDirty(true));
+    inp.addEventListener('input', ()=>{ setDirty(true); fitNameSelects(inp.closest('.cfg-sec') || document); });
     inp.addEventListener('change', ()=>applyGwNameCustom(inp));
   });
   layoutCfgGrids(true);
   fitNameSelects();
+  fitRwInputs();
   fitGwPassword();
   syncGwAddrEditable();
 }
@@ -3856,12 +4015,29 @@ function fitNameSelects(scope){
     /* 随文字长度设置宽度（不按父容器截断），密码框因此跟着左右移动 */
     el.style.width = Math.max(120, Math.ceil(textWidthDom(txt, getComputedStyle(el)) + 56)) + 'px';
   });
-  /* 服务器名称改为可输入 combobox 后宽度固定 200px（见 CSS），不再按选项文字测量 */
+  /* 服务器名称：下拉框/自定义输入框都按当前显示内容自适应宽度 */
+  root.querySelectorAll('.cfg-gw-name').forEach(f=>{
+    const box = f.querySelector('.port-combobox');
+    if(!box) return;
+    const sel = f.querySelector('.cfg-gw-name-select');
+    const inp = f.querySelector('.cfg-gw-name-custom');
+    const vis = (sel && sel.style.display !== 'none') ? sel : inp;
+    if(!vis) return;
+    const cs = getComputedStyle(vis);
+    const txt = (vis.tagName === 'SELECT')
+      ? ((vis.options[vis.selectedIndex] || {}).text || '')
+      : (vis.value || vis.placeholder || '');
+    box.style.width = Math.max(160, Math.ceil(textWidthDom(txt, cs) + 56)) + 'px';
+    box.style.flex = '0 0 auto';
+  });
+  /* 服务器名称已改为按显示内容自适应宽度（见上方测量逻辑） */
   /* 输入框按真实排版测量内容宽度（含内边距与边框余量），避免字体差异导致文字被截断 */
   root.querySelectorAll('.cfg-gw-addr input, .cfg-gw-port input').forEach(el=>{
     const p = el.parentElement;
     const sib = el.nextElementSibling ? el.nextElementSibling.offsetWidth + 6 : 0;
-    const max = p ? Math.max(88, p.clientWidth - sib) : 400;
+    /* 以字段整行宽度作为上限（父级行是收缩宽度，不能用来判断最大可用空间） */
+    const host = el.closest('.field') || p;
+    const max = Math.max(88, (host ? host.clientWidth : 400) - 170 - sib);
     const val = el.value || el.placeholder || '';
     const cs = getComputedStyle(el);
     const byText = textWidthDom(val, cs) + 34;
@@ -3869,6 +4045,7 @@ function fitNameSelects(scope){
     const byLen = val.length * 9 + 40;
     const need = Math.max(byText, byLen);
     el.style.fontSize = '';
+    el.style.flex = '0 0 auto';
     if(need > max){
       /* 屏幕过窄放不下时按比例缩小字号，保证地址完整可见 */
       let fs = parseFloat(cs.fontSize) || 14;
@@ -3887,6 +4064,26 @@ function fitNameSelects(scope){
       el.style.width = w + 'px';
     }
   });
+}
+/* DMR 网络「更多设置」：改写规则输入框统一按当前最长内容适配宽度 */
+function fitRwInputs(scope){
+  const root = scope || document;
+  const inputs = [...root.querySelectorAll('#cfgSections .cfg-more .rw-row input.inp')];
+  if(!inputs.length) return;
+  if(!window.matchMedia('(min-width:861px)').matches){
+    inputs.forEach(el=>{ el.style.width = ''; el.style.flex = ''; });
+    return;
+  }
+  let need = 90;
+  inputs.forEach(el=>{
+    const cs = getComputedStyle(el);
+    const txt = el.value || el.placeholder || '';
+    need = Math.max(need, Math.ceil(textWidthDom(txt, cs) + 34));
+  });
+  const grp = inputs[0].closest('.rw-group');
+  const avail = (grp && grp.clientWidth) ? Math.max(80, grp.clientWidth - 58) : need;
+  const w = Math.max(90, Math.min(need, avail)) + 20;
+  inputs.forEach(el=>{ el.style.width = w + 'px'; el.style.flex = '0 0 auto'; });
 }
 /* 密码框宽度 = 按已显示字符数自适应，查看按钮随输入框右边同步移动 */
 function fitPwWidth(inp){
@@ -3953,18 +4150,23 @@ function syncGwAddrEditable(scope){
     if(del) del.style.display = custom ? '' : 'none';
   });
 }
-/* 单个字段完整显示所需宽度：标题最宽不可断片段 + 输入框内容 */
+/* 单个字段完整显示所需宽度：电脑版为「标签 + 控件」，手机版为两者较大值 */
 function fieldNeed(f){
-  let need = 0;
+  const desktop = window.matchMedia('(min-width:861px)').matches;
+  let labW = 0, inpW = 0;
   const lab = f.querySelector(':scope > label');
   if(lab){
     const cs = getComputedStyle(lab);
     const font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    lab.textContent.trim().split(/\s+/).forEach(tok=>{
-      if(!tok) return;
-      const cjk = /^[\u4e00-\u9fa5]/.test(tok);
-      need = Math.max(need, textWidth(cjk ? tok.slice(0,1) : tok, font));
-    });
+    if(desktop){
+      labW = textWidth(lab.textContent.trim(), font);
+    } else {
+      lab.textContent.trim().split(/\s+/).forEach(tok=>{
+        if(!tok) return;
+        const cjk = /^[\u4e00-\u9fa5]/.test(tok);
+        labW = Math.max(labW, textWidth(cjk ? tok.slice(0,1) : tok, font));
+      });
+    }
   }
   const inp = f.querySelector('input,select');
   if(inp){
@@ -3974,8 +4176,9 @@ function fieldNeed(f){
     if(inp.tagName === 'SELECT'){
       Array.from(inp.options).forEach(o=>{ if(o.text.length > txt.length) txt = o.text; });
     }
-    need = Math.max(need, textWidth(txt, `${cs.fontSize} ${cs.fontFamily}`) + 34);
+    inpW = textWidth(txt, `${cs.fontSize} ${cs.fontFamily}`) + 34;
   }
+  let need = desktop ? (labW + 12 + inpW) : Math.max(labW, inpW);
   /* DMR ID 选择框实际比列宽短 70px，测量时补回来，避免文字被截断 */
   if(f.classList.contains('cfg-gw-id')) need += 70;
   return need;
@@ -5399,6 +5602,20 @@ async function renderSystem(){
         <button class="btn" id="sys-lhclear">清除 MMDVM 缓存</button>
         <button class="btn danger" id="sys-reboot">重启设备</button>
       </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2 style="font-size:17px;margin-bottom:8px">仪表盘更新 <small style="color:var(--faint);font-weight:400">(Dashboard OTA)</small></h2>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:12px">只更新网页界面和 API，不重启设备，不影响当前通联。更新包会先校验 sha256 再安装，并自动保留上一版本用于回滚。</p>
+      <div class="field" style="margin-bottom:10px"><label>当前版本</label><span id="ota-cur" class="mono">—</span></div>
+      <div class="field" style="margin-bottom:10px"><label>更新源 <small>(manifest URL)</small></label>
+        <input id="ota-src" class="inp" type="text" placeholder="http://192.168.8.200:8088/dashboard.json" autocomplete="off"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn" id="ota-check">检查更新</button>
+        <button class="btn primary" id="ota-install" disabled>安装更新</button>
+        <button class="btn" id="ota-rollback" disabled>回滚上一版本</button>
+        <button class="btn" id="ota-save">保存更新源</button>
+      </div>
+      <div id="ota-msg" style="color:var(--muted);font-size:14px;line-height:1.6;white-space:pre-line"></div>
     </div>`;
   $('#sys-lhclear').addEventListener('click', async ()=>{
     if(PREVIEW){ toast('预览模式：不会真正清除缓存'); return; }
@@ -5425,6 +5642,71 @@ async function renderSystem(){
     fetch('/api/system?act=reboot', { method:'POST' })
       .then(r=>r.json()).then(j=>{ toast(j.ok?'设备正在重启，请稍候…':(j.error||'重启失败'), !j.ok); })
       .catch(()=>toast('设备正在重启，请稍候…'));
+  });
+  /* ---------- 仪表盘 OTA ---------- */
+  const otaMsg = (t, bad)=>{ const el=$('#ota-msg'); if(!el) return; el.textContent=t||''; el.style.color=bad?'var(--red)':'var(--muted)'; };
+  let otaLatest = null;
+  try{
+    const oi = await api('/api/ota?act=info');
+    $('#ota-cur').textContent = oi.current || 'unknown';
+    $('#ota-src').value = oi.source || '';
+    $('#ota-rollback').disabled = !oi.hasBackup;
+  }catch(e){ otaMsg('读取当前版本失败', true); }
+  $('#ota-save').addEventListener('click', async ()=>{
+    if(PREVIEW){ otaMsg('预览模式：不会保存更新源', true); return; }
+    const url = $('#ota-src').value.trim();
+    if(!url){ otaMsg('请填写更新源地址', true); return; }
+    const b = $('#ota-save'); b.disabled = true;
+    try{
+      const j = await fetch('/api/ota?act=seturl&url=' + encodeURIComponent(url), { method:'POST' }).then(r=>r.json());
+      if(j.ok){ otaMsg('更新源已保存'); toast('更新源已保存'); } else otaMsg(j.error || '保存失败', true);
+    }catch(e){ otaMsg('保存失败', true); }
+    b.disabled = false;
+  });
+  $('#ota-check').addEventListener('click', async ()=>{
+    if(PREVIEW){ otaMsg('预览模式：不会真正检查更新', true); return; }
+    const b = $('#ota-check'), old = b.textContent;
+    b.disabled = true; b.textContent = '检查中…';
+    try{
+      const j = await api('/api/ota?act=check');
+      if(!j.ok){ otaMsg(j.error || '检查失败', true); $('#ota-install').disabled = true; return; }
+      otaLatest = j;
+      if(j.updateAvailable){
+        otaMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (j.notes ? '\n' + j.notes : ''));
+        $('#ota-install').disabled = false;
+      }else{
+        otaMsg('已是最新版本 ' + j.current);
+        $('#ota-install').disabled = true;
+      }
+    }catch(e){ otaMsg('检查失败', true); }
+    b.disabled = false; b.textContent = old;
+  });
+  $('#ota-install').addEventListener('click', async ()=>{
+    if(PREVIEW){ otaMsg('预览模式：不会安装更新', true); return; }
+    const v = (otaLatest && otaLatest.latest) || '新版本';
+    if(!(await uiConfirm('确定安装仪表盘更新 ' + v + ' 吗？安装过程中请勿关闭页面。', { title:'仪表盘更新', okText:'安装' }))) return;
+    const b = $('#ota-install'); b.disabled = true; b.textContent = '安装中…';
+    otaMsg('正在下载并校验更新包…');
+    try{
+      const j = await fetch('/api/ota?act=install', { method:'POST' }).then(r=>r.json());
+      if(j.ok){
+        otaMsg('已更新到 ' + (j.version || v) + '，页面即将刷新…');
+        toast('仪表盘已更新，正在刷新页面');
+        setTimeout(()=>location.reload(), 1200);
+      }else{ otaMsg(j.error || '安装失败', true); b.disabled = false; b.textContent = '安装更新'; }
+    }catch(e){ otaMsg('安装失败', true); b.disabled = false; b.textContent = '安装更新'; }
+  });
+  $('#ota-rollback').addEventListener('click', async ()=>{
+    if(PREVIEW){ otaMsg('预览模式：不会回滚', true); return; }
+    if(!(await uiConfirm('确定回滚到上一版本的仪表盘吗？', { title:'回滚仪表盘', okText:'回滚' }))) return;
+    const b = $('#ota-rollback'); b.disabled = true;
+    try{
+      const j = await fetch('/api/ota?act=rollback', { method:'POST' }).then(r=>r.json());
+      if(j.ok){
+        otaMsg('已回滚到 ' + (j.version || '上一版本') + '，页面即将刷新…');
+        setTimeout(()=>location.reload(), 1200);
+      }else{ otaMsg(j.error || '回滚失败', true); b.disabled = false; }
+    }catch(e){ otaMsg('回滚失败', true); b.disabled = false; }
   });
 }
 

@@ -33,12 +33,13 @@ endef
 define Build/Compile
 endef
 
-DASH_ENDPOINTS:=basic calibration configs lastheard live log page ports services status system xlxhosts
+DASH_ENDPOINTS:=basic calibration configs lastheard lhclear live log ota page ports services status system tg xlxhosts
 
 define Package/mmdvm-dashboard/install
 	$(INSTALL_DIR) $(1)/www-dash/api
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/www-dash/app.html $(1)/www-dash/app.html
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/www-dash/index.html $(1)/www-dash/index.html
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/www-dash/VERSION $(1)/www-dash/VERSION
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/www-dash/api/api.uc $(1)/www-dash/api/api.uc
 	$(foreach e,$(DASH_ENDPOINTS),$(LN) api.uc $(1)/www-dash/api/$(e);)
 	$(INSTALL_DIR) $(1)/usr/bin

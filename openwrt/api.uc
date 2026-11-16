@@ -13,6 +13,7 @@ const LH_MAX_HIST = 30;    /* 每个 ID 保留的历史条数 */
 const STATUS_CACHE = "/tmp/dashboard_status.cache";
 const LIVE_CACHE   = "/tmp/dashboard_live.cache";
 const PING_CACHE   = "/tmp/dashboard_ping.json";
+const CPU_CACHE    = "/tmp/dashboard_cpu.json";
 const CONN_CACHE   = "/tmp/dashboard_conn.cache";
 const GPS_CACHE    = "/tmp/dashboard_gps.json";
 const GEO_CACHE    = "/tmp/dashboard_geo.json";
@@ -1056,19 +1057,45 @@ function cmdConfigs() {
 
 function cmdSystem() {
 	let mem = FS.readfile("/proc/meminfo") ?? "";
-	let total = 0, avail = 0;
+	let total = 0, avail = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
 	for (let l in split(mem, "\n")) {
 		if (substr(l, 0, 9) == "MemTotal:") total = +trim(substr(l, index(l, ":") + 1));
 		if (substr(l, 0, 13) == "MemAvailable:") avail = +trim(substr(l, index(l, ":") + 1));
+		if (substr(l, 0, 8) == "MemFree:") freeKb = +trim(substr(l, index(l, ":") + 1));
+		if (substr(l, 0, 8) == "Buffers:") bufKb = +trim(substr(l, index(l, ":") + 1));
+		if (substr(l, 0, 7) == "Cached:") cacheKb = +trim(substr(l, index(l, ":") + 1));
+		if (substr(l, 0, 13) == "SReclaimable:") reclaimKb = +trim(substr(l, index(l, ":") + 1));
 	}
 	let la = words(FS.readfile("/proc/loadavg") ?? "");
 	let up = int(trim(split(FS.readfile("/proc/uptime") ?? "0", " ")[0]));
 	let df = words(sh("df -k / | tail -1"));
-	let dTotalKb = +df[1] || 0, dUsedKb = +df[2] || 0;
-	let ncpu = +trim(sh("grep -c ^processor /proc/cpuinfo 2>/dev/null")) || 1;
-	let load0 = +la[0] || 0;
+	let dTotalKb = +df[1] || 0, dUsedKb = +df[2] || 0, dAvailKb = +df[3] || 0;
+	/* CPU 使用率：取 /proc/stat 两次采样的差值，避免单核机器用负载均值长期顶到 100% */
+	let st = words(split(FS.readfile("/proc/stat") ?? "", "\n")[0] ?? "");
+	let cTotal = 0, cIdle = 0;
+	for (let i = 1; i < length(st); i++) {
+		let v = +st[i] || 0;
+		cTotal += v;
+		if (i == 4 || i == 5) cIdle += v;
+	}
+	let prev = null;
+	try { prev = json(FS.readfile(CPU_CACHE) ?? ""); } catch (e) { prev = null; }
+	let cpuPct = 0;
+	if (type(prev) == "object" && prev != null && prev.total > 0 && cTotal > prev.total) {
+		let dt = cTotal - prev.total, di = cIdle - (prev.idle ?? 0);
+		cpuPct = (dt > 0) ? rnd((dt - di) * 100 / dt) : 0;
+	} else if (cTotal > 0) {
+		/* 首次启动后没有历史采样时，用开机以来的平均值 */
+		cpuPct = rnd((cTotal - cIdle) * 100 / cTotal);
+	}
+	if (cpuPct < 0) cpuPct = 0;
+	if (cpuPct > 100) cpuPct = 100;
+	try { FS.writefile(CPU_CACHE, sprintf("%J", { total: cTotal, idle: cIdle })); } catch (e) {}
 	let totalMb = rnd(total / 1024);
-	let memUsedMb = rnd((total - avail) / 1024);
+	/* 已用内存按 free 的算法：总量 - 空闲 - 缓冲 - 缓存 - 可回收，避免把缓存算进已用 */
+	let usedKb = total - freeKb - bufKb - cacheKb - reclaimKb;
+	if (usedKb < 0) usedKb = 0;
+	let memUsedMb = rnd(usedKb / 1024);
 	let inGb = dTotalKb >= 1048576;
 	let dTotal = inGb ? +sprintf("%.1f", dTotalKb / 1048576) : rnd(dTotalKb / 1024);
 	let dUsed = inGb ? +sprintf("%.1f", dUsedKb / 1048576) : rnd(dUsedKb / 1024);
@@ -1080,14 +1107,15 @@ function cmdSystem() {
 		kernel: trim(sh("uname -r")),
 		uptime: d + "天 " + h + "小时 " + mi + "分",
 		load: [ +la[0] || 0, +la[1] || 0, +la[2] || 0 ],
-		cpuPct: (ncpu > 0) ? (load0 / ncpu * 100 > 100 ? 100 : rnd(load0 / ncpu * 100)) : 0,
+		cpuPct: cpuPct,
 		memTotal: totalMb,
 		memUsed: memUsedMb,
 		memPct: totalMb ? rnd(memUsedMb * 100 / totalMb) : 0,
 		diskTotal: dTotal,
 		diskUsed: dUsed,
 		diskUnit: inGb ? "GB" : "MB",
-		diskPct: dTotalKb ? rnd(dUsedKb * 100 / dTotalKb) : 0
+		/* 百分比与 df 的 Use% 一致：已用 / (已用 + 可用) */
+		diskPct: (dUsedKb + dAvailKb) ? rnd(dUsedKb * 100 / (dUsedKb + dAvailKb)) : 0
 	});
 }
 
@@ -1720,10 +1748,173 @@ function syncGwIds(ids) {
 	}
 }
 
-/* ---------- 路由 ---------- */
+/* ---------- 仪表盘 OTA（只更新网页与 API，不重启） ---------- */
 let name = ep();
 let method = getenv("REQUEST_METHOD") ?? "GET";
 let pi = pathinfo();
+
+const OTA_CONF = "/etc/mmdvm/dashboard-ota.json";
+const OTA_DIR = "/tmp/dashboard-ota";
+const OTA_DEFAULT_SRC = "http://192.168.8.200:8088/dashboard.json";
+const DASH_ENDPOINTS = ["basic","calibration","configs","lastheard","lhclear","live","log","ota","page","ports","services","status","system","tg","xlxhosts"];
+
+function sq(s) {
+	let t = sprintf("%s", s), o = "";
+	for (let i = 0; i < length(t); i++) {
+		let ch = substr(t, i, 1);
+		o = o + ((ch == "'") ? "'\\''" : ch);
+	}
+	return "'" + o + "'";
+}
+function otaConf() {
+	let d = FS.readfile(OTA_CONF);
+	if (d == null) return {};
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	return (type(v) == "object" && v != null) ? v : {};
+}
+function otaSource() { return trim(otaConf().url ?? "") || OTA_DEFAULT_SRC; }
+function dashVersion() {
+	let v = FS.readfile("/www-dash/VERSION");
+	return (v == null) ? "unknown" : (trim(v) || "unknown");
+}
+function otaFetch(url) {
+	/* 用固件自带的 uclient-fetch（curl 不一定预装） */
+	let f = "/tmp/dashboard-ota-manifest.json";
+	sh("uclient-fetch -q -T 20 -O " + sq(f) + " " + sq(url) + " 2>/dev/null");
+	let o = FS.readfile(f);
+	if (o == null || !length(trim(o))) return null;
+	let v = null;
+	try { v = json(o); } catch (e) { v = null; }
+	return (type(v) == "object" && v != null) ? v : null;
+}
+/* 清单里的 url 可以是相对路径，按清单地址所在目录拼接 */
+function otaAbs(base, u) {
+	if (match(u, /^https?:\/\//) != null) return u;
+	let i = length(base);
+	while (i > 0 && substr(base, i - 1, 1) != "/") i--;
+	return substr(base, 0, i) + u;
+}
+function otaInstallFile(src, dst, mode) {
+	sh("cp " + sq(src) + " " + sq(dst + ".new") + " 2>/dev/null");
+	let st = FS.stat(dst + ".new");
+	if (st == null) return false;
+	sh("chmod " + mode + " " + sq(dst + ".new"));
+	sh("mv " + sq(dst + ".new") + " " + sq(dst));
+	return true;
+}
+function otaLinks(list) {
+	for (let e in list) {
+		let n = sprintf("%s", e);
+		if (match(n, /^[A-Za-z0-9_-]+$/) == null) continue;
+		sh("ln -sf api.uc /www-dash/api/" + n);
+	}
+}
+function otaInstallFrom(dir, endpoints, version) {
+	otaInstallFile(dir + "/app.html", "/www-dash/app.html", "0644");
+	otaInstallFile(dir + "/index.html", "/www-dash/index.html", "0644");
+	otaInstallFile(dir + "/api/api.uc", "/www-dash/api/api.uc", "0755");
+	if (length(version)) FS.writefile("/www-dash/VERSION", version + "\n");
+	else otaInstallFile(dir + "/VERSION", "/www-dash/VERSION", "0644");
+	otaLinks(endpoints);
+}
+function otaBackup() {
+	let f = "/root/dashboard-backup-" + time() + ".tar.gz";
+	sh("tar -czf " + sq(f) + " -C /www-dash app.html index.html api/api.uc VERSION 2>/dev/null");
+	let st = FS.stat(f);
+	return (st != null && st.size > 0) ? f : "";
+}
+function otaPrune() {
+	let out = trim(sh("ls -1t /root/dashboard-backup-*.tar.gz 2>/dev/null"));
+	if (!length(out)) return;
+	let a = split(out, "\n");
+	for (let i = 5; i < length(a); i++) sh("rm -f " + sq(trim(a[i])));
+}
+function cmdOta() {
+	let q = qs();
+	let act = q.act ?? "info";
+	if (act == "info") {
+		let c = otaConf();
+		out({ ok: true, current: dashVersion(), source: otaSource(), defaultSource: OTA_DEFAULT_SRC,
+			last: c.last ?? 0, lastVersion: c.lastVersion ?? "",
+			hasBackup: length(trim(sh("ls -1t /root/dashboard-backup-*.tar.gz 2>/dev/null | head -1"))) > 0 });
+		return;
+	}
+	if (act == "seturl") {
+		if (method != "POST") return fail("需要 POST");
+		let u = trim(q.url ?? "");
+		if (match(u, /^https?:\/\/[^\s]+$/) == null) return fail("更新源必须是 http/https 地址");
+		let c = otaConf(); c.url = u;
+		FS.writefile(OTA_CONF, sprintf("%J", c) + "\n");
+		return out({ ok: true, source: u });
+	}
+	if (act == "check") {
+		let src = otaSource();
+		let m = otaFetch(src);
+		if (m == null) return fail("无法获取更新清单：" + src);
+		let cur = dashVersion();
+		let latest = trim(m.version ?? "");
+		if (!length(latest)) return fail("更新清单缺少 version");
+		return out({ ok: true, current: cur, latest: latest,
+			updateAvailable: (cur == "unknown") || (latest > cur),
+			size: m.size ?? 0, notes: m.notes ?? "", source: src });
+	}
+	if (act == "install") {
+		if (method != "POST") return fail("需要 POST");
+		let src = otaSource();
+		let m = otaFetch(src);
+		if (m == null) return fail("无法获取更新清单");
+		let u = otaAbs(src, trim(m.url ?? ""));
+		if (!length(u)) return fail("更新清单缺少 url");
+		let sha = lc(trim(m.sha256 ?? ""));
+		if (!length(sha)) return fail("更新清单缺少 sha256");
+		sh("rm -rf " + sq(OTA_DIR));
+		sh("mkdir -p " + sq(OTA_DIR));
+		let pkg = OTA_DIR + "/package.tar.gz";
+		sh("uclient-fetch -q -T 120 -O " + sq(pkg) + " " + sq(u) + " 2>/dev/null");
+		let st = FS.stat(pkg);
+		if (st == null || st.size == 0) return fail("更新包下载失败");
+		let want = +m.size || 0;
+		if (want > 0 && st.size != want) return fail("更新包大小不匹配");
+		let got = lc(trim(split(trim(sh("sha256sum " + sq(pkg))), " ")[0]));
+		if (got != sha) return fail("sha256 校验失败");
+		/* 只允许更新这几类文件，拒绝包内的其它路径 */
+		let lines = split(trim(sh("tar -tzf " + sq(pkg) + " 2>/dev/null")), "\n");
+		if (!length(lines)) return fail("更新包损坏");
+		let okFiles = ["app.html", "index.html", "api/api.uc", "VERSION"];
+		for (let l in lines) {
+			let n = trim(replace(l, "./", ""));
+			if (!length(n) || substr(n, length(n) - 1, 1) == "/") continue;
+			let ok = false;
+			for (let a in okFiles) if (a == n) { ok = true; break; }
+			if (!ok) return fail("更新包包含非法文件：" + n);
+		}
+		let stage = OTA_DIR + "/stage";
+		sh("mkdir -p " + sq(stage) + " && tar -xzf " + sq(pkg) + " -C " + sq(stage) + " 2>/dev/null");
+		let bak = otaBackup();
+		let eps = (type(m.endpoints) == "array") ? m.endpoints : DASH_ENDPOINTS;
+		otaInstallFrom(stage, eps, trim(m.version ?? ""));
+		otaPrune();
+		let c = otaConf(); c.last = time(); c.lastVersion = trim(m.version ?? "");
+		FS.writefile(OTA_CONF, sprintf("%J", c) + "\n");
+		sh("rm -rf " + sq(OTA_DIR));
+		return out({ ok: true, version: trim(m.version ?? ""), backup: length(bak) > 0 });
+	}
+	if (act == "rollback") {
+		if (method != "POST") return fail("需要 POST");
+		let f = trim(sh("ls -1t /root/dashboard-backup-*.tar.gz 2>/dev/null | head -1"));
+		if (!length(f)) return fail("没有可回滚的备份");
+		let stage = OTA_DIR + "/rollback";
+		sh("rm -rf " + sq(OTA_DIR) + "; mkdir -p " + sq(stage));
+		sh("tar -xzf " + sq(f) + " -C " + sq(stage) + " 2>/dev/null");
+		otaInstallFrom(stage, DASH_ENDPOINTS, "");
+		sh("rm -rf " + sq(OTA_DIR));
+		return out({ ok: true, version: dashVersion(), from: f });
+	}
+	return fail("未知操作");
+}
+
+/* ---------- 路由 ---------- */
 
 /* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等） */
 if (name == "ports") {
@@ -1792,6 +1983,8 @@ if (name == "ports") {
 		if (c == null) fail("文件不存在");
 		else out({ ok: true, content: c });
 	}
+} else if (name == "ota") {
+	cmdOta();
 } else if (name == "system") {
 	if (method == "POST") {
 		let q = qs();

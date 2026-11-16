@@ -9,7 +9,7 @@ API=$WEB/api
 BIN=/usr/bin
 INIT=/etc/init.d
 # 前端用到的全部接口，全部指向同一个 api.uc
-ENDPOINTS="basic calibration configs lastheard lhclear live log page services status system tg xlxhosts"
+ENDPOINTS="basic calibration configs lastheard lhclear live log ota page ports services status system tg xlxhosts"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行"; exit 1; }
 command -v ucode >/dev/null 2>&1 || {
@@ -27,7 +27,8 @@ command -v curl >/dev/null 2>&1 || {
 mkdir -p "$API" "$WEB"
 cp "$SRC/dashboard/index.html" "$WEB/app.html"
 cp "$SRC/dashboard/loader.html" "$WEB/index.html"
-chmod 0644 "$WEB/app.html" "$WEB/index.html"
+cp "$SRC/dashboard/VERSION" "$WEB/VERSION"
+chmod 0644 "$WEB/app.html" "$WEB/index.html" "$WEB/VERSION"
 
 cp "$SRC/openwrt/api.uc" "$API/api.uc"
 chmod 0755 "$API/api.uc"
