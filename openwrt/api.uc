@@ -1782,9 +1782,9 @@ let pi = pathinfo();
 const OTA_CONF = "/etc/mmdvm/dashboard-ota.json";
 const OTA_DIR = "/tmp/dashboard-ota";
 const OTA_CACHE = "/tmp/dashboard-ota-cache.json";
-const OTA_DEFAULT_SRC = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
-/* API 被限流或不可达时的备用清单（ghproxy 代理 raw，可能有缓存延迟） */
-const OTA_DEFAULT_RAW = "https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main/dashboard.json";
+const OTA_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/dashboard.json";
+/* 备用清单：Gitee 不可达时回退到 GitHub API */
+const OTA_DEFAULT_ALT = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
 const DASH_ENDPOINTS = ["basic","calibration","configs","lastheard","lhclear","live","log","ota","page","ports","services","status","system","tg","xlxhosts"];
 
 function sq(s) {
@@ -1857,7 +1857,7 @@ function otaManifest(url) {
 	let c = otaCacheGet(300, url);
 	if (c != null) return c;
 	let m = otaFetch(url);
-	if (m == null && url == OTA_DEFAULT_SRC) m = otaFetch(OTA_DEFAULT_RAW);
+	if (m == null && url == OTA_DEFAULT_SRC) m = otaFetch(OTA_DEFAULT_ALT);
 	let old = otaCacheGet(0, url);
 	let best = m;
 	if (best == null) best = old;

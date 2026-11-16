@@ -11,8 +11,8 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 VER=${1:-$(cat "$ROOT/dashboard/VERSION")}
 NOTES=${2:-"仪表盘更新 $VER"}
-# 更新包下载地址前缀（清单走 GitHub API，包走 ghproxy 代理）
-BASE=${OTA_BASE_URL:-https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main}
+# 更新包下载地址前缀（默认走 Gitee，GitHub 保留为备用源）
+BASE=${OTA_BASE_URL:-https://gitee.com/xyinmaster/dashboard-ota/raw/main}
 OUT="$ROOT/ota/dist"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
