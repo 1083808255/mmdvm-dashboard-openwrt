@@ -21,6 +21,25 @@ start_service() {
 	local mmdvm_ini mode
 	mmdvm_ini="$(uci -q get mmdvmhost.main.config)"
 	[ -n "$mmdvm_ini" ] || mmdvm_ini="/etc/mmdvm/MMDVM.ini"
+
+	# 呼号和 DMR ID 都还是默认值（新机未配置）时不启动，配置后再开机自启
+	local configured
+	configured="$(awk -F= '
+		/^\[General\]/ { f=1; next }
+		/^\[/ { f=0 }
+		f && $1 == "Callsign" { cs=$2 }
+		f && $1 == "Id" { id=$2 }
+		END {
+			gsub(/[ \t\r]/, "", cs); gsub(/[ \t\r]/, "", id)
+			if (cs == "" || toupper(cs) == "N0CALL") cs = ""
+			if (id == "" || id == "0" || id == "1234567") id = ""
+			print (cs != "" || id != "") ? "1" : "0"
+		}' "$mmdvm_ini" 2>/dev/null)"
+	[ "$configured" = "1" ] || {
+		logger -t dmrgateway "callsign and DMR ID not configured, skipping autostart"
+		return 0
+	}
+
 	mode="$(awk '/^\[DMR Network\]/{f=1;next} /^\[/{f=0} f && /^Type=/{sub(/^Type=/,""); print; exit}' "$mmdvm_ini" 2>/dev/null)"
 	[ "$mode" = "Direct" ] && {
 		logger -t dmrgateway "MMDVM.ini is in Direct mode, DMRGateway not started"

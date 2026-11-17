@@ -59,6 +59,21 @@ for s in ysfgateway p25gateway nxdngateway; do
 	"$INIT/$s" disable >/dev/null 2>&1 || true
 done
 
+# MMDVMHost / DMRGateway 启动脚本：呼号与 DMR ID 都还是默认值时开机跳过，
+# 配置好参数后无需再手动 enable，重启即自动运行
+for f in mmdvmhost dmrgateway; do
+	src="$SRC/firmware-build/packages/$f/files/$f.init"
+	[ -f "$src" ] || continue
+	cp "$src" "$INIT/$f"
+	chmod 0755 "$INIT/$f"
+	[ -f "/etc/config/$f" ] || continue
+	if [ -z "$(uci -q get $f.main.enabled)" ]; then
+		uci set "$f.main.enabled=1"
+		uci commit "$f"
+	fi
+	"$INIT/$f" enable >/dev/null 2>&1 || true
+done
+
 # zram 压缩内存盘：64MB，lzo（小内存设备如 MT7628 使用）
 if [ ! -x /etc/init.d/zram ]; then
 	opkg list-installed 2>/dev/null | grep -q '^zram-swap' || \

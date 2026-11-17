@@ -17,6 +17,24 @@ start_service() {
 		return 0
 	}
 
+	# 呼号和 DMR ID 都还是默认值（新机未配置）时不启动，配置后再开机自启
+	local configured
+	configured="$(awk -F= '
+		/^\[General\]/ { f=1; next }
+		/^\[/ { f=0 }
+		f && $1 == "Callsign" { cs=$2 }
+		f && $1 == "Id" { id=$2 }
+		END {
+			gsub(/[ \t\r]/, "", cs); gsub(/[ \t\r]/, "", id)
+			if (cs == "" || toupper(cs) == "N0CALL") cs = ""
+			if (id == "" || id == "0" || id == "1234567") id = ""
+			print (cs != "" || id != "") ? "1" : "0"
+		}' "$config" 2>/dev/null)"
+	[ "$configured" = "1" ] || {
+		logger -t mmdvmhost "callsign and DMR ID not configured, skipping autostart"
+		return 0
+	}
+
 	config_get i2c_bus main i2c_bus "1"
 	config_get oled_addr main oled_i2c_addr ""
 	config_get oled_reset main oled_reset_gpio ""

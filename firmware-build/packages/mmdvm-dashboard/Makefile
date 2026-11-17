@@ -33,7 +33,7 @@ endef
 define Build/Compile
 endef
 
-DASH_ENDPOINTS:=basic calibration configs lastheard lhclear live log ota page ports services status system tg xlxhosts
+DASH_ENDPOINTS:=basic calibration configs lastheard lhclear live log luci ota page ports services status system tg xlxhosts
 
 define Package/mmdvm-dashboard/install
 	$(INSTALL_DIR) $(1)/www-dash/api
@@ -47,6 +47,7 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-radiowo-sync $(1)/usr/bin/mmdvm-radiowo-sync
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-bg4esi-sync $(1)/usr/bin/mmdvm-bg4esi-sync
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-log-clean $(1)/usr/bin/mmdvm-log-clean
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-luci $(1)/usr/bin/mmdvm-luci
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-radiowo $(1)/etc/init.d/mmdvm-radiowo
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-bg4esi $(1)/etc/init.d/mmdvm-bg4esi
@@ -55,6 +56,8 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/91-mmdvm-log-clean $(1)/etc/uci-defaults/91-mmdvm-log-clean
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/92-mmdvm-disable-unused $(1)/etc/uci-defaults/92-mmdvm-disable-unused
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/93-mmdvm-zram-size $(1)/etc/uci-defaults/93-mmdvm-zram-size
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/94-mmdvm-luci $(1)/etc/uci-defaults/94-mmdvm-luci
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/95-mmdvm-autostart $(1)/etc/uci-defaults/95-mmdvm-autostart
 endef
 
 $(eval $(call BuildPackage,mmdvm-dashboard))
