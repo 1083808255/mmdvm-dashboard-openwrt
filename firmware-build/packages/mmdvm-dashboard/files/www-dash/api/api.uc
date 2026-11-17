@@ -1195,12 +1195,15 @@ function cmdSystem() {
 	let usedKb = total - freeKb - bufKb - cacheKb - reclaimKb;
 	if (usedKb < 0) usedKb = 0;
 	let memUsedMb = rnd(usedKb / 1024);
+	/* 可用 = MemAvailable（含可回收缓存），与 free/df 的“可用”口径一致 */
+	let memAvailMb = rnd(avail / 1024);
 	/* 物理内存总量（比 MemTotal 大，含内核保留部分），读取失败时退回 MemTotal */
 	let memPhysMb = physMemMb();
 	if (memPhysMb < totalMb) memPhysMb = totalMb;
 	let inGb = dTotalKb >= 1048576;
 	let dTotal = inGb ? +sprintf("%.1f", dTotalKb / 1048576) : rnd(dTotalKb / 1024);
 	let dUsed = inGb ? +sprintf("%.1f", dUsedKb / 1048576) : rnd(dUsedKb / 1024);
+	let dAvail = inGb ? +sprintf("%.1f", dAvailKb / 1048576) : rnd(dAvailKb / 1024);
 	/* 整块磁盘总容量（含 boot 等分区），读取失败时退回根分区容量 */
 	let devKb = wholeDiskKb();
 	let devGb = devKb >= 1048576;
@@ -1218,9 +1221,11 @@ function cmdSystem() {
 		memTotal: totalMb,
 		memPhys: memPhysMb,
 		memUsed: memUsedMb,
+		memAvail: memAvailMb,
 		memPct: memPhysMb ? rnd(memUsedMb * 100 / memPhysMb) : 0,
 		diskTotal: dTotal,
 		diskUsed: dUsed,
+		diskAvail: dAvail,
 		diskUnit: inGb ? "GB" : "MB",
 		diskDevTotal: dDevTotal,
 		diskDevUnit: dDevUnit,
