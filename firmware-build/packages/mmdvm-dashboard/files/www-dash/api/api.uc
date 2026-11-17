@@ -2095,7 +2095,7 @@ function cmdOta() {
 	if (act == "seturl") {
 		if (method != "POST") return fail("需要 POST");
 		let u = trim(q.url ?? "");
-		if (match(u, /^https?:\/\/[^\s]+$/) == null) return fail("更新源必须是 http/https 地址");
+		if (match(u, /^https?:\/\/[^ ]+$/) == null) return fail("更新源必须是 http/https 地址");
 		let c = otaConf(); c.url = u;
 		FS.writefile(OTA_CONF, sprintf("%J", c) + "\n");
 		return out({ ok: true, source: u });
@@ -2327,7 +2327,7 @@ function cmdFw() {
 		let mt = trim(m.target ?? "");
 		if (length(mt) && mt != fwTarget()) return fail("固件目标平台不匹配：" + mt);
 		let u = trim(m.url ?? "");
-		if (match(u, /^https?:\/\/[^\s]+$/) == null) return fail("固件地址无效");
+		if (match(u, /^https?:\/\/[^ ]+$/) == null) return fail("固件地址无效");
 		let sha = lc(trim(m.sha256 ?? ""));
 		let size = +(m.size ?? 0);
 		if (!length(sha) || size <= 0) return fail("固件清单缺少 sha256/size");
