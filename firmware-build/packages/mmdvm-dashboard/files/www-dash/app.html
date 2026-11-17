@@ -5157,8 +5157,8 @@ function saveCal(){
 }
 
 /* ---- 全自动校准（RX 频偏扫描，开关开启才运行，默认手动） ---- */
-/* 搜索：先测 ±150 定方向，再按中点二分收缩，最终分辨率 25 Hz，外扩上限 ±1000 Hz */
-const CAL_STEP = 150, CAL_RES = 25, CAL_LIMIT = 1000;
+/* 搜索：先测 ±150 定方向，再按中点二分收缩，最终分辨率 25 Hz，外扩上限 ±500 Hz */
+const CAL_STEP = 150, CAL_RES = 25, CAL_LIMIT = 500;
 /* 单点采样：每突发 141 bit、约 2350 bit/s；50000 bit ≈ 21 秒持续发射 */
 const CAL_WIN_MS = 60000, CAL_TARGET_BITS = 50000, CAL_MIN_BITS = 20000;
 /* 同步建立期误码偏高，PTT 后前 0.7 秒不计入累计 */
