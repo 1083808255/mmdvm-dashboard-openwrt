@@ -43,6 +43,11 @@ rm -rf "$WORKDIR/package/kernel/i2c-ch341"
 mkdir -p "$WORKDIR/package/kernel"
 cp -a "$SCRIPT_DIR/packages/i2c-ch341" "$WORKDIR/package/kernel/i2c-ch341"
 
+echo "==> 生成整机固件版本号"
+FWV=$(date +%Y%m%d%H)
+mkdir -p "$WORKDIR/files/etc/mmdvm"
+printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
+
 cd "$WORKDIR"
 echo "==> 准备配置"
 if [ "${RESET_CONFIG:-0}" = "1" ] || [ ! -f .config ]; then
@@ -80,6 +85,25 @@ cp bin/targets/x86/64/packages/kmod-i2c-ch341_*.ipk "$OUTDIR"/ 2>/dev/null || tr
     cd "$OUTDIR"
     sha256sum * > SHA256SUMS
 )
+
+echo "==> 生成整机 OTA 清单"
+FW_BIN=$(ls "$OUTDIR"/*combined*.img.gz 2>/dev/null | head -1 || true)
+if [ -n "$FW_BIN" ]; then
+    FW_SIZE=$(wc -c < "$FW_BIN" | tr -d ' ')
+    FW_SHA=$(sha256sum "$FW_BIN" | awk '{print $1}')
+    FW_NAME=$(basename "$FW_BIN")
+    cat > "$OUTDIR/fw-x86_64.json" <<EOF
+{
+  "version": $FWV,
+  "versionName": "$(date +%Y-%m-%d-%H)",
+  "target": "x86/64",
+  "url": "https://gitee.com/xyinmaster/dashboard-ota/raw/main/fw/$FW_NAME",
+  "sha256": "$FW_SHA",
+  "size": $FW_SIZE,
+  "notes": "x86/64 整机固件 $FWV"
+}
+EOF
+fi
 
 ls -lh "$OUTDIR"
 echo "==> 完成：$OUTDIR"

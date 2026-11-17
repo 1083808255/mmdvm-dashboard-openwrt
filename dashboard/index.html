@@ -5826,6 +5826,16 @@ async function renderSystem(){
         <button class="btn" id="sys-lhclear">清除 MMDVM 缓存</button>
         <button class="btn danger" id="sys-reboot">重启设备</button>
       </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2 style="font-size:17px;margin-bottom:8px">固件更新</h2>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:10px">整机升级会下载完整固件并重启设备，默认保留配置；升级期间通联中断 1–3 分钟。</p>
+      <div id="fw-info" style="font-size:14px;color:var(--muted);line-height:1.7;white-space:pre-line">当前固件：读取中…</div>
+      <div id="fw-bar" style="display:none;height:6px;background:var(--border);border-radius:4px;margin:10px 0;overflow:hidden"><i style="display:block;height:100%;width:0%;background:var(--accent);transition:width .3s"></i></div>
+      <div class="sys-ops" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="btn" id="fw-check" type="button">检查固件更新</button>
+        <button class="btn primary" id="fw-action" type="button" disabled>下载并升级</button>
+      </div>
     </div>`;
   $('#sys-luci').addEventListener('click', async (ev)=>{
     ev.preventDefault();
@@ -5873,6 +5883,132 @@ async function renderSystem(){
       .then(r=>r.json()).then(j=>{ toast(j.ok?'设备正在重启，请稍候…':(j.error||'重启失败'), !j.ok); })
       .catch(()=>toast('设备正在重启，请稍候…'));
   });
+  const fwCheckBtn = $('#fw-check'), fwActBtn = $('#fw-action');
+  if(fwCheckBtn) fwCheckBtn.addEventListener('click', fwCheck);
+  if(fwActBtn) fwActBtn.addEventListener('click', fwAction);
+  fwInit();
+}
+
+/* ---------- 整机固件 OTA（全量升级） ---------- */
+let fwChecked = null, fwPollTimer = null;
+function fwFmtSize(n){
+  if(!n) return '—';
+  const mb = n / 1048576;
+  return mb >= 1 ? (mb.toFixed(1) + ' MB') : (Math.round(n / 1024) + ' KB');
+}
+function fwBarShow(p){
+  const b = $('#fw-bar'); if(!b) return;
+  if(p == null){ b.style.display = 'none'; return; }
+  b.style.display = 'block';
+  b.firstElementChild.style.width = Math.max(0, Math.min(100, p)) + '%';
+}
+function fwMsg(t, bad){
+  const el = $('#fw-info'); if(!el) return;
+  el.textContent = t || '';
+  el.style.color = bad ? 'var(--red)' : 'var(--muted)';
+}
+function fwShowReady(st){
+  fwMsg('固件已下载并通过校验：' + (st.versionName || st.version || '新固件') + '（' + fwFmtSize(st.total) + '）\n点击“确认升级”开始写入并重启。');
+  const b = $('#fw-action'); if(b){ b.disabled = false; b.textContent = '确认升级'; }
+  fwBarShow(100);
+}
+async function fwInit(){
+  if(PREVIEW){ fwMsg('预览模式：不检查固件更新'); return; }
+  try{
+    const j = await api('/api/fw?act=info');
+    if(!j || !j.ok){ fwMsg('固件信息不可用', true); return; }
+    fwMsg('当前固件：' + (j.current === 'unknown' ? '未知（旧固件）' : j.current) + '\n设备型号：' + j.board);
+    const st = await api('/api/fw?act=status');
+    if(st && st.ok){
+      if(st.phase === 'downloading') fwStartPoll();
+      else if(st.phase === 'verified') fwShowReady(st);
+      else if(st.phase === 'installing') fwMsg('正在写入固件并重启，请稍候…');
+      else if(st.phase === 'error') fwMsg(st.error || '固件更新失败', true);
+    }
+  }catch(e){ fwMsg('固件信息读取失败', true); }
+}
+async function fwCheck(){
+  if(PREVIEW){ toast('预览模式：不检查固件更新'); return; }
+  const b = $('#fw-check'); if(!b) return;
+  const old = b.textContent;
+  b.disabled = true; b.textContent = '检查中…';
+  try{
+    const j = await api('/api/fw?act=check');
+    if(!j || !j.ok){
+      fwMsg((j && j.error) || '检查失败', true);
+      $('#fw-action').disabled = true;
+    }else{
+      fwChecked = j;
+      if(j.updateAvailable){
+        const nt = (j.notes || '').trim();
+        fwMsg('发现新固件 ' + (j.versionName || j.latest) + '（当前 ' + (j.current === 'unknown' ? '未知' : j.current) + '）\n大小：' + fwFmtSize(j.size) + (nt ? '\n' + nt : ''));
+        $('#fw-action').disabled = false;
+        $('#fw-action').textContent = '下载并升级';
+      }else{
+        fwMsg('已是最新固件 ' + (j.versionName || j.current));
+        $('#fw-action').disabled = true;
+      }
+    }
+  }catch(e){ fwMsg('检查失败', true); }
+  b.disabled = false; b.textContent = old;
+}
+async function fwStartPoll(){
+  if(fwPollTimer) clearInterval(fwPollTimer);
+  const tick = async ()=>{
+    try{
+      const st = await api('/api/fw?act=status');
+      if(!st || !st.ok) return;
+      if(st.phase === 'downloading'){
+        const pct = st.total ? Math.round(st.got * 100 / st.total) : 0;
+        fwBarShow(pct);
+        fwMsg('正在下载固件… ' + pct + '%（' + fwFmtSize(st.got) + ' / ' + fwFmtSize(st.total) + '）\n下载期间 MMDVM 服务已暂停，升级完成或失败后自动恢复。');
+        const b = $('#fw-action'); if(b){ b.disabled = true; b.textContent = '下载中…'; }
+      }else if(st.phase === 'verified'){
+        clearInterval(fwPollTimer); fwPollTimer = null;
+        fwShowReady(st);
+      }else if(st.phase === 'error'){
+        clearInterval(fwPollTimer); fwPollTimer = null;
+        fwBarShow(null);
+        fwMsg((st.error || '固件下载失败') + '\nMMDVM 服务已尝试恢复。', true);
+        const b = $('#fw-action'); if(b){ b.disabled = false; b.textContent = '重试'; }
+      }
+    }catch(e){}
+  };
+  fwPollTimer = setInterval(tick, 1000);
+  tick();
+}
+async function fwAction(){
+  if(PREVIEW){ toast('预览模式：不会升级固件'); return; }
+  const b = $('#fw-action'); if(!b) return;
+  if(b.textContent === '确认升级'){
+    if(!(await uiConfirm('开始写入固件并重启？请确保供电稳定，升级过程中不要断电，通联会中断 1–3 分钟。', { title: '整机固件升级', okText: '开始升级' }))) return;
+    b.disabled = true; b.textContent = '正在升级…';
+    try{
+      const r = await fetch('/api/fw?act=install', { method:'POST' });
+      const j = await r.json();
+      if(j && j.ok){
+        fwMsg('固件写入中，设备即将重启…\n约 1–3 分钟后刷新本页即可看到新版本。');
+        fwBarShow(100);
+      }else{
+        fwMsg((j && j.error) || '升级失败', true);
+        b.disabled = false; b.textContent = '确认升级';
+      }
+    }catch(e){
+      fwMsg('固件写入中，设备即将重启…\n约 1–3 分钟后刷新本页即可看到新版本。');
+      fwBarShow(100);
+    }
+    return;
+  }
+  const m = fwChecked;
+  if(!m || !m.updateAvailable){ toast('请先检查更新'); return; }
+  if(!(await uiConfirm('将下载固件 ' + (m.versionName || m.latest) + '（' + fwFmtSize(m.size) + '），下载期间会暂停 MMDVM 服务，下载完成后还需确认才会写入。是否继续？', { title: '下载固件', okText: '开始下载' }))) return;
+  b.disabled = true; b.textContent = '下载中…';
+  try{
+    const r = await fetch('/api/fw?act=download', { method:'POST' });
+    const j = await r.json();
+    if(j && j.ok) fwStartPoll();
+    else{ fwMsg((j && j.error) || '下载启动失败', true); b.disabled = false; b.textContent = '重试'; }
+  }catch(e){ fwMsg('下载启动失败', true); b.disabled = false; b.textContent = '重试'; }
 }
 
 /* ---------- 启动 ---------- */

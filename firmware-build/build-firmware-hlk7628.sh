@@ -45,6 +45,11 @@ for p in mmdvmhost dmrgateway mmdvm-dashboard mmdvm-board-7628 air780e-monitor; 
 	cp -a "$SCRIPT_DIR/packages/$p" "$WORKDIR/package/$p"
 done
 
+echo "==> 生成整机固件版本号"
+FWV=$(date +%Y%m%d%H)
+mkdir -p "$WORKDIR/files/etc/mmdvm"
+printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
+
 echo "==> 应用 DTS"
 cp "$SCRIPT_DIR/targets/mt7628/mt7628an_hilink_hlk-7628n.dts" \
 	"$WORKDIR/target/linux/ramips/dts/mt7628an_hilink_hlk-7628n.dts"
@@ -143,6 +148,26 @@ done
 	cd "$OUTDIR"
 	sha256sum * > SHA256SUMS
 )
+
+echo "==> 生成整机 OTA 清单"
+FW_BIN=$(ls "$OUTDIR"/*sysupgrade*.bin 2>/dev/null | head -1 || true)
+if [ -n "$FW_BIN" ]; then
+	FW_SIZE=$(wc -c < "$FW_BIN" | tr -d ' ')
+	FW_SHA=$(sha256sum "$FW_BIN" | awk '{print $1}')
+	FW_NAME=$(basename "$FW_BIN")
+	cat > "$OUTDIR/fw-hilink_hlk-7628n.json" <<EOF
+{
+  "version": $FWV,
+  "versionName": "$(date +%Y-%m-%d-%H)",
+  "board": "hilink,hlk-7628n",
+  "target": "ramips/mt76x8",
+  "url": "https://gitee.com/xyinmaster/dashboard-ota/raw/main/fw/$FW_NAME",
+  "sha256": "$FW_SHA",
+  "size": $FW_SIZE,
+  "notes": "HLK-7628N 整机固件 $FWV"
+}
+EOF
+fi
 
 ls -lh "$OUTDIR"
 echo "==> 完成：$OUTDIR"

@@ -33,7 +33,7 @@ endef
 define Build/Compile
 endef
 
-DASH_ENDPOINTS:=basic calibration configs lastheard lhclear live log luci ota page ports services status system tg xlxhosts
+DASH_ENDPOINTS:=basic calibration configs fw lastheard lhclear live log luci ota page ports services status system tg xlxhosts
 
 define Package/mmdvm-dashboard/install
 	$(INSTALL_DIR) $(1)/www-dash/api

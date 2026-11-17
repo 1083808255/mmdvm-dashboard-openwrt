@@ -1942,7 +1942,7 @@ const OTA_CACHE = "/tmp/dashboard-ota-cache.json";
 const OTA_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/dashboard.json";
 /* 备用清单：Gitee 不可达时回退到 GitHub API */
 const OTA_DEFAULT_ALT = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
-const DASH_ENDPOINTS = ["basic","calibration","configs","lastheard","lhclear","live","log","luci","ota","page","ports","services","status","system","tg","xlxhosts"];
+const DASH_ENDPOINTS = ["basic","calibration","configs","fw","lastheard","lhclear","live","log","luci","ota","page","ports","services","status","system","tg","xlxhosts"];
 
 function sq(s) {
 	let t = sprintf("%s", s), o = "";
@@ -2183,6 +2183,186 @@ function cmdOta() {
 	return fail("未知操作");
 }
 
+/* ---------- 整机固件 OTA（全量 sysupgrade） ---------- */
+const FW_DIR = "/tmp/fw-ota";
+const FW_IMAGE = FW_DIR + "/image.bin";
+const FW_RC = FW_DIR + "/rc";
+const FW_STATE_FILE = FW_DIR + "/state.json";
+const FW_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/fw/";
+const FW_DEFAULT_ALT = "https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main/fw/";
+
+function fwBoard() {
+	let b = trim(FS.readfile("/tmp/sysinfo/board_name") ?? "");
+	return length(b) ? b : "unknown";
+}
+function fwBoardKey(b) {
+	let o = "";
+	for (let i = 0; i < length(b); i++) {
+		let c = substr(b, i, 1);
+		o = o + ((match(c, /^[A-Za-z0-9._-]$/) != null) ? c : "_");
+	}
+	return o;
+}
+function fwVersion() {
+	let v = trim(FS.readfile("/etc/mmdvm/fw.version") ?? "");
+	return length(v) ? v : "unknown";
+}
+/* 发行目标（如 ramips/mt76x8、x86/64），用于清单兜底匹配与防刷错 */
+function fwTarget() {
+	let d = FS.readfile("/etc/openwrt_release") ?? "";
+	for (let l in split(d, "\n")) {
+		let i = index(l, "DISTRIB_TARGET=");
+		if (i == 0) return trim(replace(substr(l, 15), "'", ""));
+	}
+	return "unknown";
+}
+function fwStateRead() {
+	let d = FS.readfile(FW_STATE_FILE);
+	if (d == null) return {};
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	return (type(v) == "object" && v != null) ? v : {};
+}
+function fwStateWrite(o) {
+	sh("mkdir -p " + sq(FW_DIR));
+	FS.writefile(FW_STATE_FILE, sprintf("%J", o) + "\n");
+}
+function fwFetchManifest(url) {
+	sh("mkdir -p " + sq(FW_DIR));
+	let f = FW_DIR + "/manifest.json";
+	sh("rm -f " + sq(f));
+	let u = url + ((index(url, "?") >= 0) ? "&" : "?") + "t=" + time();
+	sh("uclient-fetch -q -T 20 -O " + sq(f) + " " + sq(u) + " 2>/dev/null");
+	let o = FS.readfile(f);
+	if (o == null || !length(trim(o))) return null;
+	let v = null;
+	try { v = json(o); } catch (e) { v = null; }
+	return (type(v) == "object" && v != null) ? v : null;
+}
+function fwManifest() {
+	let cand = [fwBoardKey(fwBoard()), fwBoardKey(fwTarget())];
+	for (let key in cand) {
+		let m = fwFetchManifest(FW_DEFAULT_SRC + key + ".json");
+		if (m == null) m = fwFetchManifest(FW_DEFAULT_ALT + key + ".json");
+		if (type(m) == "object") return m;
+	}
+	return null;
+}
+function fwNewer(a, b) {
+	if (match(a, /^[0-9]+$/) != null && match(b, /^[0-9]+$/) != null) return +a > +b;
+	return otaNewer(a, b);
+}
+function fwStopSvc() {
+	sh("/etc/init.d/mmdvmhost stop >/dev/null 2>&1");
+	sh("/etc/init.d/dmrgateway stop >/dev/null 2>&1");
+}
+function fwStartSvc() {
+	sh("/etc/init.d/mmdvmhost start >/dev/null 2>&1");
+	sh("/etc/init.d/dmrgateway start >/dev/null 2>&1");
+}
+function fwFreeKb() {
+	let a = words(trim(sh("df -k /tmp 2>/dev/null | tail -1")));
+	return (length(a) >= 4) ? +a[3] : 0;
+}
+function fwStatus() {
+	let s = fwStateRead();
+	let phase = trim(s.phase ?? "");
+	let total = +(s.total ?? 0);
+	let st = FS.stat(FW_IMAGE);
+	let got = (st != null) ? st.size : 0;
+	let rc = FS.readfile(FW_RC);
+	let rcVal = (rc == null) ? null : int(trim(rc));
+	if (phase == "downloading" && rcVal != null) {
+		let ok = (rcVal == 0);
+		if (ok && total > 0 && got != total) ok = false;
+		if (ok) {
+			let want = lc(trim(s.sha ?? ""));
+			let gotSha = lc(trim(split(trim(sh("sha256sum " + sq(FW_IMAGE) + " 2>/dev/null")), " ")[0]));
+			if (!length(want) || gotSha != want) ok = false;
+		}
+		if (ok) {
+			s.phase = "verified";
+			s.phaseAt = time();
+			fwStateWrite(s);
+		} else {
+			s.phase = "error";
+			s.error = (rcVal != 0) ? "固件下载失败" : "固件校验失败";
+			fwStateWrite(s);
+			fwStartSvc();
+		}
+		phase = s.phase;
+	}
+	return { ok: true, phase: phase, current: fwVersion(), board: fwBoard(),
+		version: trim(s.version ?? ""), versionName: trim(s.versionName ?? ""),
+		total: total, got: got, error: trim(s.error ?? ""), notes: trim(s.notes ?? "") };
+}
+function cmdFw() {
+	let q = qs();
+	let act = q.act ?? "info";
+	let cur = fwVersion(), board = fwBoard();
+	if (act == "info") {
+		let s = fwStateRead();
+		return out({ ok: true, current: cur, board: board, phase: trim(s.phase ?? ""),
+			source: FW_DEFAULT_SRC + fwBoardKey(board) + ".json" });
+	}
+	if (act == "check") {
+		let m = fwManifest();
+		if (m == null) return fail("没有找到该机型的固件清单（" + board + "）");
+		let ver = trim(m.version ?? "");
+		if (!length(ver)) return fail("固件清单缺少 version");
+		let mb = trim(m.board ?? "");
+		if (length(mb) && mb != board) return fail("固件机型不匹配：" + mb);
+		let mt = trim(m.target ?? "");
+		if (length(mt) && mt != fwTarget()) return fail("固件目标平台不匹配：" + mt);
+		return out({ ok: true, current: cur, latest: ver, versionName: trim(m.versionName ?? ver),
+			board: board, target: fwTarget(), size: +(m.size ?? 0), notes: trim(m.notes ?? ""),
+			updateAvailable: (cur == "unknown") || fwNewer(ver, cur) });
+	}
+	if (act == "download") {
+		if (method != "POST") return fail("需要 POST");
+		let m = fwManifest();
+		if (m == null) return fail("没有找到该机型的固件清单");
+		let mb = trim(m.board ?? "");
+		if (length(mb) && mb != board) return fail("固件机型不匹配：" + mb);
+		let mt = trim(m.target ?? "");
+		if (length(mt) && mt != fwTarget()) return fail("固件目标平台不匹配：" + mt);
+		let u = trim(m.url ?? "");
+		if (match(u, /^https?:\/\/[^\s]+$/) == null) return fail("固件地址无效");
+		let sha = lc(trim(m.sha256 ?? ""));
+		let size = +(m.size ?? 0);
+		if (!length(sha) || size <= 0) return fail("固件清单缺少 sha256/size");
+		if (fwFreeKb() < int(size / 1024) + 2048) return fail("内存空间不足，无法下载固件");
+		sh("mkdir -p " + sq(FW_DIR));
+		sh("rm -f " + sq(FW_IMAGE) + " " + sq(FW_RC));
+		fwStateWrite({ phase: "downloading", total: size, sha: sha, version: trim(m.version ?? ""),
+			versionName: trim(m.versionName ?? ""), board: board, notes: trim(m.notes ?? ""),
+			url: u, started: time() });
+		fwStopSvc();
+		sh("(uclient-fetch -q -T 300 -O " + sq(FW_IMAGE) + " " + sq(u) + "; echo $? > " + sq(FW_RC) + ") >/dev/null 2>&1 &");
+		return out({ ok: true, phase: "downloading" });
+	}
+	if (act == "status") return out(fwStatus());
+	if (act == "install") {
+		if (method != "POST") return fail("需要 POST");
+		let s = fwStateRead();
+		if (trim(s.phase ?? "") != "verified") return fail("固件尚未下载或未通过校验");
+		if (trim(s.board ?? "") != board) return fail("固件机型不匹配");
+		let st = FS.stat(FW_IMAGE);
+		if (st == null || st.size <= 0) return fail("固件文件不存在");
+		if (+(s.total ?? 0) > 0 && st.size != +s.total) return fail("固件大小不匹配");
+		let want = lc(trim(s.sha ?? ""));
+		let got = lc(trim(split(trim(sh("sha256sum " + sq(FW_IMAGE) + " 2>/dev/null")), " ")[0]));
+		if (!length(want) || got != want) return fail("固件 sha256 校验失败");
+		s.phase = "installing";
+		s.phaseAt = time();
+		fwStateWrite(s);
+		/* 延迟 2 秒再刷写，保证接口响应先返回；sysupgrade 默认保留配置 */
+		sh("(sleep 2; sysupgrade " + sq(FW_IMAGE) + ") > " + sq(FW_DIR + "/upgrade.log") + " 2>&1 &");
+		return out({ ok: true, phase: "installing", version: trim(s.version ?? "") });
+	}
+	return fail("未知操作");
+}
+
 /* ---------- 路由 ---------- */
 
 /* 路由器配置（LuCI）入口：新版 LuCI 是 /www/cgi-bin/luci 的 CGI，
@@ -2288,6 +2468,8 @@ if (name == "ports") {
 	}
 } else if (name == "ota") {
 	cmdOta();
+} else if (name == "fw") {
+	cmdFw();
 } else if (name == "system") {
 	if (method == "POST") {
 		let q = qs();

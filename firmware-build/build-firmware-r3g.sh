@@ -48,6 +48,11 @@ rm -rf "$WORKDIR/package/kernel/i2c-ch341"
 mkdir -p "$WORKDIR/package/kernel"
 cp -a "$SCRIPT_DIR/packages/i2c-ch341" "$WORKDIR/package/kernel/i2c-ch341"
 
+echo "==> 生成整机固件版本号"
+FWV=$(date +%Y%m%d%H)
+mkdir -p "$WORKDIR/files/etc/mmdvm"
+printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
+
 cd "$WORKDIR"
 
 echo "==> 准备 R3G 配置"
@@ -119,6 +124,26 @@ done
     cd "$OUTDIR"
     sha256sum * > SHA256SUMS
 )
+
+echo "==> 生成整机 OTA 清单"
+FW_BIN=$(ls "$OUTDIR"/*sysupgrade*.bin 2>/dev/null | head -1 || true)
+if [ -n "$FW_BIN" ]; then
+    FW_SIZE=$(wc -c < "$FW_BIN" | tr -d ' ')
+    FW_SHA=$(sha256sum "$FW_BIN" | awk '{print $1}')
+    FW_NAME=$(basename "$FW_BIN")
+    cat > "$OUTDIR/fw-xiaomi_mi-router-3g.json" <<EOF
+{
+  "version": $FWV,
+  "versionName": "$(date +%Y-%m-%d-%H)",
+  "board": "xiaomi,mi-router-3g",
+  "target": "ramips/mt7621",
+  "url": "https://gitee.com/xyinmaster/dashboard-ota/raw/main/fw/$FW_NAME",
+  "sha256": "$FW_SHA",
+  "size": $FW_SIZE,
+  "notes": "R3G 整机固件 $FWV"
+}
+EOF
+fi
 
 ls -lh "$OUTDIR"
 echo "==> 完成：$OUTDIR"
