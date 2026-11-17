@@ -5767,6 +5767,22 @@ async function renderSystem(){
   /* 完整内存 = 物理总量（含内核保留）；整块磁盘 = 整盘容量（含 boot 等分区） */
   const memFull = s.memPhys || s.memTotal;
   const diskFull = (s.diskDevTotal || s.diskTotal) + ' ' + (s.diskDevUnit || s.diskUnit || 'GB');
+  /* 4G 模块（air780e-monitor 写入 /tmp/air780e.json，无模块时不显示） */
+  const lte = s.lte;
+  let lteCard = '';
+  if(lte){
+    const sig = (lte.ok && lte.rssi != null) ? (lte.rssi + ' dBm') : '—';
+    const csq = (lte.csq != null && lte.csq !== 99) ? ('CSQ ' + lte.csq) : '';
+    lteCard = `
+    <div class="card" style="margin-top:14px">
+      <h2 style="font-size:17px;margin-bottom:8px">4G 模块</h2>
+      <table class="sys-table">
+        <tr><td>状态</td><td class="mono">${esc(lte.ok ? (lte.stat || '已注册') : (lte.stat || '无响应'))}</td></tr>
+        <tr><td>信号</td><td class="mono">${esc(sig)}${csq ? '（' + esc(csq) + '）' : ''}</td></tr>
+        <tr><td>运营商</td><td class="mono">${esc(lte.operator || '—')}</td></tr>
+      </table>
+    </div>`;
+  }
   $('#sys-overview').innerHTML = `
     <div class="card" style="margin-bottom:14px">
       <div class="sys-head">
@@ -5789,6 +5805,7 @@ async function renderSystem(){
         <tr><td>负载</td><td class="mono">${esc(load)}</td></tr>
       </table>
     </div>
+    ${lteCard}
     <div class="card" style="margin-top:14px">
       <h2 style="font-size:17px;margin-bottom:8px">系统操作</h2>
       <p style="color:var(--muted);font-size:14px;margin-bottom:12px">重启后设备会断开约 30–60 秒，期间通联中断，页面会在设备恢复后重新可用。</p>
