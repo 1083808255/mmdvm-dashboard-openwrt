@@ -71,6 +71,9 @@ for opt in \
     CONFIG_PACKAGE_kmod-i2c-core=y \
     CONFIG_PACKAGE_kmod-i2c-ch341=y \
     CONFIG_PACKAGE_i2c-tools=y \
+    CONFIG_PACKAGE_kmod-lib-lzo=y \
+    CONFIG_PACKAGE_kmod-lib-lz4=y \
+    CONFIG_PACKAGE_zram-swap=y \
     CONFIG_PACKAGE_usbutils=y \
     CONFIG_PACKAGE_picocom=y \
     CONFIG_PACKAGE_ca-bundle=y \

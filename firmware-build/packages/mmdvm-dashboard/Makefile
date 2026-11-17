@@ -53,6 +53,8 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/90-mmdvm-dashboard $(1)/etc/uci-defaults/90-mmdvm-dashboard
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/91-mmdvm-log-clean $(1)/etc/uci-defaults/91-mmdvm-log-clean
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/92-mmdvm-disable-unused $(1)/etc/uci-defaults/92-mmdvm-disable-unused
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/93-mmdvm-zram-size $(1)/etc/uci-defaults/93-mmdvm-zram-size
 endef
 
 $(eval $(call BuildPackage,mmdvm-dashboard))

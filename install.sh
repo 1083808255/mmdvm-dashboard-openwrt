@@ -52,6 +52,27 @@ mkdir -p /etc/crontabs
 grep -qF "$LOG_CRON" /etc/crontabs/root 2>/dev/null || echo "$LOG_CRON" >> /etc/crontabs/root
 /etc/init.d/cron restart >/dev/null 2>&1 || true
 
+# 关闭未使用的 YSF / P25 / NXDN 网关服务（MMDVM.ini 中对应 Enable=0）
+for s in ysfgateway p25gateway nxdngateway; do
+	[ -x "$INIT/$s" ] || continue
+	"$INIT/$s" stop >/dev/null 2>&1 || true
+	"$INIT/$s" disable >/dev/null 2>&1 || true
+done
+
+# zram 压缩内存盘：64MB，lzo（小内存设备如 MT7628 使用）
+if [ ! -x /etc/init.d/zram ]; then
+	opkg list-installed 2>/dev/null | grep -q '^zram-swap' || \
+		opkg install zram-swap kmod-lib-lzo >/dev/null 2>&1 || true
+fi
+if [ -x /etc/init.d/zram ]; then
+	[ -n "$(uci -q get system.@system[0].zram_size_mb)" ] || {
+		uci set system.@system[0].zram_size_mb='64'
+		uci commit system
+	}
+	/etc/init.d/zram enable >/dev/null 2>&1 || true
+	/etc/init.d/zram restart >/dev/null 2>&1 || true
+fi
+
 # 新增 uhttpd 站点：80 端口，CGI 前缀 /api
 if uci -q get uhttpd.dashboard >/dev/null 2>&1; then
 	echo "uhttpd 已存在 dashboard 站点，跳过"
