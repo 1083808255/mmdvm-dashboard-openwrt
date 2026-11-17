@@ -2056,8 +2056,8 @@ Port=7643` },
   system: {
     hostname:"MMDVM", ip:"192.168.8.9", model:"x86_64", firmware:"OpenWrt 23.05.5", kernel:"5.15.189",
     uptime:"53 分钟", load:[0.01,0.02,0.00],
-    cpu:4, cpuPct:2, memTotal:987, memUsed:92, memPct:9,
-    diskTotal:86.4, diskUsed:6.7, diskPct:8
+    cpu:4, cpuPct:2, memTotal:987, memPhys:1024, memUsed:92, memPct:9,
+    diskTotal:86.4, diskUsed:6.7, diskPct:8, diskDevTotal:121, diskDevUnit:"MB"
   },
   lastheard: [
     { time:"13:52:03", mode:"DMR", callsign:"BH8GLN", id:"4601180", slot:1, addr:"四川 · 成都", target:"TG 46001", dur:"4.2", dir:"RX", rssi:"-86 dBm", ber:"0.0%" },
@@ -5753,13 +5753,16 @@ async function renderSystem(){
   const s = await api('/api/system');
   const load = (s.load||[]).join(' / ');
   const now = new Date().toLocaleString('zh-CN', {hour12:false});
+  /* 完整内存 = 物理总量（含内核保留）；整块磁盘 = 整盘容量（含 boot 等分区） */
+  const memFull = s.memPhys || s.memTotal;
+  const diskFull = (s.diskDevTotal || s.diskTotal) + ' ' + (s.diskDevUnit || s.diskUnit || 'GB');
   $('#sys-overview').innerHTML = `
     <div class="card" style="margin-bottom:14px">
       <div class="sys-head">
         <h2 style="font-size:17px;margin:0">系统</h2>
         <div class="sys-meters">
           <div class="sys-meter"><div class="mk">CPU</div><div class="mv">${esc(s.cpuPct+'%')}</div><div class="bar"><i style="width:${s.cpuPct}%"></i></div></div>
-          <div class="sys-meter"><div class="mk">内存</div><div class="mv">${esc(s.memUsed+' / '+s.memTotal+' MB')}</div><div class="bar"><i style="width:${s.memPct}%"></i></div></div>
+          <div class="sys-meter"><div class="mk">内存</div><div class="mv">${esc(s.memUsed+' / '+memFull+' MB')}</div><div class="bar"><i style="width:${s.memPct}%"></i></div></div>
           <div class="sys-meter"><div class="mk">根分区</div><div class="mv">${esc(s.diskUsed+' / '+s.diskTotal+' '+(s.diskUnit||'GB'))}</div><div class="bar"><i style="width:${s.diskPct}%"></i></div></div>
         </div>
       </div>
@@ -5768,6 +5771,8 @@ async function renderSystem(){
         <tr><td>型号</td><td class="mono">${esc(s.model)}</td></tr>
         <tr><td>固件版本</td><td class="mono">${esc(s.firmware||'—')}</td></tr>
         <tr><td>内核版本</td><td class="mono">${esc(s.kernel)}</td></tr>
+        <tr><td>内存容量</td><td class="mono">${esc(memFull+' MB（可用 '+s.memTotal+' MB）')}</td></tr>
+        <tr><td>磁盘容量</td><td class="mono">${esc(diskFull+'（根分区 '+s.diskTotal+' '+(s.diskUnit||'GB')+'）')}</td></tr>
         <tr><td>本地时间</td><td class="mono">${esc(now)}</td></tr>
         <tr><td>运行时间</td><td class="mono">${esc(s.uptime)}</td></tr>
         <tr><td>负载</td><td class="mono">${esc(load)}</td></tr>

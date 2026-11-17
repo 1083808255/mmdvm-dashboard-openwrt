@@ -1103,6 +1103,57 @@ function cmdConfigs() {
 	out(o);
 }
 
+/* 十六进制字符串转整数：ucode 没有带基数的整数解析，手工按位累加 */
+function hexVal(s) {
+	s = trim(s);
+	if (!length(s)) return null;
+	let v = 0;
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		let d = index("0123456789abcdef", c);
+		if (d < 0) d = index("0123456789ABCDEF", c);
+		if (d < 0) return null;
+		v = v * 16 + d;
+	}
+	return v;
+}
+/* 物理内存总量（MB）：/proc/iomem 里 System RAM 各段求和。内核启动会保留一部分，
+   所以它比 MemTotal 大。读不到时退回 dmesg 的物理内存总量 */
+function physMemMb() {
+	let kb = 0;
+	for (let l in split(FS.readfile("/proc/iomem") ?? "", "\n")) {
+		if (index(l, "System RAM") < 0) continue;
+		let i = index(l, ":");
+		if (i < 0) continue;
+		let p = split(trim(substr(l, 0, i)), "-");
+		if (length(p) != 2) continue;
+		let a = hexVal(p[0]), b = hexVal(p[1]);
+		if (a == null || b == null || b <= a) continue;
+		/* 地址被内核打码成全 0 时每段只剩 1 字节，跳过 */
+		if (b - a + 1 < 4096) continue;
+		kb += int((b - a + 1) / 1024);
+	}
+	if (kb <= 0) {
+		let m = match(sh("dmesg 2>/dev/null | grep -m1 'Memory:'"), /Memory:[ \t]+[0-9]+K\/([0-9]+)K/);
+		if (m != null && length(m) > 1) kb = +m[1];
+	}
+	if (kb <= 0) return 0;
+	/* 向上取整：虚拟机分配 120M 时应显示 120 而不是 119 */
+	return int((kb + 1023) / 1024);
+}
+/* 整块磁盘容量（KB）：取 /proc/partitions 中最大的整盘设备，排除 sda1 这类分区 */
+function wholeDiskKb() {
+	let best = 0;
+	for (let l in split(FS.readfile("/proc/partitions") ?? "", "\n")) {
+		let w = words(l);
+		if (length(w) < 4) continue;
+		if (match(w[3], /^(sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+|mmcblk[0-9]+|mmdvm[0-9]+)$/) == null) continue;
+		let kb = +w[2] || 0;
+		if (kb > best) best = kb;
+	}
+	return best;
+}
+
 function cmdSystem() {
 	let mem = FS.readfile("/proc/meminfo") ?? "";
 	let total = 0, avail = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
@@ -1144,9 +1195,17 @@ function cmdSystem() {
 	let usedKb = total - freeKb - bufKb - cacheKb - reclaimKb;
 	if (usedKb < 0) usedKb = 0;
 	let memUsedMb = rnd(usedKb / 1024);
+	/* 物理内存总量（比 MemTotal 大，含内核保留部分），读取失败时退回 MemTotal */
+	let memPhysMb = physMemMb();
+	if (memPhysMb < totalMb) memPhysMb = totalMb;
 	let inGb = dTotalKb >= 1048576;
 	let dTotal = inGb ? +sprintf("%.1f", dTotalKb / 1048576) : rnd(dTotalKb / 1024);
 	let dUsed = inGb ? +sprintf("%.1f", dUsedKb / 1048576) : rnd(dUsedKb / 1024);
+	/* 整块磁盘总容量（含 boot 等分区），读取失败时退回根分区容量 */
+	let devKb = wholeDiskKb();
+	let devGb = devKb >= 1048576;
+	let dDevTotal = devKb ? (devGb ? +sprintf("%.1f", devKb / 1048576) : rnd(devKb / 1024)) : dTotal;
+	let dDevUnit = (devKb ? devGb : inGb) ? "GB" : "MB";
 	let d = int(up / 86400), h = int((up % 86400) / 3600), mi = int((up % 3600) / 60);
 	out({
 		hostname: hostname(),
@@ -1157,11 +1216,14 @@ function cmdSystem() {
 		load: [ +la[0] || 0, +la[1] || 0, +la[2] || 0 ],
 		cpuPct: cpuPct,
 		memTotal: totalMb,
+		memPhys: memPhysMb,
 		memUsed: memUsedMb,
-		memPct: totalMb ? rnd(memUsedMb * 100 / totalMb) : 0,
+		memPct: memPhysMb ? rnd(memUsedMb * 100 / memPhysMb) : 0,
 		diskTotal: dTotal,
 		diskUsed: dUsed,
 		diskUnit: inGb ? "GB" : "MB",
+		diskDevTotal: dDevTotal,
+		diskDevUnit: dDevUnit,
 		/* 百分比与 df 的 Use% 一致：已用 / (已用 + 可用) */
 		diskPct: (dUsedKb + dAvailKb) ? rnd(dUsedKb * 100 / (dUsedKb + dAvailKb)) : 0
 	});
