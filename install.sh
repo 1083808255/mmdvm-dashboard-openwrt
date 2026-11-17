@@ -40,10 +40,17 @@ done
 cp "$SRC/openwrt/mmdvm-idlookup" "$BIN/mmdvm-idlookup"
 cp "$SRC/openwrt/mmdvm-radiowo-sync" "$BIN/mmdvm-radiowo-sync"
 cp "$SRC/openwrt/mmdvm-bg4esi-sync" "$BIN/mmdvm-bg4esi-sync"
-chmod 0755 "$BIN/mmdvm-idlookup" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync"
+cp "$SRC/openwrt/mmdvm-log-clean" "$BIN/mmdvm-log-clean"
+chmod 0755 "$BIN/mmdvm-idlookup" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean"
 cp "$SRC/openwrt/mmdvm-radiowo.init" "$INIT/mmdvm-radiowo"
 cp "$SRC/openwrt/mmdvm-bg4esi.init" "$INIT/mmdvm-bg4esi"
 chmod 0755 "$INIT/mmdvm-radiowo" "$INIT/mmdvm-bg4esi"
+
+# 日志清理：每天 04:07 删除 2 天前的 MMDVM 日志（/var/log 为内存盘）
+LOG_CRON='7 4 * * * /usr/bin/mmdvm-log-clean'
+mkdir -p /etc/crontabs
+grep -qF "$LOG_CRON" /etc/crontabs/root 2>/dev/null || echo "$LOG_CRON" >> /etc/crontabs/root
+/etc/init.d/cron restart >/dev/null 2>&1 || true
 
 # 新增 uhttpd 站点：80 端口，CGI 前缀 /api
 if uci -q get uhttpd.dashboard >/dev/null 2>&1; then

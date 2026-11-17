@@ -46,11 +46,13 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-idlookup $(1)/usr/bin/mmdvm-idlookup
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-radiowo-sync $(1)/usr/bin/mmdvm-radiowo-sync
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-bg4esi-sync $(1)/usr/bin/mmdvm-bg4esi-sync
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-log-clean $(1)/usr/bin/mmdvm-log-clean
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-radiowo $(1)/etc/init.d/mmdvm-radiowo
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-bg4esi $(1)/etc/init.d/mmdvm-bg4esi
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/90-mmdvm-dashboard $(1)/etc/uci-defaults/90-mmdvm-dashboard
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/91-mmdvm-log-clean $(1)/etc/uci-defaults/91-mmdvm-log-clean
 endef
 
 $(eval $(call BuildPackage,mmdvm-dashboard))
