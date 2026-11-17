@@ -57,6 +57,16 @@ if [ "${RESET_CONFIG:-0}" = "1" ] || [ ! -f .config ]; then
 fi
 [ -f feeds.conf ] || cp "$SCRIPT_DIR/feeds.conf.default" feeds.conf
 
+# 可选：覆盖镜像分区大小（MB），用于磁盘较小的设备
+if [ -n "${KERNEL_PARTSIZE:-}" ]; then
+    sed -i '/^CONFIG_TARGET_KERNEL_PARTSIZE=/d' .config
+    echo "CONFIG_TARGET_KERNEL_PARTSIZE=$KERNEL_PARTSIZE" >> .config
+fi
+if [ -n "${ROOTFS_PARTSIZE:-}" ]; then
+    sed -i '/^CONFIG_TARGET_ROOTFS_PARTSIZE=/d' .config
+    echo "CONFIG_TARGET_ROOTFS_PARTSIZE=$ROOTFS_PARTSIZE" >> .config
+fi
+
 echo "==> 检查内核与软件包配置"
 for opt in \
     CONFIG_PACKAGE_kmod-i2c-core=y \
@@ -87,7 +97,7 @@ cp bin/targets/x86/64/packages/kmod-i2c-ch341_*.ipk "$OUTDIR"/ 2>/dev/null || tr
 )
 
 echo "==> 生成整机 OTA 清单"
-FW_BIN=$(ls "$OUTDIR"/*combined*.img.gz 2>/dev/null | head -1 || true)
+FW_BIN=$(ls "$OUTDIR"/*squashfs-combined.img.gz 2>/dev/null | head -1 || true)
 if [ -n "$FW_BIN" ]; then
     FW_SIZE=$(wc -c < "$FW_BIN" | tr -d ' ')
     FW_SHA=$(sha256sum "$FW_BIN" | awk '{print $1}')
@@ -97,7 +107,7 @@ if [ -n "$FW_BIN" ]; then
   "version": $FWV,
   "versionName": "$(date +%Y-%m-%d-%H)",
   "target": "x86/64",
-  "url": "https://gitee.com/xyinmaster/dashboard-ota/raw/main/fw/$FW_NAME",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-$FWV/$FW_NAME",
   "sha256": "$FW_SHA",
   "size": $FW_SIZE,
   "notes": "x86/64 整机固件 $FWV"

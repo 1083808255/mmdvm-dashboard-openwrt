@@ -5915,7 +5915,9 @@ function fwShowReady(st){
 async function fwInit(){
   if(PREVIEW){ fwMsg('预览模式：不检查固件更新'); return; }
   try{
-    const j = await api('/api/fw?act=info');
+    const r0 = await fetch('/api/fw?act=info');
+    if(r0.status === 404){ fwMsg('当前仪表盘版本过旧，没有固件更新接口，请先更新网页（仪表盘更新）。', true); return; }
+    const j = await r0.json();
     if(!j || !j.ok){ fwMsg('固件信息不可用', true); return; }
     fwMsg('当前固件：' + (j.current === 'unknown' ? '未知（旧固件）' : j.current) + '\n设备型号：' + j.board);
     const st = await api('/api/fw?act=status');
@@ -5933,7 +5935,14 @@ async function fwCheck(){
   const old = b.textContent;
   b.disabled = true; b.textContent = '检查中…';
   try{
-    const j = await api('/api/fw?act=check');
+    const r0 = await fetch('/api/fw?act=check');
+    if(r0.status === 404){
+      fwMsg('当前仪表盘版本过旧，没有固件更新接口，请先更新网页（仪表盘更新）。', true);
+      $('#fw-action').disabled = true;
+      b.disabled = false; b.textContent = old;
+      return;
+    }
+    const j = await r0.json();
     if(!j || !j.ok){
       fwMsg((j && j.error) || '检查失败', true);
       $('#fw-action').disabled = true;

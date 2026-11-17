@@ -137,7 +137,7 @@ if [ -n "$FW_BIN" ]; then
   "versionName": "$(date +%Y-%m-%d-%H)",
   "board": "xiaomi,mi-router-3g",
   "target": "ramips/mt7621",
-  "url": "https://gitee.com/xyinmaster/dashboard-ota/raw/main/fw/$FW_NAME",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-$FWV/$FW_NAME",
   "sha256": "$FW_SHA",
   "size": $FW_SIZE,
   "notes": "R3G 整机固件 $FWV"

@@ -161,7 +161,7 @@ if [ -n "$FW_BIN" ]; then
   "versionName": "$(date +%Y-%m-%d-%H)",
   "board": "hilink,hlk-7628n",
   "target": "ramips/mt76x8",
-  "url": "https://gitee.com/xyinmaster/dashboard-ota/raw/main/fw/$FW_NAME",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-$FWV/$FW_NAME",
   "sha256": "$FW_SHA",
   "size": $FW_SIZE,
   "notes": "HLK-7628N 整机固件 $FWV"
