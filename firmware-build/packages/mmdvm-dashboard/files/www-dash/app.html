@@ -1310,7 +1310,6 @@ th{font-size:12px}
       <a href="#/config" data-view="config" class="has-sub">配置</a>
       <div class="submenu">
         <a href="#/basic" data-view="basic">基础配置</a>
-        <a href="#/config/mmdvmhost" data-view="config" data-mode="mmdvmhost">主机</a>
         <a href="#/config/dmrgateway" data-view="config" data-mode="dmrgateway">DMR网关</a>
         <a href="#/services" data-view="services">服务控制</a>
         <a href="#/adv" data-view="adv">高级</a>
@@ -1353,10 +1352,6 @@ th{font-size:12px}
       <a href="#/basic" data-view="basic">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></svg>
         基础配置
-      </a>
-      <a href="#/config/mmdvmhost" data-view="config" data-mode="mmdvmhost">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
-        主机
       </a>
       <a href="#/config/dmrgateway" data-view="config" data-mode="dmrgateway">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
@@ -2366,7 +2361,8 @@ function route(){
     return;
   }
   if(view !== 'adv') advGate = false;
-  cfgMode = (view==='config') ? (seg[1] || 'mmdvmhost') : 'mmdvmhost';
+  /* 主机配置页已从菜单移除，直接进入「配置」时默认打开 DMR 网关配置 */
+  cfgMode = (view==='config') ? (seg[1] || 'dmrgateway') : 'mmdvmhost';
   const key = view + ':' + (view==='config' ? cfgMode : '');
   closeSidebar();
   if(lastRoute === key) return;
