@@ -2188,7 +2188,7 @@ const FW_DIR = "/tmp/fw-ota";
 const FW_IMAGE = FW_DIR + "/image.bin";
 const FW_RC = FW_DIR + "/rc";
 const FW_STATE_FILE = FW_DIR + "/state.json";
-const FW_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/fw/";
+const FW_DEFAULT_SRC = "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/raw/main/fw/";
 const FW_DEFAULT_ALT = "https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main/fw/";
 
 function fwBoard() {
