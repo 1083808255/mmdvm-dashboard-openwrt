@@ -993,7 +993,7 @@ th{font-size:12px}
   #view-basic .field-url{grid-column:1/-1}
   /* 连接：类型与色码同一行（色码左边缘与时隙2对齐），时隙1/时隙2 一行，信标/信标时间 一行 */
   #view-basic .field-dmrtype{grid-column:1/span 3}
-  #view-basic .field-selfonly{grid-column:auto/span 3}
+  #view-basic .field-selfonly{grid-column:auto/span 3;transform:translateX(-25px)}
   #view-basic .field-selfonly > label{white-space:nowrap}
   #view-basic .field-colorcode{grid-column:1/span 3}
   #view-basic .field-slot1{grid-column:1/span 3}
@@ -5787,11 +5787,25 @@ async function renderSystem(){
       <h2 style="font-size:17px;margin-bottom:8px">系统操作</h2>
       <p style="color:var(--muted);font-size:14px;margin-bottom:12px">重启后设备会断开约 30–60 秒，期间通联中断，页面会在设备恢复后重新可用。</p>
       <div class="sys-ops" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <a class="btn" href="/cgi-bin/luci" target="_blank" rel="noopener" style="text-decoration:none">进入路由配置</a>
+        <a class="btn" id="sys-luci" href="#" style="text-decoration:none">进入路由配置</a>
         <button class="btn" id="sys-lhclear">清除 MMDVM 缓存</button>
         <button class="btn danger" id="sys-reboot">重启设备</button>
       </div>
     </div>`;
+  $('#sys-luci').addEventListener('click', async (ev)=>{
+    ev.preventDefault();
+    /* 先开空白标签页，避免请求返回后再 window.open 被浏览器拦截 */
+    const w = window.open('', '_blank');
+    const fallback = location.protocol + '//' + location.hostname + ':8080/cgi-bin/luci';
+    if(PREVIEW){ if(w) w.close(); toast('预览模式：不会启动 LuCI'); return; }
+    let url = fallback;
+    try{
+      const r = await fetch('/api/luci');
+      const j = await r.json();
+      if(j && j.ok && j.url) url = j.url;
+    }catch(e){}
+    if(w) w.location.href = url; else location.href = url;
+  });
   $('#sys-lhclear').addEventListener('click', async ()=>{
     if(PREVIEW){ toast('预览模式：不会真正清除缓存'); return; }
     if(!(await uiConfirm('确定要清除通联记录缓存吗？最近通联与历史记录会被清空。', { title: '清除 MMDVM 缓存', okText: '清除' }))) return;
