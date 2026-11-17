@@ -1,0 +1,16 @@
+#!/bin/sh /etc/rc.common
+# 将 GPIO0~3（模块 17~20 脚）导出为输入，方便后续扩展
+START=19
+
+start() {
+	for n in 0 1 2 3; do
+		[ -d "/sys/class/gpio/gpio$n" ] || echo "$n" > /sys/class/gpio/export 2>/dev/null
+		echo in > "/sys/class/gpio/gpio$n/direction" 2>/dev/null
+	done
+}
+
+stop() {
+	for n in 0 1 2 3; do
+		[ -d "/sys/class/gpio/gpio$n" ] && echo "$n" > /sys/class/gpio/unexport 2>/dev/null
+	done
+}

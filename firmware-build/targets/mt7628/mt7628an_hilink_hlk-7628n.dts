@@ -1,0 +1,144 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+/*
+ * HILINK HLK-7628N (MT7628NN, 32MB flash + 128MB RAM) —— MMDVM 热点定制
+ *
+ * 与上游 DTS 的差异：
+ *   - 显式声明 128MB 内存，避免只识别 64MB
+ *   - 释放 I2C 引脚（GPIO4/5）供 OLED 使用，并启用 SoC I2C 控制器
+ *   - 释放 I2S 引脚（GPIO0~3）为普通 GPIO，留给模块 17~20 脚
+ *   - 增加 serial1 别名，调制解调器固定为 /dev/ttyS1
+ *   - 内核 console 从 UART0(ttyS0) 移到 UART2(ttyS2)，UART0 完全让给
+ *     Air780EX 4G 模块的 AT 口（115200）
+ */
+
+#include "mt7628an.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+
+/ {
+	compatible = "hilink,hlk-7628n", "mediatek,mt7628an-soc";
+	model = "HILINK HLK-7628N";
+
+	aliases {
+		serial1 = &uart1;
+	};
+
+	chosen {
+		/* 控制台改到未引出/未使用的 UART2，UART0 留给 4G 模块 */
+		bootargs = "console=ttyS2,115200 rootfstype=squashfs,jffs2";
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x8000000>;
+	};
+
+	keys {
+		compatible = "gpio-keys";
+
+		reset {
+			label = "reset";
+			gpios = <&gpio 38 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		wlan {
+			label = "green:wlan";
+			gpios = <&gpio 44 GPIO_ACTIVE_LOW>;
+		};
+	};
+};
+
+&state_default {
+	/* 上游这里把 i2c 引脚设为 gpio，这里改为释放 i2s 组。
+	   MT7628 的 i2s 组包含 GPIO0/1/2/3 四个引脚，一次设置即四个脚全部
+	   作为普通 GPIO；i2c 引脚则交给 i2c 控制器（OLED 使用） */
+	gpio {
+		groups = "i2s";
+		function = "gpio";
+	};
+};
+
+/* I2S 控制器保持关闭，确保不会把 GPIO0~3 重新复用为音频引脚 */
+&i2s {
+	status = "disabled";
+};
+
+&i2c {
+	status = "okay";
+};
+
+&uart1 {
+	status = "okay";
+};
+
+&uart2 {
+	status = "okay";
+};
+
+&spi0 {
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+		broken-flash-reset;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x0 0x30000>;
+				read-only;
+			};
+
+			partition@30000 {
+				label = "u-boot-env";
+				reg = <0x30000 0x10000>;
+				read-only;
+			};
+
+			factory: partition@40000 {
+				label = "factory";
+				reg = <0x40000 0x10000>;
+				read-only;
+			};
+
+			partition@50000 {
+				compatible = "denx,uimage";
+				label = "firmware";
+				reg = <0x50000 0x1fb0000>;
+			};
+		};
+	};
+};
+
+&ethernet {
+	nvmem-cells = <&macaddr_factory_28>;
+	nvmem-cell-names = "mac-address";
+};
+
+&wmac {
+	status = "okay";
+
+	mediatek,mtd-eeprom = <&factory 0x0>;
+};
+
+&factory {
+	compatible = "nvmem-cells";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	macaddr_factory_28: macaddr@28 {
+		reg = <0x28 0x6>;
+	};
+};

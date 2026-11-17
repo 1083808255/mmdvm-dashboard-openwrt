@@ -1,0 +1,110 @@
+#!/bin/sh
+# Air780EX 4G 模块监视：UART0 (/dev/ttyS0) AT 口，115200
+# 结果写入 /tmp/air780e.json，供仪表盘 /api/system 读取
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+DEV=$(uci -q get air780e.main.device)
+[ -n "$DEV" ] || DEV=/dev/ttyS0
+INTERVAL=$(uci -q get air780e.main.interval)
+[ -n "$INTERVAL" ] || INTERVAL=30
+OUT=/tmp/air780e.json
+
+[ -c "$DEV" ] || {
+	logger -t air780e "device not found: $DEV"
+	exit 1
+}
+
+# 兜底：即使内核 cmdline 里还有 console，也不让它往 UART0 打日志
+echo "0 4 1 7" > /proc/sys/kernel/printk 2>/dev/null
+
+stty -F "$DEV" 115200 raw -echo -echoe -echok -crtscts 2>/dev/null || {
+	logger -t air780e "stty failed on $DEV"
+	exit 1
+}
+
+exec 3<>"$DEV" || exit 1
+
+# 发送一条 AT 命令，最长等 8 秒；识别 CSQ / 注册 / 运营商应答
+# 返回 0=OK，1=ERROR，2=超时
+at_cmd() {
+	local cmd="$1" line n=0 misses=0
+	printf '%s\r\n' "$cmd" >&3
+	while [ "$n" -lt 12 ]; do
+		if IFS= read -r -t 1 -u 3 line; then
+			misses=0
+			line=$(printf '%s' "$line" | tr -d '\r')
+			case "$line" in
+				+CSQ:*)    CSQ_LINE="$line" ;;
+				+CREG:*|+CGREG:*|+CEREG:*) REG_LINE="$line" ;;
+				+COPS:*)   COPS_LINE="$line" ;;
+				OK)        return 0 ;;
+				ERROR|+CME\ ERROR:*|+CMS\ ERROR:*) return 1 ;;
+			esac
+			n=$((n + 1))
+		else
+			misses=$((misses + 1))
+			[ "$misses" -ge 3 ] && return 2
+			n=$((n + 1))
+		fi
+	done
+	return 2
+}
+
+write_state() {
+	printf '%s\n' "$1" > "$OUT.tmp" 2>/dev/null && mv "$OUT.tmp" "$OUT" 2>/dev/null
+}
+
+while :; do
+	CSQ_LINE=""
+	REG_LINE=""
+	COPS_LINE=""
+
+	at_cmd 'AT' >/dev/null 2>&1
+	at_cmd 'AT+CSQ' >/dev/null 2>&1
+	at_cmd 'AT+CREG?' >/dev/null 2>&1
+	at_cmd 'AT+CEREG?' >/dev/null 2>&1
+	at_cmd 'AT+COPS?' >/dev/null 2>&1
+
+	# 信号强度：CSQ 0~31，RSSI = -113 + 2*CSQ
+	csq=99
+	if [ -n "$CSQ_LINE" ]; then
+		csq=${CSQ_LINE#+CSQ:}
+		csq=${csq%%,*}
+		case "$csq" in
+			''|*[!0-9]*) csq=99 ;;
+		esac
+	fi
+	rssi=""
+	if [ "$csq" -le 31 ]; then
+		rssi=$(( -113 + csq * 2 ))
+	fi
+
+	# 注册状态（优先 CEREG，最后查询，会覆盖 CREG）
+	reg=""
+	[ -n "$REG_LINE" ] && reg=${REG_LINE##*,}
+	case "$reg" in
+		1) stat='已注册' ;;
+		5) stat='已注册(漫游)' ;;
+		2) stat='搜索中' ;;
+		3) stat='注册被拒' ;;
+		'') stat='无响应' ;;
+		*) stat='未注册' ;;
+	esac
+
+	# 运营商
+	op=""
+	[ -n "$COPS_LINE" ] && op=$(printf '%s' "$COPS_LINE" | sed -n 's/.*"\([^"]*\)".*/\1/p')
+	op=$(printf '%s' "$op" | tr -d '"\\')
+
+	ts=$(date +%s)
+	ok=false
+	case "$reg" in 1|5) ok=true ;; esac
+
+	if [ -n "$rssi" ]; then
+		write_state "{\"ok\":$ok,\"csq\":$csq,\"rssi\":$rssi,\"reg\":\"${reg:-}\",\"stat\":\"$stat\",\"operator\":\"$op\",\"ts\":$ts}"
+	else
+		write_state "{\"ok\":$ok,\"csq\":$csq,\"reg\":\"${reg:-}\",\"stat\":\"$stat\",\"operator\":\"$op\",\"ts\":$ts}"
+	fi
+
+	sleep "$INTERVAL"
+done

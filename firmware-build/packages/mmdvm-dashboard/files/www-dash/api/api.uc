@@ -1211,6 +1211,17 @@ function wholeDiskKb() {
 	return best;
 }
 
+/* 4G 模块状态：由 air780e-monitor 写入 /tmp/air780e.json，超过 5 分钟未更新视为失效 */
+function lteInfo() {
+	let d = FS.readfile("/tmp/air780e.json");
+	if (d == null) return null;
+	let v = null;
+	try { v = json(d); } catch (e) { return null; }
+	if (type(v) != "object" || v == null) return null;
+	if (time() - (v.ts ?? 0) > 300) v.ok = false;
+	return v;
+}
+
 function cmdSystem() {
 	let mem = FS.readfile("/proc/meminfo") ?? "";
 	let total = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
@@ -1286,7 +1297,8 @@ function cmdSystem() {
 		diskDevTotal: dDevTotal,
 		diskDevUnit: dDevUnit,
 		/* 百分比与 df 的 Use% 一致：已用 / (已用 + 可用) */
-		diskPct: (dUsedKb + dAvailKb) ? rnd(dUsedKb * 100 / (dUsedKb + dAvailKb)) : 0
+		diskPct: (dUsedKb + dAvailKb) ? rnd(dUsedKb * 100 / (dUsedKb + dAvailKb)) : 0,
+		lte: lteInfo()
 	});
 }
 
