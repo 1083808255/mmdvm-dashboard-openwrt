@@ -2056,7 +2056,7 @@ Port=7643` },
   system: {
     hostname:"MMDVM", ip:"192.168.8.9", model:"x86_64", firmware:"OpenWrt 23.05.5", kernel:"5.15.189",
     uptime:"53 分钟", load:[0.01,0.02,0.00],
-    cpu:4, cpuPct:2, memTotal:987, memPhys:1024, memUsed:92, memAvail:820, memPct:9,
+    cpu:4, cpuPct:2, memTotal:987, memPhys:1024, memUsed:92, memFree:820, memPct:9,
     diskTotal:86.4, diskUsed:6.7, diskAvail:72.1, diskPct:8, diskDevTotal:121, diskDevUnit:"MB"
   },
   lastheard: [
@@ -5767,7 +5767,7 @@ async function renderSystem(){
         <h2 style="font-size:17px;margin:0">系统</h2>
         <div class="sys-meters">
           <div class="sys-meter"><div class="mk">CPU</div><div class="mv">${esc(s.cpuPct+'%')}</div><div class="bar"><i style="width:${s.cpuPct}%"></i></div></div>
-          <div class="sys-meter"><div class="mk">内存</div><div class="mv">${esc(s.memUsed+' / '+(s.memAvail??0)+' MB')}</div><div class="bar"><i style="width:${s.memPct}%"></i></div></div>
+          <div class="sys-meter"><div class="mk">内存</div><div class="mv">${esc(s.memUsed+' / '+(s.memFree??0)+' MB')}</div><div class="bar"><i style="width:${s.memPct}%"></i></div></div>
           <div class="sys-meter"><div class="mk">根分区</div><div class="mv">${esc(s.diskUsed+' / '+(s.diskAvail??0)+' '+(s.diskUnit||'GB'))}</div><div class="bar"><i style="width:${s.diskPct}%"></i></div></div>
         </div>
       </div>

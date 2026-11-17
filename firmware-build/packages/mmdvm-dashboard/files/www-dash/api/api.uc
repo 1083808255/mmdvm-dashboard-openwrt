@@ -1156,10 +1156,9 @@ function wholeDiskKb() {
 
 function cmdSystem() {
 	let mem = FS.readfile("/proc/meminfo") ?? "";
-	let total = 0, avail = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
+	let total = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
 	for (let l in split(mem, "\n")) {
 		if (substr(l, 0, 9) == "MemTotal:") total = +trim(substr(l, index(l, ":") + 1));
-		if (substr(l, 0, 13) == "MemAvailable:") avail = +trim(substr(l, index(l, ":") + 1));
 		if (substr(l, 0, 8) == "MemFree:") freeKb = +trim(substr(l, index(l, ":") + 1));
 		if (substr(l, 0, 8) == "Buffers:") bufKb = +trim(substr(l, index(l, ":") + 1));
 		if (substr(l, 0, 7) == "Cached:") cacheKb = +trim(substr(l, index(l, ":") + 1));
@@ -1195,8 +1194,8 @@ function cmdSystem() {
 	let usedKb = total - freeKb - bufKb - cacheKb - reclaimKb;
 	if (usedKb < 0) usedKb = 0;
 	let memUsedMb = rnd(usedKb / 1024);
-	/* 可用 = MemAvailable（含可回收缓存），与 free/df 的“可用”口径一致 */
-	let memAvailMb = rnd(avail / 1024);
+	/* 空闲内存 = MemFree（完全空闲的物理页），不含缓存和可回收部分 */
+	let memFreeMb = rnd(freeKb / 1024);
 	/* 物理内存总量（比 MemTotal 大，含内核保留部分），读取失败时退回 MemTotal */
 	let memPhysMb = physMemMb();
 	if (memPhysMb < totalMb) memPhysMb = totalMb;
@@ -1221,7 +1220,7 @@ function cmdSystem() {
 		memTotal: totalMb,
 		memPhys: memPhysMb,
 		memUsed: memUsedMb,
-		memAvail: memAvailMb,
+		memFree: memFreeMb,
 		memPct: memPhysMb ? rnd(memUsedMb * 100 / memPhysMb) : 0,
 		diskTotal: dTotal,
 		diskUsed: dUsed,
