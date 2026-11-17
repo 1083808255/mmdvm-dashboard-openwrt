@@ -2278,6 +2278,11 @@ document.addEventListener('keydown', e=>{
 function radioNetHtml(nets){
   if(!Array.isArray(nets) || !nets.length) return '—';
   return nets.map(function(n){
+    /* 服务未启动：只显示“未启用”和红点 */
+    if(n && n.inactive){
+      return '<div class="net-item"><span class="net-name">' + esc(n.name || '未启用') + '</span>' +
+        '<span class="netdot err"></span></div>';
+    }
     const pg = (n && n.ping != null) ? n.ping : null;
     return '<div class="net-item"><span class="net-name">' + esc(n && n.name ? n.name : '') + '</span>' +
       '<span class="netdot ' + (n && n.connected ? 'ok' : 'err') + '"></span>' +
@@ -2296,6 +2301,11 @@ function renderNetworks(nets){
         const nm = esc(n && n.name ? n.name : '');
         const ok = !!(n && n.connected);
         const pg = (n && n.ping != null) ? n.ping : null;
+        /* 服务未启动：只显示“未启用”和红点，不占 ping 位 */
+        if(n && n.inactive){
+          return '<span class="net-item"><span class="net-name">' + nm + '</span>' +
+            '<i class="netdot err"></i></span>';
+        }
         return '<span class="net-item"><span class="net-name">' + nm + '</span>' +
           '<i class="netdot ' + (ok ? 'ok' : 'err') + '"></i>' +
           '<span class="net-ping' + (pg != null && pg >= 200 ? ' warn' : '') + '">' +

@@ -921,6 +921,11 @@ function cmdStatus() {
 	if (dmrType != "direct" && (!mmOk || !gwRunning)) {
 		for (let n in nets) n.connected = false;
 	}
+	/* MMDVMHost 未运行（未配置或手动停止）时，页头只显示“未启用”，不再展示各网络状态 */
+	if (!mmdvmRunning) {
+		nets = [ { name: "未启用", connected: false, inactive: true, ping: null } ];
+		netAddr = {};
+	}
 	/* 各网络 ping 值：仅在已连接时测试；10 秒缓存（电脑版每 10 秒刷新一次） */
 	let pingNow = time(), pc = {}, pingChanged = false;
 	try { pc = json(FS.readfile(PING_CACHE) ?? "") ?? {}; } catch (e) { pc = {}; }
