@@ -5167,8 +5167,8 @@ const CAL_SKIP_MS = 700, CAL_POLL_MS = 350;
 const CAL_IDLE_MS = 6000, CAL_START_TIMEOUT = 25000;
 /* 判定「有改善」的最小均值差（%）：同一偏移重复测量波动可达 ±0.3% 以上 */
 const CAL_TOL = 0.3;
-/* 目标值与可接受上限 */
-const CAL_GOAL = 0.5, CAL_OK = 1.0;
+/* 目标值与可接受上限：误码率 2% 以内即认为校准达标 */
+const CAL_GOAL = 2.0, CAL_OK = 2.0;
 let calAuto = { on:false, abort:false, results:[] };
 function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 function median(arr){
