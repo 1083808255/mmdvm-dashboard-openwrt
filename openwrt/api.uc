@@ -16,6 +16,7 @@ const PING_CACHE   = "/tmp/dashboard_ping.json";
 const CPU_CACHE    = "/tmp/dashboard_cpu.json";
 const CONN_CACHE   = "/tmp/dashboard_conn.cache";
 const NET_STATE_CACHE = "/tmp/dashboard_netstate.json";
+const GWSCAN_CACHE = "/tmp/dashboard_gwscan.json";
 const GPS_CACHE    = "/tmp/dashboard_gps.json";
 const GEO_CACHE    = "/tmp/dashboard_geo.json";
 /* 逆地理结果缓存：成功的存 7 天，失败的只存 5 分钟 */
@@ -157,9 +158,39 @@ function memoPut(k, v) {
 	writeCache(MEMO, out);
 }
 function hostname() {
-	let h = trim(sh("uci get system.@system[0].hostname 2>/dev/null"));
-	if (!length(h)) h = trim(FS.readfile("/proc/sys/kernel/hostname") ?? "");
+	/* 优先读内核 hostname，避免每次状态请求都 fork uci（uci 本身是脚本，开销较大） */
+	let h = trim(FS.readfile("/proc/sys/kernel/hostname") ?? "");
+	if (!length(h)) h = trim(sh("uci get system.@system[0].hostname 2>/dev/null"));
 	return h;
+}
+/* 直接读取 /etc/config/<pkg> 命名段里的选项，避免高频请求反复 fork uci */
+function uciOpt(pkg, sec, opt) {
+	let data = FS.readfile("/etc/config/" + pkg);
+	if (data == null) return "";
+	let cur = "";
+	for (let l in split(data, "\n")) {
+		let s = trim(l);
+		if (substr(s, 0, 7) == "config ") {
+			let rest = trim(substr(s, 7));
+			let i = index(rest, " ");
+			if (i < 0) { cur = ""; continue; }
+			let nm = trim(substr(rest, i + 1));
+			if (length(nm) >= 2 && (substr(nm, 0, 1) == "'" || substr(nm, 0, 1) == "\""))
+				nm = substr(nm, 1, length(nm) - 2);
+			cur = nm;
+			continue;
+		}
+		if (cur != sec || substr(s, 0, 7) != "option ") continue;
+		let rest = trim(substr(s, 7));
+		let i = index(rest, " ");
+		if (i < 0) continue;
+		if (trim(substr(rest, 0, i)) != opt) continue;
+		let v = trim(substr(rest, i + 1));
+		if (length(v) >= 2 && (substr(v, 0, 1) == "'" || substr(v, 0, 1) == "\""))
+			v = substr(v, 1, length(v) - 2);
+		return v;
+	}
+	return "";
 }
 
 /* ---------- 服务定义（与设备实际安装一致） ---------- */
@@ -180,6 +211,14 @@ function svcInfo(s) {
 	};
 }
 const LOGPATH_CACHE = "/tmp/dashboard_logpath.json";
+/* 取最新的 n 份日志（新→旧）：文件名按日期递增，直接用 glob 排序，避免 fork ls */
+function newestLogs(prefix, n) {
+	let list = FS.glob("/var/log/mmdvm/" + prefix + "-*.log") ?? [];
+	sort(list);
+	let res = [];
+	for (let i = length(list) - 1; i >= 0 && length(res) < n; i--) push(res, list[i]);
+	return res;
+}
 /* 日志路径：ls -t 每次请求都要 fork，2 秒内复用同一结果。
    日志按天滚动，最多让新文件晚 2 秒被发现，不影响实时显示 */
 function logFileFor(prefix) {
@@ -189,7 +228,7 @@ function logFileFor(prefix) {
 	let e = c[prefix];
 	if (type(e) == "object" && e != null && now - (e.t ?? 0) <= 2 && length(e.f ?? "") && FS.stat(e.f) != null)
 		return e.f;
-	let f = trim(sh("ls -t /var/log/mmdvm/" + prefix + "-*.log 2>/dev/null | head -1"));
+	let f = newestLogs(prefix, 1)[0] ?? "";
 	c[prefix] = { t: now, f: f };
 	try { FS.writefile(LOGPATH_CACHE, sprintf("%J", c)); } catch (e2) {}
 	return f;
@@ -761,23 +800,23 @@ function is46Id(id) { return substr(id, 0, 2) == "46"; }
 function is86Id(id) { return substr(id, 0, 2) == "86"; }
 
 /* ---------- 端点实现 ---------- */
-/* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等） */
+/* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等）
+   直接读目录，避免每次状态刷新都 fork 两个 ls */
 function scanI2cBuses() {
 	let res = [];
-	let paths = split(trim(sh("ls /dev/i2c-* 2>/dev/null")), "\n");
-	for (let i = 0; i < length(paths); i++) {
-		let n = replace(trim(paths[i]), /^.*i2c-/, "");
-		if (match(n, /^[0-9]+$/)) push(res, +n);
+	let list = FS.lsdir("/dev") ?? [];
+	for (let n in list) {
+		let m = match(n, /^i2c-([0-9]+)$/);
+		if (m != null) push(res, +m[1]);
 	}
 	sort(res, (a, b) => a - b);
 	return res;
 }
 function scanSerialPorts() {
 	let res = [];
-	let paths = split(trim(sh("ls /dev/ttyUSB* /dev/ttyACM* /dev/ttyAMA* /dev/ttyHS* 2>/dev/null")), "\n");
-	for (let i = 0; i < length(paths); i++) {
-		let p = trim(paths[i]);
-		if (length(p) && match(p, /^\/dev\/tty[A-Za-z]+[0-9]+$/)) push(res, p);
+	let list = FS.lsdir("/dev") ?? [];
+	for (let n in list) {
+		if (match(n, /^tty(USB|ACM|AMA|HS)[0-9]+$/)) push(res, "/dev/" + n);
 	}
 	sort(res);
 	return res;
@@ -801,10 +840,10 @@ function cmdStatus() {
 	let dispPort = (dispSec == null) ? (disp.Port ?? "") : ((m[dispSec] ?? {}).Port ?? "");
 	/* HD44780 地址在 ini 的 [HD44780] I2CAddress；OLED 上游无地址键，存在 uci 的 oled_i2c_addr */
 	let dispAddr = "";
-	if (dispSec == "OLED") dispAddr = trim(sh("uci get mmdvmhost.main.oled_i2c_addr 2>/dev/null"));
+	if (dispSec == "OLED") dispAddr = uciOpt("mmdvmhost", "main", "oled_i2c_addr");
 	else if (g.Display == "HD44780") dispAddr = (m["HD44780"] ?? {}).I2CAddress ?? "";
 	/* I2C 总线号存 uci；可选总线来自 /dev/i2c-* */
-	let i2cBus = trim(sh("uci get mmdvmhost.main.i2c_bus 2>/dev/null"));
+	let i2cBus = uciOpt("mmdvmhost", "main", "i2c_bus");
 	let i2cBuses = scanI2cBuses();
 	/* 调制解调器的 I2C 总线：ini 里是 /dev/i2c-N，界面只显示 N */
 	let modemBus = replace(mod.I2CPort ?? "", /^.*i2c-/, "");
@@ -849,8 +888,10 @@ function cmdStatus() {
 	   网关模式：从 DMRGateway 日志推断各网络；
 	   直连模式：只显示 MMDVM.ini 当前连接的服务器，状态看 MMDVMHost 日志 */
 	let dmrType = lc(trim(dmrN.Type ?? "Gateway"));
-	let mmdvmRunning = length(trim(sh("pidof MMDVMHost 2>/dev/null"))) > 0;
-	let gwRunning = length(trim(sh("pidof DMRGateway 2>/dev/null"))) > 0;
+	/* 两个服务合并成一次 shell 调用，少 fork 一个 /bin/sh */
+	let runSt = sh("pidof MMDVMHost >/dev/null 2>&1 && echo MM; pidof DMRGateway >/dev/null 2>&1 && echo GW");
+	let mmdvmRunning = index(runSt, "MM") >= 0;
+	let gwRunning = index(runSt, "GW") >= 0;
 	let mlog = length(lf) ? (FS.readfile(lf) ?? "") : "";
 	if (length(mlog) > 120000) mlog = substr(mlog, length(mlog) - 120000);
 	/* MMDVMHost 是否真的就绪：最后一次 “Opening the MMDVM” 之后要能走到
@@ -885,37 +926,47 @@ function cmdStatus() {
 	}
 	if (dmrType != "direct") {
 		/* 网关日志按天切分，当天的文件可能没有某网络的登录记录。
-		   读取最近两份日志（旧→新）解析，最后一次事件生效；仍无记录的网络沿用上次已知状态 */
-		let files = [];
-		let list = trim(sh("ls -t /var/log/mmdvm/DMRGateway-*.log 2>/dev/null | head -2"));
-		for (let f in split(list, "\n")) {
-			let ft = trim(f);
-			if (length(ft)) push(files, ft);
+		   读取最近两份日志（旧→新）解析，最后一次事件生效；仍无记录的网络沿用上次已知状态。
+		   日志未变化时直接复用上次解析结果，避免每 10 秒重复扫描几百 KB */
+		let files = newestLogs("DMRGateway", 2);
+		let sig = "";
+		for (let f in files) {
+			let s = FS.stat(f);
+			sig += f + "|" + (s == null ? "-" : (s.size + "|" + s.mtime)) + ";";
 		}
-		let seen = {};
-		for (let i = length(files) - 1; i >= 0; i--) {
-			let data = FS.readfile(files[i]) ?? "";
-			if (length(data) > 200000) data = substr(data, length(data) - 200000);
-			for (let l in split(data, "\n")) {
-				for (let n in nets) {
-					if (index(l, " " + n.name + ", ") < 0) continue;
-					if (index(l, "Logged into the master successfully") >= 0) { n.connected = true; seen[n.name] = true; }
-					else if (index(l, "Connection to the master has timed out") >= 0) { n.connected = false; seen[n.name] = true; }
-					else if (index(l, "Closing DMR Network") >= 0) { n.connected = false; seen[n.name] = true; }
-					else if (index(l, "Opening DMR Network") >= 0) { n.connected = false; seen[n.name] = true; }
+		let gwc = null;
+		try { gwc = json(FS.readfile(GWSCAN_CACHE) ?? ""); } catch (e) { gwc = null; }
+		if (type(gwc) == "object" && gwc != null && gwc.sig == sig && type(gwc.conn) == "object") {
+			for (let n in nets) {
+				if (type(gwc.conn[n.name]) == "bool") n.connected = gwc.conn[n.name];
+			}
+		} else {
+			let seen = {};
+			for (let i = length(files) - 1; i >= 0; i--) {
+				let data = FS.readfile(files[i]) ?? "";
+				if (length(data) > 200000) data = substr(data, length(data) - 200000);
+				for (let l in split(data, "\n")) {
+					for (let n in nets) {
+						if (index(l, " " + n.name + ", ") < 0) continue;
+						if (index(l, "Logged into the master successfully") >= 0) { n.connected = true; seen[n.name] = true; }
+						else if (index(l, "Connection to the master has timed out") >= 0) { n.connected = false; seen[n.name] = true; }
+						else if (index(l, "Closing DMR Network") >= 0) { n.connected = false; seen[n.name] = true; }
+						else if (index(l, "Opening DMR Network") >= 0) { n.connected = false; seen[n.name] = true; }
+					}
 				}
 			}
-		}
-		let prev = null;
-		try { prev = json(FS.readfile(NET_STATE_CACHE) ?? ""); } catch (e) { prev = null; }
-		if (type(prev) == "object" && prev != null) {
-			for (let n in nets) {
-				if (!seen[n.name] && type(prev[n.name]) == "bool") n.connected = prev[n.name];
+			let prev = null;
+			try { prev = json(FS.readfile(NET_STATE_CACHE) ?? ""); } catch (e) { prev = null; }
+			if (type(prev) == "object" && prev != null) {
+				for (let n in nets) {
+					if (!seen[n.name] && type(prev[n.name]) == "bool") n.connected = prev[n.name];
+				}
 			}
+			let cur = {};
+			for (let n in nets) cur[n.name] = n.connected;
+			try { FS.writefile(NET_STATE_CACHE, sprintf("%J", cur)); } catch (e) {}
+			try { FS.writefile(GWSCAN_CACHE, sprintf("%J", { sig: sig, conn: cur })); } catch (e) {}
 		}
-		let cur = {};
-		for (let n in nets) cur[n.name] = n.connected;
-		try { FS.writefile(NET_STATE_CACHE, sprintf("%J", cur)); } catch (e) {}
 	}
 	/* 网关模式下，MMDVMHost 未就绪或网关没在运行，日志里残留的登录记录不代表当前在线 */
 	if (dmrType != "direct" && (!mmOk || !gwRunning)) {
@@ -973,7 +1024,7 @@ function cmdStatus() {
 		if (length(verCached)) {
 			ver = verCached;
 		} else {
-			let prev = trim(sh("ls -t /var/log/mmdvm/MMDVM-*.log 2>/dev/null | sed -n 2p"));
+			let prev = newestLogs("MMDVM", 2)[1] ?? "";
 			if (length(prev)) {
 				let g = between(sh("grep -o 'MMDVMHost-[0-9A-Za-z]* is running' " + prev + " | tail -1"), "MMDVMHost-", " is running");
 				if (g != null && length(trim(g))) {
@@ -1036,7 +1087,8 @@ function cmdStatus() {
 
 	let body = {
 		hostname: hostname(),
-		ip: trim(sh("uci get network.lan.ipaddr 2>/dev/null")),
+		/* 静态 LAN 地址直接读 /etc/config/network；动态获取时保持原来的表现 */
+		ip: (function(){ let v = uciOpt("network", "lan", "ipaddr"); return length(v) ? v : trim(sh("uci get network.lan.ipaddr 2>/dev/null")); })(),
 		online: true,
 		networks: nets,
 		mmdvm: {
