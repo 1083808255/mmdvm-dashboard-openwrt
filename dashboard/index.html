@@ -4216,7 +4216,12 @@ function fitNameSelects(scope){
     const sib = el.nextElementSibling ? el.nextElementSibling.offsetWidth + 6 : 0;
     /* 以字段整行宽度作为上限（父级行是收缩宽度，不能用来判断最大可用空间） */
     const host = el.closest('.field') || p;
-    const max = Math.max(88, (host ? host.clientWidth : 400) - 170 - sib);
+    /* 电脑版标题与控件同行，需要让出标题实际宽度；手机版标题在上方独占一行，
+       不能固定扣减，否则地址框会被压窄、无法按内容自适应 */
+    const wide = window.matchMedia('(min-width:861px)').matches;
+    const lab = wide && host ? host.querySelector('label') : null;
+    const reserved = lab ? lab.offsetWidth + 12 : 0;
+    const max = Math.max(88, (host ? host.clientWidth : 400) - reserved - sib);
     const val = el.value || el.placeholder || '';
     const cs = getComputedStyle(el);
     const byText = textWidthDom(val, cs) + 34;
