@@ -9,7 +9,7 @@ API=$WEB/api
 BIN=/usr/bin
 INIT=/etc/init.d
 # 前端用到的全部接口，全部指向同一个 api.uc
-ENDPOINTS="basic calibration configs lastheard lhclear live log ota page ports services status system tg xlxhosts"
+ENDPOINTS="basic calibration configs lastheard lhclear live log luci ota page ports services status system tg xlxhosts"
 
 [ "$(id -u)" = "0" ] || { echo "请以 root 运行"; exit 1; }
 command -v ucode >/dev/null 2>&1 || {
@@ -50,6 +50,16 @@ chmod 0755 "$INIT/mmdvm-radiowo" "$INIT/mmdvm-bg4esi"
 LOG_CRON='7 4 * * * /usr/bin/mmdvm-log-clean'
 mkdir -p /etc/crontabs
 grep -qF "$LOG_CRON" /etc/crontabs/root 2>/dev/null || echo "$LOG_CRON" >> /etc/crontabs/root
+
+# LuCI 按需启动：进入路由配置时才拉起 uhttpd 主实例，空闲 10 分钟自动停止
+LUCI_BIN="$SRC/firmware-build/packages/mmdvm-dashboard/files/usr/bin/mmdvm-luci"
+if [ -f "$LUCI_BIN" ]; then
+	cp "$LUCI_BIN" "$BIN/mmdvm-luci"
+	chmod 0755 "$BIN/mmdvm-luci"
+	LUCI_CRON='*/1 * * * * /usr/bin/mmdvm-luci idle'
+	grep -qF "$LUCI_CRON" /etc/crontabs/root 2>/dev/null || echo "$LUCI_CRON" >> /etc/crontabs/root
+fi
+
 /etc/init.d/cron restart >/dev/null 2>&1 || true
 
 # 关闭未使用的 YSF / P25 / NXDN 网关服务（MMDVM.ini 中对应 Enable=0）

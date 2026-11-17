@@ -1942,7 +1942,7 @@ const OTA_CACHE = "/tmp/dashboard-ota-cache.json";
 const OTA_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/dashboard.json";
 /* 备用清单：Gitee 不可达时回退到 GitHub API */
 const OTA_DEFAULT_ALT = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
-const DASH_ENDPOINTS = ["basic","calibration","configs","lastheard","lhclear","live","log","ota","page","ports","services","status","system","tg","xlxhosts"];
+const DASH_ENDPOINTS = ["basic","calibration","configs","lastheard","lhclear","live","log","luci","ota","page","ports","services","status","system","tg","xlxhosts"];
 
 function sq(s) {
 	let t = sprintf("%s", s), o = "";
@@ -2185,9 +2185,43 @@ function cmdOta() {
 
 /* ---------- 路由 ---------- */
 
+/* 路由器配置（LuCI）入口：新版 LuCI 是 /www/cgi-bin/luci 的 CGI，
+   默认按需启动（mmdvm-luci 拉起 8080 的 uhttpd 主实例，空闲 10 分钟自动停止） */
+function cmdLuci() {
+	if (FS.stat("/www/cgi-bin/luci") == null) return fail("未安装 LuCI（路由器配置）");
+	if (FS.stat("/usr/bin/mmdvm-luci") != null)
+		sh("/usr/bin/mmdvm-luci start >/dev/null 2>&1");
+	else if (uciOpt("uhttpd", "main", "enabled") == "0")
+		return fail("路由器配置未启用（uhttpd 主实例已关闭）");
+	let host = trim(getenv("HTTP_HOST") ?? "");
+	if (length(host)) host = split(host, ":")[0];
+	if (!length(host)) host = uciOpt("network", "lan", "ipaddr");
+	if (!length(host)) host = "192.168.1.1";
+	/* 端口取主实例第一个 listen_http，默认 8080 */
+	let port = "8080";
+	let data = FS.readfile("/etc/config/uhttpd") ?? "";
+	let inMain = false;
+	for (let l in split(data, "\n")) {
+		let s = trim(l);
+		if (substr(s, 0, 7) == "config ") { inMain = (index(s, "'main'") >= 0); continue; }
+		if (!inMain || substr(s, 0, 5) != "list " || index(s, "listen_http") < 0) continue;
+		let i = index(s, "0.0.0.0:");
+		if (i >= 0) {
+			let p = substr(s, i + 8);
+			let q = index(p, "'");
+			if (q >= 0) p = substr(p, 0, q);
+			if (match(trim(p), /^[0-9]+$/)) port = trim(p);
+		}
+		break;
+	}
+	out({ ok: true, url: "http://" + host + ":" + port + "/cgi-bin/luci" });
+}
+
 /* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等） */
 if (name == "ports") {
 	out({ ok: true, serialPorts: scanSerialPorts(), i2cBuses: scanI2cBuses() });
+} else if (name == "luci") {
+	cmdLuci();
 } else if (name == "status") {
 	out(cmdStatus());
 } else if (name == "services") {
