@@ -4705,11 +4705,11 @@ async function renderQso(){
   try { await qsoOnce(); } catch(e) { console.warn('[qso] 首次刷新失败', e); }
   scheduleQso();
 }
-/* 自适应轮询：有通联时 0.7s 保证实时，空闲时 1s 降低设备负载。
-   后台标签页暂停请求并明显降频，降低设备 CPU 占用 */
+/* 0.7s 轮询：后端只读缓存（地址查询走后台进程），单次响应约几十毫秒。
+   前台始终 0.7s，保证通联显示实时性；后台标签页降频到 30s */
 function qsoDelay(){
   if(document.hidden) return 30000;
-  return qsoActive ? 700 : 1000;
+  return 700;
 }
 function scheduleQso(){
   if(qsoTimer) return;
