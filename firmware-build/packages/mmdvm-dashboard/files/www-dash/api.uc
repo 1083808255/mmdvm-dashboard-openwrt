@@ -15,6 +15,7 @@ const LIVE_CACHE   = "/tmp/dashboard_live.cache";
 const PING_CACHE   = "/tmp/dashboard_ping.json";
 const CPU_CACHE    = "/tmp/dashboard_cpu.json";
 const CONN_CACHE   = "/tmp/dashboard_conn.cache";
+const NET_STATE_CACHE = "/tmp/dashboard_netstate.json";
 const GPS_CACHE    = "/tmp/dashboard_gps.json";
 const GEO_CACHE    = "/tmp/dashboard_geo.json";
 /* 逆地理结果缓存：成功的存 7 天，失败的只存 5 分钟 */
@@ -882,19 +883,39 @@ function cmdStatus() {
 			}
 		}
 	}
-	let gwLog = logFileFor("DMRGateway");
-	let gwData = length(gwLog) ? (FS.readfile(gwLog) ?? "") : "";
-	if (length(gwData) > 80000) gwData = substr(gwData, length(gwData) - 80000);
 	if (dmrType != "direct") {
-		for (let l in split(gwData, "\n")) {
-			for (let n in nets) {
-				if (index(l, " " + n.name + ", ") < 0) continue;
-				if (index(l, "Logged into the master successfully") >= 0) n.connected = true;
-				else if (index(l, "Connection to the master has timed out") >= 0) n.connected = false;
-				else if (index(l, "Closing DMR Network") >= 0) n.connected = false;
-				else if (index(l, "Opening DMR Network") >= 0) n.connected = false;
+		/* 网关日志按天切分，当天的文件可能没有某网络的登录记录。
+		   读取最近两份日志（旧→新）解析，最后一次事件生效；仍无记录的网络沿用上次已知状态 */
+		let files = [];
+		let list = trim(sh("ls -t /var/log/mmdvm/DMRGateway-*.log 2>/dev/null | head -2"));
+		for (let f in split(list, "\n")) {
+			let ft = trim(f);
+			if (length(ft)) push(files, ft);
+		}
+		let seen = {};
+		for (let i = length(files) - 1; i >= 0; i--) {
+			let data = FS.readfile(files[i]) ?? "";
+			if (length(data) > 200000) data = substr(data, length(data) - 200000);
+			for (let l in split(data, "\n")) {
+				for (let n in nets) {
+					if (index(l, " " + n.name + ", ") < 0) continue;
+					if (index(l, "Logged into the master successfully") >= 0) { n.connected = true; seen[n.name] = true; }
+					else if (index(l, "Connection to the master has timed out") >= 0) { n.connected = false; seen[n.name] = true; }
+					else if (index(l, "Closing DMR Network") >= 0) { n.connected = false; seen[n.name] = true; }
+					else if (index(l, "Opening DMR Network") >= 0) { n.connected = false; seen[n.name] = true; }
+				}
 			}
 		}
+		let prev = null;
+		try { prev = json(FS.readfile(NET_STATE_CACHE) ?? ""); } catch (e) { prev = null; }
+		if (type(prev) == "object" && prev != null) {
+			for (let n in nets) {
+				if (!seen[n.name] && type(prev[n.name]) == "bool") n.connected = prev[n.name];
+			}
+		}
+		let cur = {};
+		for (let n in nets) cur[n.name] = n.connected;
+		try { FS.writefile(NET_STATE_CACHE, sprintf("%J", cur)); } catch (e) {}
 	}
 	/* 网关模式下，MMDVMHost 未就绪或网关没在运行，日志里残留的登录记录不代表当前在线 */
 	if (dmrType != "direct" && (!mmOk || !gwRunning)) {
