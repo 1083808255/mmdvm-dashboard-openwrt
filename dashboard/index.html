@@ -5760,7 +5760,7 @@ async function renderSystem(){
         <div class="sys-meters">
           <div class="sys-meter"><div class="mk">CPU</div><div class="mv">${esc(s.cpuPct+'%')}</div><div class="bar"><i style="width:${s.cpuPct}%"></i></div></div>
           <div class="sys-meter"><div class="mk">内存</div><div class="mv">${esc(s.memUsed+' / '+s.memTotal+' MB')}</div><div class="bar"><i style="width:${s.memPct}%"></i></div></div>
-          <div class="sys-meter"><div class="mk">磁盘</div><div class="mv">${esc(s.diskUsed+' / '+s.diskTotal+' '+(s.diskUnit||'GB'))}</div><div class="bar"><i style="width:${s.diskPct}%"></i></div></div>
+          <div class="sys-meter"><div class="mk">根分区</div><div class="mv">${esc(s.diskUsed+' / '+s.diskTotal+' '+(s.diskUnit||'GB'))}</div><div class="bar"><i style="width:${s.diskPct}%"></i></div></div>
         </div>
       </div>
       <table class="sys-table">
