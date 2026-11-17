@@ -5157,8 +5157,8 @@ function saveCal(){
 }
 
 /* ---- 全自动校准（RX 频偏扫描，开关开启才运行，默认手动） ---- */
-/* 搜索：150 Hz 步长爬坡，单调区间二分，扫描上限 ±1000 Hz */
-const CAL_STEP = 150, CAL_FINE = 50, CAL_LIMIT = 1000, CAL_MAX_STEPS = 7;
+/* 搜索：先测 ±150 定方向，再按中点二分收缩，最终分辨率 25 Hz，外扩上限 ±1000 Hz */
+const CAL_STEP = 150, CAL_RES = 25, CAL_LIMIT = 1000;
 /* 单点采样：每突发 141 bit、约 2350 bit/s；50000 bit ≈ 21 秒持续发射 */
 const CAL_WIN_MS = 60000, CAL_TARGET_BITS = 50000, CAL_MIN_BITS = 20000;
 /* 同步建立期误码偏高，PTT 后前 0.7 秒不计入累计 */
@@ -5355,24 +5355,25 @@ async function runAutoCal(orig){
     if(r) measured.push(r);
     return r;
   };
-  /* 单调区间二分：good 端优于 bad 端，收敛到 ≤50 Hz 或已达标 */
-  const bisect = async (good, bad) => {
+  /* 判定 a 是否显著优于 b（差值需超过噪声容差） */
+  const isbetter = (a, b) => !!(a && b && a.valid && b.valid) && a.mean < b.mean - CAL_TOL;
+  /* 区间 [lo,hi] 内按 25 Hz 分辨率二分：
+     中点优于远端 hi → 收缩为 [lo,mid]，否则收缩为 [mid,hi] */
+  const refine = async (lo, hi, phase) => {
     let it = 0;
-    while(!calAuto.abort && Math.abs(bad.off - good.off) > CAL_FINE && it < 8){
-      const mid = Math.round((good.off + bad.off) / 2 / 20) * 20;
-      if(mid === good.off || mid === bad.off) break;
-      setAutoProgress(50 + Math.min(it / 6, 1) * 35);
-      const r = await test(mid, `阶段 3/3：二分 ${fmtOff(good.off)} ~ ${fmtOff(bad.off)}`);
-      if(!r || !r.valid) break;
+    while(!calAuto.abort && Math.abs(hi.off - lo.off) > CAL_RES && it < 6){
       it++;
-      if(r.mean < good.mean){ bad = good; good = r; }
-      else bad = r;
+      const mid = Math.round((lo.off + hi.off) / 2 / 5) * 5;
+      if(mid === lo.off || mid === hi.off) break;
+      setAutoProgress(35 + Math.min(it / 4, 1) * 40);
+      const r = await test(mid, `${phase}：二分 ${fmtOff(lo.off)} ~ ${fmtOff(hi.off)}`);
+      if(!r || !r.valid) break;
+      if(isbetter(r, hi)) hi = r; else lo = r;
       if(r.mean <= CAL_GOAL) break;
     }
-    return good;
   };
 
-  /* 阶段 1：当前值 + 左右 ±150 Hz，判断正确方向在哪一侧 */
+  /* 阶段 1：测量基准值，再用左右 ±150 Hz 判断正确方向 */
   setAutoDetail(`阶段 1/3：测量当前值 ${fmtOff(base0)} 与左右 ±${CAL_STEP} Hz`);
   let baseP = await test(base0, '阶段 1/3：当前值');
   if(!calAuto.abort && (!baseP || !baseP.valid)){
@@ -5385,33 +5386,44 @@ async function runAutoCal(orig){
     /* 已优于目标值：不搜索，交给阶段 4 复测确认 */
     setAutoHint(`当前偏移 ${fmtOff(base0)} 均值 ${baseP.mean.toFixed(2)}%，已达 ${CAL_GOAL}% 目标，跳过搜索`);
   } else if(!calAuto.abort && baseP && baseP.valid){
-    const neg = await test(base0 - CAL_STEP, `阶段 1/3：当前值 -${CAL_STEP} Hz`);
     const pos = await test(base0 + CAL_STEP, `阶段 1/3：当前值 +${CAL_STEP} Hz`);
-    setAutoProgress(20);
-    const cands = [neg, pos].filter(r => r && r.valid);
-    cands.sort((a,b)=> a.mean - b.mean);
-    let side = cands.length ? cands[0] : null;
+    const neg = await test(base0 - CAL_STEP, `阶段 1/3：当前值 -${CAL_STEP} Hz`);
+    setAutoProgress(15);
+    const cands = [pos, neg].filter(r => r && r.valid);
+    const side = cands.length ? cands.reduce((a,b)=> b.mean < a.mean ? b : a) : null;
     if(side){
-      const dir = (side.off < baseP.off) ? -1 : 1;
-      let steps = 0;
-      /* 情况一：侧点仍显著更低 → 沿同方向爬坡，每轮只新增 1 个测点 */
-      while(!calAuto.abort && side && side.mean < baseP.mean - CAL_TOL){
-        if(steps >= CAL_MAX_STEPS){ boundaryHit = true; break; }
-        steps++;
-        baseP = side;
-        const nextOff = baseP.off + dir * CAL_STEP;
-        if(Math.abs(nextOff - base0) > CAL_LIMIT){ boundaryHit = true; break; }
-        setAutoProgress(20 + Math.min(steps / CAL_MAX_STEPS, 1) * 25);
-        const r = await test(nextOff, `阶段 2/3：沿${dir>0?'正':'负'}方向爬坡至 ${fmtOff(nextOff)}`);
-        if(!r || !r.valid){ side = null; break; }
-        side = r;
+      /* 正方向更优 → 正确值在正侧；负方向更优 → 完全镜像处理 */
+      const dir = (side.off >= base0) ? 1 : -1;
+      const opp = (dir > 0) ? neg : pos;
+      const at = d => base0 + dir * d;
+      const r100 = await test(at(100), `阶段 2/3：${dir>0?'正':'负'}方向 ${fmtOff(at(100))}`);
+      if(!calAuto.abort && r100 && r100.valid){
+        if(isbetter(r100, side)){
+          /* ±100 优于 ±150 → 正确值在基准值与 ±100 之间 */
+          await refine(baseP, r100, '阶段 3/3');
+        } else if(opp && opp.valid && isbetter(opp, r100)){
+          /* ±100 比对侧 ±150 还差 → 正确值在 ±150 以外，直接测 ±200；仍变好则继续外扩 */
+          let prev = side, d = 200;
+          while(!calAuto.abort && d <= CAL_LIMIT){
+            const r = await test(at(d), `阶段 2/3：${dir>0?'正':'负'}方向外扩至 ${fmtOff(at(d))}`);
+            if(!r || !r.valid) break;
+            if(!isbetter(r, prev)){
+              await refine(prev, r, '阶段 3/3');
+              break;
+            }
+            prev = r;
+            if(prev.mean <= CAL_GOAL) break;
+            if(d + 100 > CAL_LIMIT){ boundaryHit = true; break; }
+            d += 100;
+          }
+        } else {
+          /* ±100 差于 ±150 但优于对侧 → 正确值在 ±100 与 ±150 之间 */
+          await refine(r100, side, '阶段 3/3');
+        }
+      } else if(!calAuto.abort){
+        /* ±100 样本不足：退回基准值 ~ ±150 区间继续二分 */
+        await refine(baseP, side, '阶段 3/3');
       }
-      /* 情况三：侧点仍略优于基准（差值在容差内）→ 单调区间内二分；
-         触到 ±1000 Hz / 步数上限时不再二分，避免把边界当谷底 */
-      if(!calAuto.abort && !boundaryHit && side && side.valid && side.mean < baseP.mean){
-        await bisect(baseP, side);
-      }
-      /* 情况二：侧点比基准差 → 基准即谷底，不做二分 */
     }
   }
 
