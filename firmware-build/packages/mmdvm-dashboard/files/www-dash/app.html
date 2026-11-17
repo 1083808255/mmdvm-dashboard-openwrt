@@ -1053,6 +1053,10 @@ th{font-size:12px}
   #view-basic .field-beacons .cfg-chk{height:auto;margin:0}
   /* 信标与信标时间整体上移 22px（信标时间同时左移 20px），使间距与时隙间距一致 */
   #view-basic .field-beaconinterval{transform:translate(-20px,-22px)}
+  /* 信标时间：手机版隐藏英文、标题不换行，输入框缩短 */
+  #view-basic .field-beaconinterval > label > small{display:none}
+  #view-basic .field-beaconinterval > label{white-space:nowrap}
+  #basic-beaconinterval{width:80px}
   /* 信标勾选框与信标时间输入框上下居中 */
   #view-basic .field-beacons{align-self:end;margin-bottom:8px;transform:translateY(-22px)}
 
