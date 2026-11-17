@@ -2308,7 +2308,7 @@ function cmdFw() {
 	if (act == "check") {
 		let m = fwManifest();
 		if (m == null) return fail("没有找到该机型的固件清单（" + board + "）");
-		let ver = trim(m.version ?? "");
+		let ver = trim(sprintf("%s", m.version ?? ""));
 		if (!length(ver)) return fail("固件清单缺少 version");
 		let mb = trim(m.board ?? "");
 		if (length(mb) && mb != board) return fail("固件机型不匹配：" + mb);
@@ -2334,7 +2334,7 @@ function cmdFw() {
 		if (fwFreeKb() < int(size / 1024) + 2048) return fail("内存空间不足，无法下载固件");
 		sh("mkdir -p " + sq(FW_DIR));
 		sh("rm -f " + sq(FW_IMAGE) + " " + sq(FW_RC));
-		fwStateWrite({ phase: "downloading", total: size, sha: sha, version: trim(m.version ?? ""),
+		fwStateWrite({ phase: "downloading", total: size, sha: sha, version: trim(sprintf("%s", m.version ?? "")),
 			versionName: trim(m.versionName ?? ""), board: board, notes: trim(m.notes ?? ""),
 			url: u, started: time() });
 		fwStopSvc();
