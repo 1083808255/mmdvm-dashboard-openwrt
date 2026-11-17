@@ -1059,6 +1059,12 @@ th{font-size:12px}
   #basic-beaconinterval{width:80px}
   /* 信标勾选框与信标时间输入框上下居中 */
   #view-basic .field-beacons{align-self:end;margin-bottom:8px;transform:translateY(-22px)}
+  /* 手机版：卡片标题居中；折叠状态下的标题居左 */
+  #view-basic .basic-sec-title{text-align:center}
+  #view-config .cfg-sec-head{justify-content:center}
+  #view-config .cfg-sec-title{justify-content:center;text-align:center}
+  #view-config .cfg-sec.collapsed > .cfg-sec-head{justify-content:flex-start}
+  #view-config .cfg-sec.collapsed .cfg-sec-title{justify-content:flex-start;text-align:left}
 
   /* === 主机/网关：手机端列数由 layoutCfgGrids 按内容宽度自适应 === */
   #view-config .cfg-sec.card{padding:12px;margin-bottom:10px;border-radius:12px}
