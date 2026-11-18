@@ -1597,7 +1597,7 @@ th{font-size:12px}
         </div>
         <div class="field field-uartport" data-brow="4"><label style="display:flex;justify-content:space-between;align-items:center">UART 端口 <button type="button" class="port-del-btn" id="uart-del-btn" style="display:none" title="删除该自定义端口">删除</button></label>
           <div class="port-combobox">
-            <input id="basic-uartport" class="inp" type="text" placeholder="" autocomplete="off">
+            <input id="basic-uartport" class="inp" type="text" placeholder="未选择" autocomplete="off">
             <button type="button" class="port-arrow" data-for="basic-uartport">▾</button>
             <div class="port-dropdown" id="basic-uartport-dropdown"></div>
           </div>
@@ -1650,7 +1650,7 @@ th{font-size:12px}
             <div class="port-dropdown" id="basic-screenport-dropdown"></div>
           </div>
           <div class="port-combobox" id="screen-bus-box" style="display:none">
-            <input id="basic-i2cbus" class="inp" type="text" placeholder="" autocomplete="off">
+            <input id="basic-i2cbus" class="inp" type="text" placeholder="未选择" autocomplete="off">
             <button type="button" class="port-arrow" data-for="basic-i2cbus">▾</button>
             <div class="port-dropdown" id="basic-i2cbus-dropdown"></div>
           </div>
@@ -2651,9 +2651,9 @@ function renderUartPortSelect(current){
   const dd = $('#basic-uartport-dropdown');
   if(dd) dd.innerHTML = vals.length
     ? vals.map(v=>`<div class="port-opt" data-val="${esc(v)}">${esc(v)}</div>`).join('')
-    : '';
+    : '<div class="port-opt">未选择</div>';
   inp.value = (current && vals.includes(current)) ? current : '';
-  inp.placeholder = '';
+  inp.placeholder = '未选择';
   syncUartDelBtn();
 }
 /* 屏幕端口自定义（独立列表） */
@@ -2693,11 +2693,16 @@ function i2cCustomList(){
   catch(e){ return []; }
 }
 function setI2cCustomList(a){ localStorage.setItem(I2C_LS, JSON.stringify(a)); }
+/* 是否系统检测到的 I2C 总线（这类端口不是自定义项，不显示删除按钮） */
+function isDetectedBus(v){
+  const m = /i2c-?([0-9]+)$/.exec(String(v || '').trim());
+  return !!(m && I2C_BUSES.includes(+m[1]));
+}
 function syncI2cDelBtn(){
   const v = $('#basic-i2cport').value.trim();
   const btn = $('#i2c-del-btn');
   if(!btn) return;
-  btn.style.display = (v && i2cCustomList().includes(v)) ? '' : 'none';
+  btn.style.display = (v && !isDetectedBus(v) && i2cCustomList().includes(v)) ? '' : 'none';
 }
 function renderI2cPortSelect(current){
   const inp = $('#basic-i2cport');
@@ -3139,7 +3144,15 @@ function syncScreenFields(){
   else syncScreenDelBtn();
   $('.field-screenaddr').style.display = isI2C ? '' : 'none';
   const addr = $('#basic-screenaddr');
-  if(addr) addr.placeholder = (t === 'HD44780') ? '0x27' : '0x3C';
+  if(addr){
+    const isOled = (t === 'OLED Type3' || t === 'OLED Type6');
+    addr.placeholder = isOled ? '0x3C' : '0x27';
+    /* 选 OLED 时地址默认 0x3C；保留用户已填的其它 OLED 地址（如 0x3D） */
+    if(isOled){
+      const v = (addr.value || '').trim().toLowerCase();
+      if(!v || v === '0x27' || v === '0x3f') addr.value = '0x3C';
+    }
+  }
   renderScreenAddrOptions();
   fitPortBoxes();
 }
@@ -3157,7 +3170,7 @@ function applyBusField(inpId){
   if(!inp) return;
   const m = /i2c-?([0-9]+)$/.exec(String(inp.value || '').trim());
   inp.value = (m && I2C_BUSES.includes(+m[1])) ? ('/dev/i2c-' + m[1]) : '';
-  inp.placeholder = '';
+  inp.placeholder = '未选择';
 }
 function renderI2cBusOptions(){
   const dd = $('#basic-i2cbus-dropdown');
@@ -3178,9 +3191,9 @@ function fitBusBox(boxSel, inpSel){
   if(!box || !inp) return;
   const cs = getComputedStyle(inp);
   const font = cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
-  let max = measureTextPx(inp.value || '未检出', font);
-  I2C_BUSES.forEach(b=>{ max = Math.max(max, measureTextPx('/dev/i2c-' + b, font)); });
-  const pad = (parseFloat(cs.paddingLeft) || 0) + 28;   /* 右侧留出箭头位置 */
+  /* 宽度只按当前显示内容（当前值或「未选择」）计算，下拉列表自身有宽度 */
+  const max = measureTextPx(inp.value || '未选择', font);
+  const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + 28;   /* 右侧留出箭头位置 */
   box.style.width = Math.ceil(max + pad) + 'px';
 }
 function fitI2cBusBox(){ fitBusBox('#screen-bus-box', '#basic-i2cbus'); }
@@ -3204,8 +3217,8 @@ function fitPortBoxes(){
   const uart = $('#basic-uartport');
   if(uart) fitAutoBox(uart.closest('.port-combobox'), uart);
   fitAutoBox($('#screen-port-box'), $('#basic-screenport'));
-  fitAutoBox($('#modem-bus-box'), $('#basic-i2cport'));
-  fitAutoBox($('#screen-bus-box'), $('#basic-i2cbus'));
+  fitModemBusBox();
+  fitI2cBusBox();
   fitAutoBox($('#screenaddr-box'), $('#basic-screenaddr'));
   fitAutoBox($('#modemaddr-box'), $('#basic-modemaddr'));
 }
@@ -3364,6 +3377,8 @@ function autoAddI2cPort(inputEl){
   const v = inputEl.value.trim();
   if(!v) return;
   if(!/^\/[A-Za-z0-9._\/-]+$/.test(v)) return;
+  /* 从下拉里选中的系统总线不算自定义端口 */
+  if(isDetectedBus(v)){ syncI2cDelBtn(); return; }
   const arr = i2cCustomList();
   if(!arr.includes(v)){
     arr.push(v);
