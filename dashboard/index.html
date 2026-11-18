@@ -1470,6 +1470,16 @@ th{font-size:12px}
     <div class="card" style="margin-bottom:14px">
       <table class="sys-table" id="radio-table"></table>
     </div>
+    <div class="card" style="margin-bottom:14px" id="fw-card">
+      <h2 style="font-size:17px;margin-bottom:8px">固件更新</h2>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:10px">整机升级会下载完整固件并重启设备，默认保留配置；升级期间通联中断 1–3 分钟。</p>
+      <div id="fw-info" style="font-size:14px;color:var(--muted);line-height:1.7;white-space:pre-line">当前固件：读取中…</div>
+      <div id="fw-bar" style="display:none;height:6px;background:var(--border);border-radius:4px;margin:10px 0;overflow:hidden"><i style="display:block;height:100%;width:0%;background:var(--accent);transition:width .3s"></i></div>
+      <div class="sys-ops" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="btn" id="fw-check" type="button">检查固件更新</button>
+        <button class="btn primary" id="fw-action" type="button" disabled>下载并升级</button>
+      </div>
+    </div>
     <div style="height:14px"></div>
     <div class="card" style="padding:12px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
@@ -2447,12 +2457,27 @@ async function renderRadio(){
     ['Host 版本', esc((m.version||'—').replace('MMDVMHost-',''))],
     ['DMR 网关版本', esc((m.gwVersion||'—').replace('DMRGateway-',''))],
     ['热点板类型', (m.modemType ? esc(m.modemType) + (m.modemFirmware ? ' v' + esc(m.modemFirmware) : '') : '—')],
+    ['MMDVM 固件', `<span id="radio-fw-ver">读取中…</span><button class="btn sm" id="radio-fw-btn" type="button" style="margin-left:10px">更新</button><span id="radio-fw-state" style="margin-left:8px;font-size:13px"></span>`],
     ['Dashboard 版本', `<span id="radio-ota-ver">${esc(dashVer())}</span><button class="btn sm" id="radio-ota-btn" type="button" style="margin-left:10px">更新</button><span id="radio-ota-state" style="margin-left:8px;font-size:13px"></span>`],
   ];
   $('#radio-table').innerHTML = rows.map(([k,v,cls])=>`<tr${cls?` class="${cls}"`:''}><td>${k}</td><td class="mono">${v}</td></tr>`).join('');
   const otaBtn = $('#radio-ota-btn');
   if(otaBtn) otaBtn.addEventListener('click', openOtaModal);
   radioCheckOta();
+  /* 固件更新：卡片为静态 DOM 只绑定一次；行内“更新”按钮每次重建需重新绑定 */
+  const fwBtn = $('#radio-fw-btn');
+  if(fwBtn) fwBtn.addEventListener('click', async ()=>{
+    const card = $('#fw-card');
+    if(card) card.scrollIntoView({ behavior:'smooth', block:'center' });
+    if(!fwChecked) await fwCheck();
+  });
+  if(!fwBound){
+    const fc = $('#fw-check'), fa = $('#fw-action');
+    if(fc) fc.addEventListener('click', fwCheck);
+    if(fa) fa.addEventListener('click', fwAction);
+    fwBound = true;
+  }
+  fwInit();
 }
 
 /* ---- 电台信息：仪表盘 OTA 状态与更新弹窗 ---- */
@@ -5819,16 +5844,6 @@ async function renderSystem(){
     </div>
     ${lteCard}
     <div class="card" style="margin-top:14px">
-      <h2 style="font-size:17px;margin-bottom:8px">固件更新</h2>
-      <p style="color:var(--muted);font-size:14px;margin-bottom:10px">整机升级会下载完整固件并重启设备，默认保留配置；升级期间通联中断 1–3 分钟。</p>
-      <div id="fw-info" style="font-size:14px;color:var(--muted);line-height:1.7;white-space:pre-line">当前固件：读取中…</div>
-      <div id="fw-bar" style="display:none;height:6px;background:var(--border);border-radius:4px;margin:10px 0;overflow:hidden"><i style="display:block;height:100%;width:0%;background:var(--accent);transition:width .3s"></i></div>
-      <div class="sys-ops" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button class="btn" id="fw-check" type="button">检查固件更新</button>
-        <button class="btn primary" id="fw-action" type="button" disabled>下载并升级</button>
-      </div>
-    </div>
-    <div class="card" style="margin-top:14px">
       <h2 style="font-size:17px;margin-bottom:8px">系统操作</h2>
       <p style="color:var(--muted);font-size:14px;margin-bottom:12px">重启后设备会断开约 30–60 秒，期间通联中断，页面会在设备恢复后重新可用。</p>
       <div class="sys-ops" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -5883,14 +5898,16 @@ async function renderSystem(){
       .then(r=>r.json()).then(j=>{ toast(j.ok?'设备正在重启，请稍候…':(j.error||'重启失败'), !j.ok); })
       .catch(()=>toast('设备正在重启，请稍候…'));
   });
-  const fwCheckBtn = $('#fw-check'), fwActBtn = $('#fw-action');
-  if(fwCheckBtn) fwCheckBtn.addEventListener('click', fwCheck);
-  if(fwActBtn) fwActBtn.addEventListener('click', fwAction);
-  fwInit();
 }
 
 /* ---------- 整机固件 OTA（全量升级） ---------- */
-let fwChecked = null, fwPollTimer = null;
+let fwChecked = null, fwPollTimer = null, fwBound = false;
+/* 电台信息页“MMDVM 固件”行：显示当前固件版本与更新状态 */
+function fwRow(ver, state, color){
+  const v = $('#radio-fw-ver'), s = $('#radio-fw-state');
+  if(v && ver != null) v.textContent = ver;
+  if(s){ s.textContent = state || ''; s.style.color = color || 'var(--muted)'; }
+}
 function fwFmtSize(n){
   if(!n) return '—';
   const mb = n / 1048576;
@@ -5919,6 +5936,7 @@ async function fwInit(){
     if(r0.status === 404){ fwMsg('当前仪表盘版本过旧，没有固件更新接口，请先更新网页（仪表盘更新）。', true); return; }
     const j = await r0.json();
     if(!j || !j.ok){ fwMsg('固件信息不可用', true); return; }
+    fwRow(j.current === 'unknown' ? '未知（旧固件）' : j.current);
     fwMsg('当前固件：' + (j.current === 'unknown' ? '未知（旧固件）' : j.current) + '\n设备型号：' + j.board);
     const st = await api('/api/fw?act=status');
     if(st && st.ok){
@@ -5931,35 +5949,37 @@ async function fwInit(){
 }
 async function fwCheck(){
   if(PREVIEW){ toast('预览模式：不检查固件更新'); return; }
-  const b = $('#fw-check'); if(!b) return;
-  const old = b.textContent;
-  b.disabled = true; b.textContent = '检查中…';
+  const b = $('#fw-check'), act = $('#fw-action');
+  const old = b ? b.textContent : '';
+  if(b){ b.disabled = true; b.textContent = '检查中…'; }
   try{
     const r0 = await fetch('/api/fw?act=check');
     if(r0.status === 404){
       fwMsg('当前仪表盘版本过旧，没有固件更新接口，请先更新网页（仪表盘更新）。', true);
-      $('#fw-action').disabled = true;
-      b.disabled = false; b.textContent = old;
+      if(act) act.disabled = true;
+      if(b){ b.disabled = false; b.textContent = old; }
       return;
     }
     const j = await r0.json();
     if(!j || !j.ok){
       fwMsg((j && j.error) || '检查失败', true);
-      $('#fw-action').disabled = true;
+      if(act) act.disabled = true;
     }else{
       fwChecked = j;
+      const cur = (j.current === 'unknown') ? '未知' : j.current;
       if(j.updateAvailable){
         const nt = (j.notes || '').trim();
-        fwMsg('发现新固件 ' + (j.versionName || j.latest) + '（当前 ' + (j.current === 'unknown' ? '未知' : j.current) + '）\n大小：' + fwFmtSize(j.size) + (nt ? '\n' + nt : ''));
-        $('#fw-action').disabled = false;
-        $('#fw-action').textContent = '下载并升级';
+        fwMsg('发现新固件 ' + (j.versionName || j.latest) + '（当前 ' + cur + '）\n大小：' + fwFmtSize(j.size) + (nt ? '\n' + nt : ''));
+        if(act){ act.disabled = false; act.textContent = '下载并升级'; }
+        fwRow(cur, '有更新', 'var(--amber)');
       }else{
         fwMsg('已是最新固件 ' + (j.versionName || j.current));
-        $('#fw-action').disabled = true;
+        if(act) act.disabled = true;
+        fwRow(cur, '已是最新', 'var(--muted)');
       }
     }
   }catch(e){ fwMsg('检查失败', true); }
-  b.disabled = false; b.textContent = old;
+  if(b){ b.disabled = false; b.textContent = old; }
 }
 async function fwStartPoll(){
   if(fwPollTimer) clearInterval(fwPollTimer);
