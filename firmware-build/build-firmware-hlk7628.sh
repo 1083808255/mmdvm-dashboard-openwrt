@@ -116,9 +116,7 @@ for opt in \
 	CONFIG_PACKAGE_uhttpd-mod-ucode=y \
 	CONFIG_PACKAGE_uhttpd-mod-ubus=y \
 	CONFIG_PACKAGE_luci=y \
-	CONFIG_PACKAGE_luci-i18n-base-zh-cn=y \
-	CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y \
-	CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y \
+	CONFIG_LUCI_LANG_zh_Hans=y \
 	CONFIG_PACKAGE_mmdvmhost=y \
 	CONFIG_PACKAGE_dmrgateway=y \
 	CONFIG_PACKAGE_mmdvm-dashboard=y \
