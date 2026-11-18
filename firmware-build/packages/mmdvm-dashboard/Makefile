@@ -13,7 +13,7 @@ define Package/mmdvm-dashboard
   CATEGORY:=Network
   TITLE:=MMDVM Dashboard (ucode CGI web UI)
   URL:=https://github.com/1083808255/mmdvm-dashboard-openwrt
-  DEPENDS:=+ucode +ucode-mod-fs +uhttpd +uclient-fetch +ca-bundle +libustream-openssl
+  DEPENDS:=+ucode +ucode-mod-fs +uhttpd +uclient-fetch +ca-bundle +libustream-openssl +curl
   PKGARCH:=all
 endef
 
