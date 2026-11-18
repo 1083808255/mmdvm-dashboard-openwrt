@@ -96,6 +96,9 @@ for opt in \
     CONFIG_PACKAGE_luci=y \
     CONFIG_PACKAGE_luci-base=y \
     CONFIG_PACKAGE_luci-mod-admin-full=y \
+    CONFIG_PACKAGE_luci-i18n-base-zh-cn=y \
+    CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y \
+    CONFIG_PACKAGE_luci-i18n-opkg-zh-cn=y \
     CONFIG_PACKAGE_luci-proto-ipv6=y \
     CONFIG_PACKAGE_luci-proto-ppp=y \
     CONFIG_PACKAGE_mmdvmhost=y \
