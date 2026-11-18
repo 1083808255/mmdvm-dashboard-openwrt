@@ -1267,18 +1267,18 @@ th{font-size:12px}
 #toast.err{border-color:var(--red);background:#1a0f12}
 
 /* ===== 确认弹窗 / API Key 弹窗 ===== */
-#uiModal,#tgKeyModal,#xlxModal,#otaModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
+#uiModal,#tgKeyModal,#xlxModal,#otaModal,#fwModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
   background:rgba(3,6,9,.72);backdrop-filter:blur(3px)}
-#uiModal.show,#tgKeyModal.show,#xlxModal.show,#otaModal.show{display:flex}
-#uiModal .um-box,#tgKeyModal .um-box,#xlxModal .um-box,#otaModal .um-box{width:min(470px,100%);max-height:82vh;display:flex;flex-direction:column;
+#uiModal.show,#tgKeyModal.show,#xlxModal.show,#otaModal.show,#fwModal.show{display:flex}
+#uiModal .um-box,#tgKeyModal .um-box,#xlxModal .um-box,#otaModal .um-box,#fwModal .um-box{width:min(470px,100%);max-height:82vh;display:flex;flex-direction:column;
   background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);
   box-shadow:0 18px 60px rgba(0,0,0,.65);overflow:hidden;animation:umIn .16s ease}
 #xlxModal .um-box{width:min(860px,100%)}
-#otaModal .um-box{width:min(560px,100%)}
+#otaModal .um-box,#fwModal .um-box{width:min(560px,100%)}
 @keyframes umIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
-#uiModal .um-head,#tgKeyModal .um-head,#xlxModal .um-head,#otaModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
-#uiModal .um-body,#tgKeyModal .um-body,#xlxModal .um-body,#otaModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
-#uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot,#otaModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
+#uiModal .um-head,#tgKeyModal .um-head,#xlxModal .um-head,#otaModal .um-head,#fwModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
+#uiModal .um-body,#tgKeyModal .um-body,#xlxModal .um-body,#otaModal .um-body,#fwModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
+#uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot,#otaModal .um-foot,#fwModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
 /* 确认框要盖在更新弹窗之上，否则从更新弹窗点安装时看不到确认提示 */
 #uiModal{z-index:200}
 
@@ -1469,16 +1469,6 @@ th{font-size:12px}
     </div>
     <div class="card" style="margin-bottom:14px">
       <table class="sys-table" id="radio-table"></table>
-    </div>
-    <div class="card" style="margin-bottom:14px" id="fw-card">
-      <h2 style="font-size:17px;margin-bottom:8px">固件更新</h2>
-      <p style="color:var(--muted);font-size:14px;margin-bottom:10px">整机升级会下载完整固件并重启设备，默认保留配置；升级期间通联中断 1–3 分钟。</p>
-      <div id="fw-info" style="font-size:14px;color:var(--muted);line-height:1.7;white-space:pre-line">当前固件：读取中…</div>
-      <div id="fw-bar" style="display:none;height:6px;background:var(--border);border-radius:4px;margin:10px 0;overflow:hidden"><i style="display:block;height:100%;width:0%;background:var(--accent);transition:width .3s"></i></div>
-      <div class="sys-ops" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button class="btn" id="fw-check" type="button">检查固件更新</button>
-        <button class="btn primary" id="fw-action" type="button" disabled>下载并升级</button>
-      </div>
     </div>
     <div style="height:14px"></div>
     <div class="card" style="padding:12px">
@@ -1899,6 +1889,21 @@ th{font-size:12px}
       <button class="btn primary" id="ota-m-install" type="button" disabled>安装更新</button>
       <button class="btn" id="ota-m-rollback" type="button" disabled>回滚上一版本</button>
       <button class="btn" id="ota-m-close" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+<div id="fwModal">
+  <div class="um-box">
+    <div class="um-head">整机固件更新</div>
+    <div class="um-body" style="white-space:normal">
+      <p style="margin:0 0 12px">下载完整固件并重启设备，默认保留配置；升级期间通联中断 1–3 分钟。</p>
+      <div id="fw-info" style="font-size:14px;color:var(--muted);line-height:1.7;white-space:pre-line">当前固件：读取中…</div>
+      <div id="fw-bar" style="display:none;height:6px;background:var(--border);border-radius:4px;margin:10px 0;overflow:hidden"><i style="display:block;height:100%;width:0%;background:var(--accent);transition:width .3s"></i></div>
+    </div>
+    <div class="um-foot" style="flex-wrap:wrap">
+      <button class="btn" id="fw-check" type="button">检查固件更新</button>
+      <button class="btn primary" id="fw-action" type="button" disabled>下载并升级</button>
+      <button class="btn" id="fw-close" type="button">关闭</button>
     </div>
   </div>
 </div>
@@ -2464,19 +2469,9 @@ async function renderRadio(){
   const otaBtn = $('#radio-ota-btn');
   if(otaBtn) otaBtn.addEventListener('click', openOtaModal);
   radioCheckOta();
-  /* 固件更新：卡片为静态 DOM 只绑定一次；行内“更新”按钮每次重建需重新绑定 */
+  /* 固件更新：行内“更新”按钮每次重建需重新绑定，弹窗内部按钮只绑定一次 */
   const fwBtn = $('#radio-fw-btn');
-  if(fwBtn) fwBtn.addEventListener('click', async ()=>{
-    const card = $('#fw-card');
-    if(card) card.scrollIntoView({ behavior:'smooth', block:'center' });
-    if(!fwChecked) await fwCheck();
-  });
-  if(!fwBound){
-    const fc = $('#fw-check'), fa = $('#fw-action');
-    if(fc) fc.addEventListener('click', fwCheck);
-    if(fa) fa.addEventListener('click', fwAction);
-    fwBound = true;
-  }
+  if(fwBtn) fwBtn.addEventListener('click', openFwModal);
   fwInit();
 }
 
@@ -5901,7 +5896,7 @@ async function renderSystem(){
 }
 
 /* ---------- 整机固件 OTA（全量升级） ---------- */
-let fwChecked = null, fwPollTimer = null, fwBound = false;
+let fwChecked = null, fwPollTimer = null;
 /* 电台信息页“MMDVM 固件”行：显示当前固件版本与更新状态 */
 function fwRow(ver, state, color){
   const v = $('#radio-fw-ver'), s = $('#radio-fw-state');
@@ -5945,7 +5940,27 @@ async function fwInit(){
       else if(st.phase === 'installing') fwMsg('正在写入固件并重启，请稍候…');
       else if(st.phase === 'error') fwMsg(st.error || '固件更新失败', true);
     }
+    return st;
   }catch(e){ fwMsg('固件信息读取失败', true); }
+  return null;
+}
+/* 整机固件更新弹窗：入口为电台信息页“MMDVM 固件”行的更新按钮 */
+async function openFwModal(){
+  const m = $('#fwModal');
+  if(!m) return;
+  m.classList.add('show');
+  const st = await fwInit();
+  /* 正在下载 / 已下载待确认 / 正在写入时不要覆盖当前状态，只展示 */
+  const busy = !!(st && (st.phase === 'downloading' || st.phase === 'verified' || st.phase === 'installing'));
+  if(!busy && !fwPollTimer) await fwCheck();
+}
+function bindFwModal(){
+  const m = $('#fwModal');
+  if(!m) return;
+  $('#fw-close').addEventListener('click', ()=>m.classList.remove('show'));
+  m.addEventListener('click', e=>{ if(e.target === m) m.classList.remove('show'); });
+  $('#fw-check').addEventListener('click', fwCheck);
+  $('#fw-action').addEventListener('click', fwAction);
 }
 async function fwCheck(){
   if(PREVIEW){ toast('预览模式：不检查固件更新'); return; }
@@ -6044,6 +6059,7 @@ async function fwAction(){
 bindCal();
 bindTg();
 bindOtaModal();
+bindFwModal();
 window.addEventListener('DOMContentLoaded', route);
 /* 首次加载（含手动刷新网页）带 ping=1，强制做一次 ping 测试 */
 api('/api/status?ping=1');
