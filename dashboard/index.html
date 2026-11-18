@@ -5939,6 +5939,21 @@ function fwShowReady(st){
   const b = $('#fw-action'); if(b){ b.disabled = false; b.textContent = '确认升级'; }
   fwBarShow(100);
 }
+/* 电台信息页：固件行自动检查是否有整机固件更新（10 分钟内复用结果） */
+let radioFwCache = { t: 0, data: null };
+async function radioCheckFw(){
+  if(!radioFwCache.data || Date.now() - radioFwCache.t > 10 * 60 * 1000){
+    try{
+      const j = await api('/api/fw?act=check');
+      radioFwCache = { t: Date.now(), data: (j && j.ok) ? j : null };
+    }catch(e){ radioFwCache = { t: Date.now(), data: null }; }
+  }
+  const d = radioFwCache.data;
+  if(!d || !$('#radio-fw-state')) return;
+  const cur = (d.current === 'unknown') ? '未知' : d.current;
+  if(d.updateAvailable) fwRow(cur, '有更新', 'var(--amber)');
+  else fwRow(cur, '已是最新', 'var(--muted)');
+}
 async function fwInit(){
   if(PREVIEW){ fwMsg('预览模式：不检查固件更新'); return; }
   try{
@@ -5955,6 +5970,7 @@ async function fwInit(){
       else if(st.phase === 'installing') fwMsg('正在写入固件并重启，请稍候…');
       else if(st.phase === 'error') fwMsg(st.error || '固件更新失败', true);
     }
+    await radioCheckFw();
     return st;
   }catch(e){ fwMsg('固件信息读取失败', true); }
   return null;
