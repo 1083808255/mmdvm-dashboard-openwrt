@@ -49,7 +49,9 @@ mkdir -p "$WORKDIR/package/kernel"
 cp -a "$SCRIPT_DIR/packages/i2c-ch341" "$WORKDIR/package/kernel/i2c-ch341"
 
 echo "==> 生成整机固件版本号"
-FWV=$(date +%Y%m%d%H)
+# 固件版本与仪表盘版本保持一致（如 V0.607）
+FWV=$(tr -d ' \t\r\n' < "$SCRIPT_DIR/../dashboard/VERSION" 2>/dev/null || true)
+[ -n "$FWV" ] || { echo "ERROR: 缺少 dashboard/VERSION" >&2; exit 1; }
 mkdir -p "$WORKDIR/files/etc/mmdvm"
 printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
 
@@ -135,8 +137,8 @@ if [ -n "$FW_BIN" ]; then
     FW_NAME=$(basename "$FW_BIN")
     cat > "$OUTDIR/fw-xiaomi_mi-router-3g.json" <<EOF
 {
-  "version": $FWV,
-  "versionName": "$(date +%Y-%m-%d-%H)",
+  "version": "$FWV",
+  "versionName": "$FWV",
   "board": "xiaomi,mi-router-3g",
   "target": "ramips/mt7621",
   "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-$FWV/$FW_NAME",

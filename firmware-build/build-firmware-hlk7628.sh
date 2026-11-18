@@ -46,7 +46,9 @@ for p in mmdvmhost dmrgateway mmdvm-dashboard mmdvm-board-7628 air780e-monitor; 
 done
 
 echo "==> 生成整机固件版本号"
-FWV=$(date +%Y%m%d%H)
+# 固件版本与仪表盘版本保持一致（如 V0.607）
+FWV=$(tr -d ' \t\r\n' < "$SCRIPT_DIR/../dashboard/VERSION" 2>/dev/null || true)
+[ -n "$FWV" ] || { echo "ERROR: 缺少 dashboard/VERSION" >&2; exit 1; }
 mkdir -p "$WORKDIR/files/etc/mmdvm"
 printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
 
@@ -159,8 +161,8 @@ if [ -n "$FW_BIN" ]; then
 	FW_NAME=$(basename "$FW_BIN")
 	cat > "$OUTDIR/fw-hilink_hlk-7628n.json" <<EOF
 {
-  "version": $FWV,
-  "versionName": "$(date +%Y-%m-%d-%H)",
+  "version": "$FWV",
+  "versionName": "$FWV",
   "board": "hilink,hlk-7628n",
   "target": "ramips/mt76x8",
   "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-$FWV/$FW_NAME",

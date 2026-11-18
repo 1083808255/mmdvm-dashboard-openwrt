@@ -44,7 +44,9 @@ mkdir -p "$WORKDIR/package/kernel"
 cp -a "$SCRIPT_DIR/packages/i2c-ch341" "$WORKDIR/package/kernel/i2c-ch341"
 
 echo "==> 生成整机固件版本号"
-FWV=$(date +%Y%m%d%H)
+# 固件版本与仪表盘版本保持一致（如 V0.607）
+FWV=$(tr -d ' \t\r\n' < "$SCRIPT_DIR/../dashboard/VERSION" 2>/dev/null || true)
+[ -n "$FWV" ] || die "缺少 dashboard/VERSION（固件版本需与仪表盘版本同步）"
 mkdir -p "$WORKDIR/files/etc/mmdvm"
 printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
 
@@ -106,8 +108,8 @@ if [ -n "$FW_BIN" ]; then
     FW_NAME=$(basename "$FW_BIN")
     cat > "$OUTDIR/fw-x86_64.json" <<EOF
 {
-  "version": $FWV,
-  "versionName": "$(date +%Y-%m-%d-%H)",
+  "version": "$FWV",
+  "versionName": "$FWV",
   "target": "x86/64",
   "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-$FWV/$FW_NAME",
   "sha256": "$FW_SHA",
