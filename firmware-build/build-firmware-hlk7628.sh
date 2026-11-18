@@ -119,7 +119,9 @@ for opt in \
 	CONFIG_PACKAGE_dmrgateway=y \
 	CONFIG_PACKAGE_mmdvm-dashboard=y \
 	CONFIG_PACKAGE_mmdvm-board-7628=y \
-	CONFIG_PACKAGE_air780e-monitor=y; do
+	CONFIG_PACKAGE_air780e-monitor=y \
+	CONFIG_PACKAGE_unzip=y \
+	CONFIG_PACKAGE_iconv=y; do
 	grep -qx "$opt" .config || echo "$opt" >> .config
 done
 

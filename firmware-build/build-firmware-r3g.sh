@@ -98,7 +98,9 @@ for opt in \
     CONFIG_PACKAGE_luci-proto-ppp=y \
     CONFIG_PACKAGE_mmdvmhost=y \
     CONFIG_PACKAGE_dmrgateway=y \
-    CONFIG_PACKAGE_mmdvm-dashboard=y; do
+    CONFIG_PACKAGE_mmdvm-dashboard=y \
+    CONFIG_PACKAGE_unzip=y \
+    CONFIG_PACKAGE_iconv=y; do
     grep -qx "$opt" .config || echo "$opt" >> .config
 done
 
