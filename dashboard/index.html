@@ -5909,12 +5909,16 @@ async function exportDiag(){
       configs: { status: res[3].status, files: files },
       logs: { MMDVMHost: res[4], DMRGateway: res[5] }
     };
-    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-    const host = (location.hostname || 'mmdvm').replace(/[^0-9a-zA-Z.-]/g, '');
+    /* 文件名：设备名 + 导出时分秒 */
+    const sysInfo = (res[1] && res[1].data) ? res[1].data : {};
+    const devName = String(sysInfo.hostname || location.hostname || 'mmdvm').replace(/[^0-9a-zA-Z._\-\u4e00-\u9fa5]/g, '') || 'mmdvm';
+    const d = new Date();
+    const p2 = n => String(n).padStart(2, '0');
+    const hms = p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
     const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'mmdvm-diag-' + host + '-' + stamp + '.json';
+    a.download = devName + '-' + hms + '.json';
     document.body.appendChild(a);
     a.click();
     a.remove();
