@@ -35,7 +35,7 @@ cat > "$OUT/dashboard.json" <<EOF
   "sha256": "$SHA",
   "size": $SIZE,
   "notes": "$NOTES",
-  "endpoints": ["basic","calibration","configs","fw","lastheard","lhclear","live","log","luci","ota","page","ports","services","status","system","tg","xlxhosts"]
+  "endpoints": ["auth","basic","calibration","configs","fw","lastheard","lhclear","live","log","luci","ota","page","ports","services","status","system","tg","xlxhosts"]
 }
 EOF
 
