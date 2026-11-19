@@ -5909,9 +5909,11 @@ async function exportDiag(){
       configs: { status: res[3].status, files: files },
       logs: { MMDVMHost: res[4], DMRGateway: res[5] }
     };
-    /* 文件名：设备名 + 导出时分秒 */
+    /* 文件名：设备型号 + 导出时分秒（型号缺失时退回主机名） */
     const sysInfo = (res[1] && res[1].data) ? res[1].data : {};
-    const devName = String(sysInfo.hostname || location.hostname || 'mmdvm').replace(/[^0-9a-zA-Z._\-\u4e00-\u9fa5]/g, '') || 'mmdvm';
+    const devName = String(sysInfo.model || sysInfo.hostname || location.hostname || 'mmdvm')
+      .trim().replace(/\s+/g, '-').replace(/[^0-9a-zA-Z._\-\u4e00-\u9fa5]/g, '')
+      .replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'mmdvm';
     const d = new Date();
     const p2 = n => String(n).padStart(2, '0');
     const hms = p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
