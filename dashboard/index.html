@@ -1833,7 +1833,10 @@ th{font-size:12px}
 
   <!-- ============ 系统信息 ============ -->
   <section class="view" id="view-system">
-    <div class="page-head"><h1>系统信息</h1><p>设备运行状态</p></div>
+    <div class="page-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+      <div><h1>系统信息</h1><p>设备运行状态</p></div>
+      <button class="btn" id="diag-export" type="button">导出诊断</button>
+    </div>
     <div id="sys-overview"></div>
   </section>
 </main>
@@ -5863,6 +5866,68 @@ async function askRestart(svcKey){
     toast('配置信息已保存并重启服务', false, 3000);
   } else toast('配置信息已保存', false, 3000);
 }
+/* ---- 诊断导出：打包设备状态、BM 通话组、配置与日志，配置里的密码/密钥已脱敏 ---- */
+function diagRedact(txt){
+  return String(txt == null ? '' : txt).split('\n').map(l=>{
+    if(/^\s*(Password|Passwd|Pwd|Secret|Token|ApiKey|APIKey|PSK|Psk|Key|WpaKey|WpaPsk)\s*=/i.test(l)){
+      const i = l.indexOf('=');
+      return l.slice(0, i + 1) + ' ***';
+    }
+    return l;
+  }).join('\n');
+}
+async function diagFetch(path){
+  try{
+    const r = await fetch(path, { cache:'no-store' });
+    let data = null;
+    try{ data = await r.json(); }catch(e){ data = await r.text(); }
+    return { status: r.status, ok: r.ok, data: data };
+  }catch(e){ return { status: 0, ok: false, error: String(e) }; }
+}
+async function exportDiag(){
+  const btn = $('#diag-export');
+  if(btn){ btn.disabled = true; btn.textContent = '导出中…'; }
+  try{
+    const res = await Promise.all([
+      diagFetch('/api/status'), diagFetch('/api/system'), diagFetch('/api/tg'),
+      diagFetch('/api/configs'),
+      diagFetch('/api/log?service=MMDVMHost&since=0'),
+      diagFetch('/api/log?service=DMRGateway&since=0')
+    ]);
+    const cfgs = res[3] && res[3].data && typeof res[3].data == 'object' ? res[3].data : {};
+    const files = {};
+    Object.keys(cfgs).forEach(k=>{ files[k] = diagRedact(cfgs[k] && cfgs[k].content); });
+    const pack = {
+      generatedAt: new Date().toISOString(),
+      uiVersion: UI_VER,
+      url: location.href,
+      userAgent: navigator.userAgent,
+      preview: PREVIEW,
+      status: res[0],
+      system: res[1],
+      tg: res[2],
+      configs: { status: res[3].status, files: files },
+      logs: { MMDVMHost: res[4], DMRGateway: res[5] }
+    };
+    const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+    const host = (location.hostname || 'mmdvm').replace(/[^0-9a-zA-Z.-]/g, '');
+    const blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'mmdvm-diag-' + host + '-' + stamp + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+    toast('诊断已导出，请把文件发给维护者');
+  }catch(e){
+    toast('导出失败：' + e, true);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '导出诊断'; }
+  }
+}
+$('#diag-export').addEventListener('click', exportDiag);
+
 async function renderSystem(){
   const s = await api('/api/system');
   const load = (s.load||[]).join(' / ');
