@@ -5117,7 +5117,7 @@ function renderSlot(n, s, mode){
       : fmtDur((Date.now() - liveStart[n]) / 1000);
     const gEl = $('#slot'+n+'-geo'), gwEl = $('#slot'+n+'-geow');
     if(gEl && gwEl){
-      const g = s.gps;
+      const g = (s.state === 'TX') ? null : s.gps;
       /* 只有成功解析出地址才显示；查不到地址（境外坐标等）就整项隐藏 */
       const place = (g && g.addr) ? g.addr : '';
       if(place){
@@ -5185,7 +5185,7 @@ async function renderLastheardLog(){
     const addr = r.addr || (call ? countryForCallsign(call) : '');
     const berNum = parseFloat(String(r.ber||'').replace('%',''));
     const berCls = (isFinite(berNum) && berNum > 3) ? ' bad' : '';
-    const g = (r.gps && r.gps.lat != null && r.gps.lon != null) ? r.gps : null;
+    const g = (!isTx && r.gps && r.gps.lat != null && r.gps.lon != null) ? r.gps : null;
     const geoBtn = g
       ? `<button class="lh-geo" data-lat="${(+g.lat).toFixed(6)}" data-lon="${(+g.lon).toFixed(6)}" data-addr="${esc(g.addr||'')}" data-dist="${g.dist==null?'':g.dist}" data-base="${g.base||''}" title="查看 GPS 定位">${pin}</button>`
       : '';
