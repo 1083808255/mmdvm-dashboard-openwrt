@@ -1551,7 +1551,9 @@ function bmReq(method, path, payload) {
 }
 function cmdTgGet() {
 	let dev = bmDeviceId(), key = bmKey();
-	let res = { ok: true, configured: length(key) > 0, deviceId: dev, talkgroups: [], dynamic: [] };
+	/* override：静态组页面手动指定的 DMR ID（空表示自动取基础配置的 DMR ID 1 + ESSID） */
+	let res = { ok: true, configured: length(key) > 0, deviceId: dev,
+	            override: trim(state().bmDeviceId ?? ""), talkgroups: [], dynamic: [] };
 	if (!length(dev)) { out(res); return; }
 	/* 配置了 Key 时用 profile 一次拿到静态组 + 动态组；未配置时用公开接口只取静态组 */
 	if (length(key)) {

@@ -550,12 +550,12 @@ input.num:focus{outline:none;border-color:var(--accent)}
 /* 卡片标题后的读取状态提示（静态组/动态组） */
 #tg-hint, #tg-dyn-hint{display:inline-flex;align-items:center;min-width:0}
 #tg-hint .tg-hint, #tg-dyn-hint .tg-hint{padding:0;font-size:13px}
-/* 静态组：第一行 DMR ID（宽 110）+ API Key，时隙 1/2 左右两列 */
+/* 静态组：第一行 DMR ID（选择已保存的 ID）+ API Key，时隙 1/2 左右两列 */
 .tg-cfg{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap}
 .tg-cfg .field{display:flex;flex-direction:column;gap:6px;min-width:0}
 .tg-cfg .field label{font-size:13px;color:var(--muted)}
-.tg-cfg .field-dmrid{width:110px;flex:none}
-.tg-cfg .field-dmrid .inp{width:110px;font-family:var(--mono);font-size:13px;padding:8px 6px;text-align:center}
+.tg-cfg .field-dmrid{width:150px;flex:none}
+.tg-cfg .field-dmrid .inp{width:150px;font-family:var(--mono);font-size:13px;padding:8px 6px}
 .tg-cfg .field-apikey{flex:1 1 220px}
 .tg-cfg .field-tgsave{flex:none}
 .tg-slots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
@@ -1857,7 +1857,7 @@ th{font-size:12px}
     <div class="um-body" style="white-space:normal">
       <p style="margin:0 0 12px;color:var(--muted);font-size:13.5px">在 BrandMeister 后台「Profile → API Keys」生成密钥填入下方；查询静态组不需要密钥，添加/删除需要。</p>
       <div class="tg-cfg">
-        <div class="field field-dmrid"><label>DMR ID</label><input id="tg-dev" class="inp" type="text" inputmode="numeric" placeholder="4612447"></div>
+        <div class="field field-dmrid"><label>DMR ID</label><select id="tg-dev" class="inp"></select></div>
         <div class="field field-apikey"><label>API Key</label><input id="tg-key" class="inp" type="text" autocomplete="off" placeholder="未配置"></div>
       </div>
     </div>
@@ -5652,6 +5652,40 @@ function startTgTick(){
     renderTg();
   }, 30000);
 }
+/* API 配置里的 DMR ID 选择框：选项来自基础配置已保存的 DMR ID（含 ESSID） */
+let tgDmrIds = null;
+let tgDeviceId = '';
+async function loadTgDmrIds(force){
+  if(tgDmrIds && !force) return tgDmrIds;
+  try{
+    const s = await api('/api/status');
+    tgDmrIds = (s.mmdvm && s.mmdvm.dmrIds) || [];
+  }catch(e){ tgDmrIds = []; }
+  return tgDmrIds;
+}
+function fillTgDevOptions(cur, override){
+  const sel = $('#tg-dev');
+  if(!sel) return;
+  /* 只列基础配置里 46 开头的 DMR ID（附加 ESSID），BM 中国区热点用 46 前缀 */
+  const opts = [];
+  (tgDmrIds || []).forEach(it=>{
+    if(!it || !it.id || String(it.id).indexOf('46') !== 0) return;
+    const v = it.id + (it.essid || '');
+    if(opts.some(o=>o.v === v)) return;
+    opts.push({ v, label: it.essid ? `${it.id}(${it.essid})` : it.id });
+  });
+  /* 没有 46 开头的 ID 时，至少显示当前实际使用的设备 ID，避免选择框为空 */
+  if(!opts.length) opts.push({ v: cur || '', label: cur || '未找到 46 开头的 DMR ID' });
+  const ov = String(override || '').trim();
+  let pick;
+  if(ov && opts.some(o=>o.v === ov)) pick = ov;
+  else if(ov){ opts.push({ v: ov, label: ov }); pick = ov; }
+  else if(opts.length === 1) pick = opts[0].v;                    /* 只有一个 46 ID：自动选中 */
+  else if(cur && opts.some(o=>o.v === cur)) pick = cur;           /* 多个：默认当前生效的那个 */
+  else pick = opts[0].v;
+  sel.innerHTML = opts.map(o=>`<option value="${esc(o.v)}">${esc(o.label)}</option>`).join('');
+  sel.value = pick;
+}
 async function renderTg(){
   startTgTick();
   const hintEl = $('#tg-hint');
@@ -5660,8 +5694,9 @@ async function renderTg(){
   if(hintEl && !hintEl.innerHTML) hintEl.innerHTML = '<div class="tg-hint">正在从 BrandMeister 读取…</div>';
   if(dynHintEl && !dynHintEl.innerHTML) dynHintEl.innerHTML = '<div class="tg-hint">正在从 BrandMeister 读取…</div>';
   const r = await api('/api/tg');
-  const dev = $('#tg-dev');
-  if(dev && r && r.deviceId) dev.value = r.deviceId;
+  await loadTgDmrIds();
+  tgDeviceId = (r && r.deviceId) || '';
+  fillTgDevOptions(tgDeviceId, r && r.override);
   const keyInp = $('#tg-key');
   if(keyInp && r) keyInp.placeholder = r.configured ? '已配置（留空则不修改）' : '未配置';
   const setHint = html=>{ if(hintEl) hintEl.innerHTML = html; };
@@ -5734,8 +5769,12 @@ function bindTg(){
   const apiBtn = $('#tg-apibtn');
   const keyModal = $('#tgKeyModal');
   const closeKey = ()=>{ if(keyModal) keyModal.classList.remove('show'); };
-  if(apiBtn) apiBtn.addEventListener('click', ()=>{
+  if(apiBtn) apiBtn.addEventListener('click', async ()=>{
     if(keyModal) keyModal.classList.add('show');
+    if(!$('#tg-dev').options.length) fillTgDevOptions(tgDeviceId, '');
+    /* 每次打开都重新拉一次 ID 列表，保证刚添加的 DMR ID 能立即选到 */
+    await loadTgDmrIds(true);
+    fillTgDevOptions(tgDeviceId, $('#tg-dev').value);
     const k = $('#tg-key'); if(k) setTimeout(()=>{ try{ k.focus(); }catch(e){} }, 30);
   });
   const keyCancel = $('#tg-keycancel');
@@ -5763,10 +5802,12 @@ function bindTg(){
     const dev = $('#tg-dev').value.trim();
     const key = $('#tg-key').value.trim();
     if(dev && !/^[0-9]{4,9}$/.test(dev)){ toast('DMR ID 应为 4~9 位数字', true); return; }
-    const body = { act:'key', deviceId: dev };
+    /* 选「自动」时不下发 deviceId，后端会清掉手动覆盖、回到基础配置的 DMR ID 1 */
+    const body = { act:'key' };
+    if(dev) body.deviceId = dev;
     if(key) body.apiKey = key;
     const res = await tgPost(body);
-    if(res && res.ok){ closeKey(); $('#tg-key').value = ''; }
+    if(res && res.ok){ closeKey(); $('#tg-key').value = ''; renderTg(); }
   });
   /* 动态组：按 时隙 清空 */
   $$('#view-tg [data-dropslot]').forEach(btn=>btn.addEventListener('click', async ()=>{
