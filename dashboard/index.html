@@ -111,6 +111,10 @@ aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
 .submenu a:hover{color:var(--text);background:var(--card)}
 .submenu a.active{color:var(--accent);background:var(--card)}
 .nav-group{display:block}
+.nav-foot{margin-top:14px;padding-top:12px;border-top:1px solid var(--border2)}
+.nav-logout{color:var(--red)}
+.nav-logout svg{stroke:var(--red)}
+.nav-logout:hover{color:#fca5a5;background:rgba(248,113,113,.1)}
 @media (min-width:861px){
   .nav-group:hover .submenu{display:block}
   /* 电脑版：顶部 topnav 隐藏，菜单收起到品牌右侧的按钮，点击弹出抽屉 */
@@ -1426,6 +1430,12 @@ th{font-size:12px}
       </a>
     </div>
     </div>
+    <div class="nav-foot">
+      <a href="javascript:;" class="nav-logout" id="navLogout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        注销
+      </a>
+    </div>
   </nav>
 </aside>
 
@@ -2473,7 +2483,11 @@ function closeSidebar(){ $('#sidebar').classList.remove('open'); $('#overlay').c
 function openSidebar(){ $('#sidebar').classList.add('open'); $('#overlay').classList.add('on'); }
 /* authRequired: null=未探测 / false=LuCI 无密码（不设门）/ true=需要密码；menuUnlocked: 本次会话已解锁 */
 let authRequired = null;
-let menuUnlocked = false;
+/* 解锁状态跨刷新保留（sessionStorage：刷新仍在，关标签页即清除） */
+let menuUnlocked = (()=>{ try{ return sessionStorage.getItem('dash_menu_unlocked') === '1'; }catch(e){ return false; } })();
+let lastActivity = Date.now();
+const IDLE_LOCK_MS = 10 * 60 * 1000;   /* 无操作 10 分钟自动锁定 */
+const IDLE_CHECK_MS = 30 * 1000;
 const isPC = () => window.matchMedia('(min-width:861px)').matches;
 async function loadAuthStatus(){
   try{
@@ -2513,6 +2527,28 @@ function askPassword(){
     setTimeout(()=>{ try{ pw.focus(); }catch(e){} }, 30);
   });
 }
+function markActivity(){ lastActivity = Date.now(); }
+function lockMenu(){
+  menuUnlocked = false;
+  try{ sessionStorage.removeItem('dash_menu_unlocked'); }catch(e){}
+  lastActivity = 0;
+  closeSidebar();
+  const seg = (location.hash.replace(/^#\//,'') || 'qso').split('/');
+  if(seg[0] !== 'qso'){ location.hash = '#/qso'; }
+}
+['mousemove','touchstart','keydown','click','scroll','wheel'].forEach(ev=>{
+  document.addEventListener(ev, markActivity, { passive:true });
+});
+setInterval(()=>{
+  if(authRequired && menuUnlocked && (Date.now() - lastActivity) >= IDLE_LOCK_MS){
+    lockMenu();
+  }
+}, IDLE_CHECK_MS);
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && authRequired && menuUnlocked && (Date.now() - lastActivity) >= IDLE_LOCK_MS){
+    lockMenu();
+  }
+});
 async function tryOpenMenu(){
   const sb = $('#sidebar');
   if(sb.classList.contains('open')){ closeSidebar(); return; }
@@ -2520,11 +2556,14 @@ async function tryOpenMenu(){
     const pw = await askPassword();
     if(pw == null) return;
     menuUnlocked = true;
+    try{ sessionStorage.setItem('dash_menu_unlocked','1'); }catch(e){}
+    lastActivity = Date.now();
   }
   openSidebar();
 }
 $('#menuBtn').addEventListener('click', tryOpenMenu);
 $('#overlay').addEventListener('click', closeSidebar);
+$('#navLogout').addEventListener('click', lockMenu);
 
 /* ---------- 时钟（页面隐藏或时钟不可见时不写 DOM） ---------- */
 const clockEl = $('#clock');
