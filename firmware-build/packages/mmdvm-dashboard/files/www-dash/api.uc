@@ -313,7 +313,7 @@ function gpsBySlot(file) {
 	if (!length(file)) return {};
 	let st = FS.stat(file);
 	if (st == null) return {};
-	let sig = file + "|" + st.size + "|" + st.mtime + "|v3";
+	let sig = file + "|" + st.size + "|" + st.mtime + "|v4";
 	let c = null;
 	try { c = json(FS.readfile(GPS_CACHE) ?? ""); } catch (e) { c = null; }
 	let same = (c != null && c.file == file && type(c.slots) == "object");
@@ -344,7 +344,10 @@ function gpsBySlot(file) {
 		let ei = index(tail, "]");
 		let lo = (ei > 0) ? trim(substr(tail, 0, ei)) : "";
 		if (!length(la) || !length(lo)) continue;
-		slots[lastSlot] = { lat: +la, lon: +lo, ts: epochOf(tsOf(l)), src: lastDir };
+		let tse = epochOf(tsOf(l));
+		slots[lastSlot] = { lat: +la, lon: +lo, ts: tse, src: lastDir };
+		/* RF（本机手台）坐标单独保留一份，避免随后网络的 GPS 覆盖导致本机基准丢失 */
+		if (lastDir == "rf") slots["rf:" + lastSlot] = { lat: +la, lon: +lo, ts: tse, src: "rf" };
 	}
 	try { FS.writefile(GPS_CACHE, sprintf("%J", { file: file, sig: sig, off: from + length(chunk), lastSlot: lastSlot, lastDir: lastDir, slots: slots })); } catch (e) {}
 	return slots;
