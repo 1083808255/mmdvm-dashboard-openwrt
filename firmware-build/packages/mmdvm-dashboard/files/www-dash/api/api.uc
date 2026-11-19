@@ -313,7 +313,7 @@ function gpsBySlot(file) {
 	if (!length(file)) return {};
 	let st = FS.stat(file);
 	if (st == null) return {};
-	let sig = file + "|" + st.size + "|" + st.mtime + "|v4";
+	let sig = file + "|" + st.size + "|" + st.mtime + "|v5";
 	let c = null;
 	try { c = json(FS.readfile(GPS_CACHE) ?? ""); } catch (e) { c = null; }
 	let same = (c != null && c.file == file && type(c.slots) == "object");
@@ -321,14 +321,15 @@ function gpsBySlot(file) {
 	let slots = same ? c.slots : {};
 	let lastSlot = same ? (c.lastSlot ?? null) : null;
 	let lastDir = same ? (c.lastDir ?? null) : null;
+	let lastHdr = same ? (c.lastHdr ?? 0) : 0;
 	let from = 0;
 	if (same && type(c.off) == "int" && c.off > 0 && c.off <= st.size) from = c.off;
 	if (from > 4096) from -= 4096;
 	let chunk = (from > 0) ? sh("tail -c +" + (from + 1) + " " + file) : (FS.readfile(file) ?? "");
 	for (let l in split(chunk, "\n")) {
 		/* 语音头方向：received RF = 本机手台上行，received network = 远端下行 */
-		if (index(l, "received RF") >= 0) { lastDir = "rf"; let s0 = slotOf(l); if (s0 != null) lastSlot = s0; continue; }
-		if (index(l, "received network") >= 0) { lastDir = "net"; let s1 = slotOf(l); if (s1 != null) lastSlot = s1; continue; }
+		if (index(l, "received RF") >= 0) { lastDir = "rf"; lastHdr = epochOf(tsOf(l)); let s0 = slotOf(l); if (s0 != null) lastSlot = s0; continue; }
+		if (index(l, "received network") >= 0) { lastDir = "net"; lastHdr = epochOf(tsOf(l)); let s1 = slotOf(l); if (s1 != null) lastSlot = s1; continue; }
 		if (index(l, "Embedded GPS Info") >= 0) {
 			let sl = slotOf(l);
 			if (sl != null) lastSlot = sl;
@@ -345,11 +346,11 @@ function gpsBySlot(file) {
 		let lo = (ei > 0) ? trim(substr(tail, 0, ei)) : "";
 		if (!length(la) || !length(lo)) continue;
 		let tse = epochOf(tsOf(l));
-		slots[lastSlot] = { lat: +la, lon: +lo, ts: tse, src: lastDir };
+		slots[lastSlot] = { lat: +la, lon: +lo, ts: tse, src: lastDir, ct: lastHdr };
 		/* RF（本机手台）坐标单独保留一份，避免随后网络的 GPS 覆盖导致本机基准丢失 */
-		if (lastDir == "rf") slots["rf:" + lastSlot] = { lat: +la, lon: +lo, ts: tse, src: "rf" };
+		if (lastDir == "rf") slots["rf:" + lastSlot] = { lat: +la, lon: +lo, ts: tse, src: "rf", ct: lastHdr };
 	}
-	try { FS.writefile(GPS_CACHE, sprintf("%J", { file: file, sig: sig, off: from + length(chunk), lastSlot: lastSlot, lastDir: lastDir, slots: slots })); } catch (e) {}
+	try { FS.writefile(GPS_CACHE, sprintf("%J", { file: file, sig: sig, off: from + length(chunk), lastSlot: lastSlot, lastDir: lastDir, lastHdr: lastHdr, slots: slots })); } catch (e) {}
 	return slots;
 }
 /* 通话 GPS 缓存时长（分钟，10~1440，默认 60）：存于 [Info] GPS_CacheMinutes，MMDVMHost 会忽略该键 */
@@ -464,6 +465,7 @@ function parseQso(logfile) {
 	let seen = {};
 	/* “Embedded GPS Info” 行带时隙，紧随的 “GPS position” 行不带，用它补上 */
 	let gpsSlot = null;
+	let hdrTs = {};
 	if (!length(file)) return { recs: recs, pend: pend, rt: rt, cal: cal };
 	let st = FS.stat(file);
 	if (st == null) return { recs: recs, pend: pend, rt: rt, cal: cal };
@@ -497,6 +499,7 @@ function parseQso(logfile) {
 			calp = (type(c.calp) == "object" && c.calp != null) ? c.calp : {};
 			seen = (type(c.seen) == "object" && c.seen != null) ? c.seen : {};
 			gpsSlot = (type(c.gpsSlot) == "int") ? c.gpsSlot : null;
+			hdrTs = (type(c.hdrTs) == "object" && c.hdrTs != null) ? c.hdrTs : {};
 		}
 	}
 	let data = "", base = from;
@@ -526,6 +529,8 @@ function parseQso(logfile) {
 		let slot = slotOf(line);
 		/* 记录该时隙最后一次活动时间（voice header、talker alias、音频统计、数据突发都算） */
 		if (slot != null) seen[slot] = tsOf(line);
+		/* 语音头时间：用于把随后落盘的 GPS 行精确归属到发起该通话的那一条记录 */
+		if (slot != null && index(line, "voice header") >= 0) hdrTs[slot] = tsOf(line);
 		/* 内嵌 GPS：先出现带时隙的“Embedded GPS Info”，紧跟一行不带时隙的“GPS position [lat, lon]” */
 		if (index(line, "Embedded GPS Info") >= 0) { gpsSlot = slot; continue; }
 		let gi = index(line, "GPS position [");
@@ -541,9 +546,19 @@ function parseQso(logfile) {
 				if (length(la) && length(lo) && sl != null) {
 					let g = { lat: +la, lon: +lo, ts: tsOf(line) };
 					let gts = epochOf(g.ts);
-					/* GPS 行常在通话结束后才落盘：先挂到当前呼叫，否则回填刚结束的那条记录，
-					   避免被算到下一个呼叫上 */
-					if (pend[sl] != null && (!gts || gts >= epochOf(pend[sl].ts) - 2)) {
+					/* GPS 行常在通话结束后才落盘，落盘时间不能代表归属：
+					   优先挂到该时隙最近一条语音头对应的通话，避免串到下一个通联 */
+					let ht = hdrTs[sl];
+					let hit = null;
+					if (ht != null) {
+						if (pend[sl] != null && pend[sl].ts == ht) hit = pend[sl];
+						else for (let i = length(recs) - 1; i >= 0; i--) {
+							if (recs[i].slot == sl && recs[i].ts == ht) { hit = recs[i]; break; }
+						}
+					}
+					if (hit != null) {
+						hit.gps = g;
+					} else if (pend[sl] != null && (!gts || gts >= epochOf(pend[sl].ts) - 2)) {
 						pend[sl].gps = g;
 					} else {
 						for (let i = length(recs) - 1; i >= 0; i--) {
@@ -691,7 +706,7 @@ function parseQso(logfile) {
 		for (let i = length(recs) - 300; i < length(recs); i++) push(cut, recs[i]);
 		recs = cut;
 	}
-	if (length(sig)) writeCache(QSO_CACHE, { sig: sig, file: file, off: base + consumed, recs: recs, pend: pend, rt: rt, seen: seen, cal: cal, calp: calp, gpsSlot: gpsSlot });
+	if (length(sig)) writeCache(QSO_CACHE, { sig: sig, file: file, off: base + consumed, recs: recs, pend: pend, rt: rt, seen: seen, cal: cal, calp: calp, gpsSlot: gpsSlot, hdrTs: hdrTs });
 	return { recs: recs, pend: pend, rt: rt, seen: seen, cal: cal };
 }
 
@@ -1816,7 +1831,8 @@ function cmdLive() {
 		let g = gpss[k];
 		if (g == null || !g.lat || !g.lon) continue;
 		let st = startTs[k] ?? 0;
-		if (st > 0 && g.ts > 0 && g.ts < st) continue;       /* 上一次通联留下的旧坐标 */
+		if (st > 0 && g.ct != null && g.ct > 0 && g.ct < st) continue;   /* GPS 属于上一次通联，勿串到本次 */
+		if (st > 0 && (g.ct == null || !g.ct) && g.ts > 0 && g.ts < st) continue;   /* 无归属信息时退回按落盘时间判断 */
 		if (g.ts > 0 && now - g.ts > 300) continue;          /* 5 分钟前的坐标不再显示 */
 		let d = null;
 		if (hasMe) {
