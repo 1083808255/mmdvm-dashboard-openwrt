@@ -97,6 +97,7 @@ header{
 .pc-auth input:focus{border-color:var(--accent)}
 .pc-auth.err input{border-color:var(--red);animation:authShake .32s ease}
 .pc-auth-err{color:var(--red);font-size:12px;white-space:nowrap}
+.pc-auth-hint{color:var(--muted);font-size:12px;white-space:nowrap}
 
 /* ===== Sidebar ===== */
 aside{
@@ -132,7 +133,8 @@ aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
   .brand{order:1}
   .menuBtn{display:flex;order:2;width:auto;padding:0 14px;gap:8px}
   .menuBtn .menuBtn-label{display:inline}
-  .pc-auth{display:flex;order:3;align-items:center;gap:6px}
+  .pc-auth{display:none;order:3;align-items:center;gap:6px}
+  header.pc-auth-open .pc-auth{display:flex}
   .hspacer{display:block;order:4}
   .hstatus{order:5}
   .clock{order:6}
@@ -1341,6 +1343,7 @@ th{font-size:12px}
   </button>
   <div class="pc-auth" id="pcAuth">
     <input id="pcAuthPw" type="password" placeholder="输入密码解锁菜单" autocomplete="current-password">
+    <span class="pc-auth-hint" id="pcAuthHint">与路由器管理密码一致，回车确认</span>
     <span class="pc-auth-err" id="pcAuthErr"></span>
   </div>
   <div class="brand">
@@ -2561,6 +2564,8 @@ function lockMenu(){
   closeSidebar();
   const pcPw = $('#pcAuthPw'); if(pcPw) pcPw.value = '';
   const pcErr = $('#pcAuthErr'); if(pcErr) pcErr.textContent = '';
+  const pcHint = $('#pcAuthHint'); if(pcHint) pcHint.style.display = '';
+  const h = document.querySelector('header'); if(h) h.classList.remove('pc-auth-open');
   applyNavLockUI();
   const seg = (location.hash.replace(/^#\//,'') || 'qso').split('/');
   if(seg[0] !== 'qso'){ location.hash = '#/qso'; }
@@ -2597,6 +2602,7 @@ async function tryPcUnlock(){
       applyNavLockUI();
     } else {
       err.textContent = (j && j.error) || '密码错误';
+      const hint = $('#pcAuthHint'); if(hint) hint.style.display = 'none';
       pw.value = ''; pw.focus();
       box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
     }
@@ -2605,8 +2611,16 @@ async function tryPcUnlock(){
 }
 async function tryOpenMenu(){
   if(isPC()){
-    /* 电脑版：行内密码框解锁，不使用抽屉；解锁后顶部菜单自动显示 */
-    if(authRequired && !menuUnlocked){ await tryPcUnlock(); }
+    /* 电脑版：点「菜单」先显示行内密码框；已显示再点则提交验证；解锁后顶部菜单自动显示 */
+    if(authRequired && !menuUnlocked){
+      const h = document.querySelector('header');
+      if(h && !h.classList.contains('pc-auth-open')){
+        h.classList.add('pc-auth-open');
+        setTimeout(()=>{ const p=$('#pcAuthPw'); if(p){ p.value=''; p.focus(); } }, 30);
+        return;
+      }
+      await tryPcUnlock();
+    }
     return;
   }
   /* 手机版：保持抽屉 + 密码弹窗 */
@@ -2631,7 +2645,10 @@ if(pcAuthPw){
   pcAuthPw.addEventListener('keydown', e=>{
     if(e.key === 'Enter'){ e.preventDefault(); tryPcUnlock(); }
   });
-  pcAuthPw.addEventListener('input', ()=>{ const er=$('#pcAuthErr'); if(er) er.textContent=''; });
+  pcAuthPw.addEventListener('input', ()=>{
+    const er=$('#pcAuthErr'); if(er) er.textContent='';
+    const hint=$('#pcAuthHint'); if(hint) hint.style.display='';
+  });
 }
 
 /* ---------- 时钟（页面隐藏或时钟不可见时不写 DOM） ---------- */
