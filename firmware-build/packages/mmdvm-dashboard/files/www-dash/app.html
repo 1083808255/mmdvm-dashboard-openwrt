@@ -933,9 +933,10 @@ th{font-size:12px}
   #view-system .stat .v{font-size:17px }
   #view-system .sys-meters{gap:14px }
   #view-system .sys-meter{min-width:96px }
-  /* 手机版：进入路由配置与重启设备同行等宽，清除缓存单独占第二行 */
-  #view-system .sys-ops{flex-wrap:wrap ;gap:10px }
-  #view-system .sys-ops > .btn{flex:1 1 0 ;min-width:0 ;justify-content:center ;width:auto ;padding:10px }
+  /* 手机版：进入路由配置不换行、不压缩；空间不足时压缩其余按钮的字号与内边距 */
+  #view-system .sys-ops{flex-wrap:wrap ;gap:6px }
+  #view-system .sys-ops > .btn{flex:1 1 0 ;min-width:0 ;justify-content:center ;width:auto ;padding:9px 8px ;font-size:12px }
+  #view-system #sys-luci{flex:0 0 auto ;white-space:nowrap }
   #view-system #sys-lhclear{flex:1 1 100% ;order:3 }
 
   /* === 窄屏手机（≤600px）—— 系统信息堆叠 === */
