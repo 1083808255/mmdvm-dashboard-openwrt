@@ -1550,10 +1550,14 @@ function bmReq(method, path, payload) {
 	return { code: code, body: body };
 }
 function cmdTgGet() {
+	let st = state();
+	let ids = st.dmrIds;
+	let e0 = (type(ids) == "array" && ids[0] != null) ? trim(ids[0].essid ?? "") : "";
+	let ov = trim(st.bmDeviceId ?? "");
 	let dev = bmDeviceId(), key = bmKey();
-	/* override：静态组页面手动指定的 DMR ID（空表示自动取基础配置的 DMR ID 1 + ESSID） */
+	/* override：手动指定的 DMR ID（已补足 ESSID，便于页面按完整 ID 匹配选项；空表示自动） */
 	let res = { ok: true, configured: length(key) > 0, deviceId: dev,
-	            override: trim(state().bmDeviceId ?? ""), talkgroups: [], dynamic: [] };
+	            override: length(ov) ? bmWithEssid(ov, e0) : "", talkgroups: [], dynamic: [] };
 	if (!length(dev)) { out(res); return; }
 	/* 配置了 Key 时用 profile 一次拿到静态组 + 动态组；未配置时用公开接口只取静态组 */
 	if (length(key)) {
