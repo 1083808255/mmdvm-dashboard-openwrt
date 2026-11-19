@@ -5674,15 +5674,18 @@ function fillTgDevOptions(cur, override){
     if(opts.some(o=>o.v === v)) return;
     opts.push({ v, label: it.essid ? `${it.id}(${it.essid})` : it.id });
   });
-  /* 没有 46 开头的 ID 时，至少显示当前实际使用的设备 ID，避免选择框为空 */
-  if(!opts.length) opts.push({ v: cur || '', label: cur || '未找到 46 开头的 DMR ID' });
   const ov = String(override || '').trim();
-  let pick;
-  if(ov && opts.some(o=>o.v === ov)) pick = ov;
-  else if(ov){ opts.push({ v: ov, label: ov }); pick = ov; }
-  else if(opts.length === 1) pick = opts[0].v;                    /* 只有一个 46 ID：自动选中 */
-  else if(cur && opts.some(o=>o.v === cur)) pick = cur;           /* 多个：默认当前生效的那个 */
-  else pick = opts[0].v;
+  let pick = '';
+  if(!opts.length){
+    /* 没有 46 开头的 ID：留空 */
+    opts.push({ v:'', label:'未找到 46 开头的 DMR ID' });
+  } else if(opts.length === 1){
+    pick = opts[0].v;                                /* 只有一个：自动选中 */
+  } else if(ov && opts.some(o=>o.v === ov)){
+    pick = ov;                                       /* 多个：保留用户之前明确选过的值 */
+  } else {
+    opts.unshift({ v:'', label:'请选择' });           /* 多个且没有有效选择：待选 */
+  }
   sel.innerHTML = opts.map(o=>`<option value="${esc(o.v)}">${esc(o.label)}</option>`).join('');
   sel.value = pick;
 }
