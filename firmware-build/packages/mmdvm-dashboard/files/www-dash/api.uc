@@ -1174,11 +1174,13 @@ function hexVal(s) {
 	}
 	return v;
 }
-/* 物理内存总量（MB）：/proc/iomem 里 System RAM 各段求和。内核启动会保留一部分，
-   所以它比 MemTotal 大。读不到时退回 dmesg 的物理内存总量 */
+/* 物理内存总量（MB）：优先取 dmesg 里内核报告的物理容量（xK/yK 的 y），
+   它包含内核保留内存；读不到时退回 /proc/iomem 的 System RAM 求和 */
 function physMemMb() {
 	let kb = 0;
-	for (let l in split(FS.readfile("/proc/iomem") ?? "", "\n")) {
+	let m = match(sh("dmesg 2>/dev/null | grep -m1 'Memory:'"), /Memory:[ \t]+[0-9]+K\/([0-9]+)K/);
+	if (m != null && length(m) > 1) kb = +m[1];
+	if (kb <= 0) for (let l in split(FS.readfile("/proc/iomem") ?? "", "\n")) {
 		if (index(l, "System RAM") < 0) continue;
 		let i = index(l, ":");
 		if (i < 0) continue;
@@ -1189,10 +1191,6 @@ function physMemMb() {
 		/* 地址被内核打码成全 0 时每段只剩 1 字节，跳过 */
 		if (b - a + 1 < 4096) continue;
 		kb += int((b - a + 1) / 1024);
-	}
-	if (kb <= 0) {
-		let m = match(sh("dmesg 2>/dev/null | grep -m1 'Memory:'"), /Memory:[ \t]+[0-9]+K\/([0-9]+)K/);
-		if (m != null && length(m) > 1) kb = +m[1];
 	}
 	if (kb <= 0) return 0;
 	/* 向上取整：虚拟机分配 120M 时应显示 120 而不是 119 */
@@ -1226,11 +1224,11 @@ function cmdSystem() {
 	let mem = FS.readfile("/proc/meminfo") ?? "";
 	let total = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
 	for (let l in split(mem, "\n")) {
-		if (substr(l, 0, 9) == "MemTotal:") total = +trim(substr(l, index(l, ":") + 1));
-		if (substr(l, 0, 8) == "MemFree:") freeKb = +trim(substr(l, index(l, ":") + 1));
-		if (substr(l, 0, 8) == "Buffers:") bufKb = +trim(substr(l, index(l, ":") + 1));
-		if (substr(l, 0, 7) == "Cached:") cacheKb = +trim(substr(l, index(l, ":") + 1));
-		if (substr(l, 0, 13) == "SReclaimable:") reclaimKb = +trim(substr(l, index(l, ":") + 1));
+		if (substr(l, 0, 9) == "MemTotal:") total = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 8) == "MemFree:") freeKb = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 8) == "Buffers:") bufKb = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 7) == "Cached:") cacheKb = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 13) == "SReclaimable:") reclaimKb = int(trim(substr(l, index(l, ":") + 1)));
 	}
 	let la = words(FS.readfile("/proc/loadavg") ?? "");
 	let up = int(trim(split(FS.readfile("/proc/uptime") ?? "0", " ")[0]));
@@ -1510,20 +1508,29 @@ function cmdLhClear() {
 
 /* ---------- BrandMeister 静态组（API Key 方式） ---------- */
 const BM_API = "https://api.brandmeister.network/v2";
-/* 当前设备的 DMR ID：优先用静态组页面保存的覆盖值，否则取基础配置里的 DMR ID 1（去掉 ESSID） */
+/* 当前设备的 DMR ID：基础配置里的 DMR ID 1 + ESSID（BM 按完整 9 位设备 ID 区分静态组）；
+   手动覆盖优先，7 位覆盖值同样补上 ESSID */
+function bmWithEssid(id, essid) {
+	id = trim(id); essid = trim(essid);
+	if (!length(id)) return "";
+	if (length(essid) && match(essid, /^[0-9]{1,2}$/) != null) {
+		if (length(essid) == 1) essid = "0" + essid;
+		if (length(id) <= 7) id = id + essid;
+	}
+	return id;
+}
 function bmDeviceId() {
 	let st = state();
-	let ov = trim(st.bmDeviceId ?? "");
-	if (length(ov) && match(ov, /^[0-9]{4,9}$/) != null) return ov;
 	let ids = st.dmrIds;
+	let e0 = (type(ids) == "array" && ids[0] != null) ? trim(ids[0].essid ?? "") : "";
+	let ov = trim(st.bmDeviceId ?? "");
+	if (length(ov) && match(ov, /^[0-9]{4,9}$/) != null) return bmWithEssid(ov, e0);
 	if (type(ids) == "array" && ids[0] != null) {
 		let id = trim(ids[0].id ?? "");
-		if (length(id)) return id;
+		if (length(id)) return bmWithEssid(id, e0);
 	}
 	let m = ini(INI_DIR + "MMDVM.ini");
-	let raw = trim((m["DMR"] ?? {}).Id ?? "");
-	if (length(raw) == 9) raw = substr(raw, 0, 7);
-	return raw;
+	return trim((m["DMR"] ?? {}).Id ?? "");
 }
 function bmKey() { return trim(state().bmApiKey ?? ""); }
 /* 调 BM API：method + 路径 + 可选 JSON body，返回 { code, body }。

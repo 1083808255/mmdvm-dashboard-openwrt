@@ -49,13 +49,48 @@ mkdir -p "$WORKDIR/package/kernel"
 cp -a "$SCRIPT_DIR/packages/i2c-ch341" "$WORKDIR/package/kernel/i2c-ch341"
 
 echo "==> 生成整机固件版本号"
-# 固件版本与仪表盘版本保持一致（如 V0.607）
-FWV=$(tr -d ' \t\r\n' < "$SCRIPT_DIR/../dashboard/VERSION" 2>/dev/null || true)
-[ -n "$FWV" ] || { echo "ERROR: 缺少 dashboard/VERSION" >&2; exit 1; }
+# 固件版本与仪表盘版本保持一致
+FWV=$(tr -d ' \t\r\n' < "$SCRIPT_DIR/packages/mmdvm-dashboard/files/www-dash/VERSION" 2>/dev/null || true)
+[ -n "$FWV" ] || { echo "ERROR: 缺少仪表盘 VERSION" >&2; exit 1; }
 mkdir -p "$WORKDIR/files/etc/mmdvm"
 printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
 
+echo "==> 修正 R3G 双内核槽升级（内核同时写入 kernel 与 kernel_stock）"
+PLAT="$WORKDIR/target/linux/ramips/mt7621/base-files/lib/upgrade/platform.sh"
+if [ -f "$PLAT" ] && ! grep -q 'R3G_DUAL_KERNEL' "$PLAT"; then
+python3 - "$PLAT" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+s = s.replace("\txiaomi,mi-router-3g|\\\n", "")
+anchor = "\tcase \"$board\" in\n"
+new = '''\t# R3G_DUAL_KERNEL：内核同时写入 kernel 与 kernel_stock，避免升级后从旧内核启动
+\txiaomi,mi-router-3g)
+\t\tlocal img="$1"
+\t\tlocal board_dir="$(tar tf "$img" | grep -m1 '^sysupgrade-.*/$')"
+\t\tboard_dir="${board_dir%/}"
+\t\ttar xOf "$img" "$board_dir/kernel" > /tmp/r3g-kernel.bin
+\t\tmtd write /tmp/r3g-kernel.bin kernel
+\t\t[ -n "$(find_mtd_index kernel_stock)" ] && mtd write /tmp/r3g-kernel.bin kernel_stock
+\t\trm -f /tmp/r3g-kernel.bin
+\t\tCI_KERNPART="none"
+\t\tnand_do_upgrade "$img"
+\t\t;;
+'''
+s = s.replace(anchor, anchor + new, 1)
+open(p, "w").write(s)
+print("patched:", p)
+PY
+fi
+
 cd "$WORKDIR"
+
+echo "==> 默认 LAN 地址改为 192.168.7.1（x86 方案除外）"
+mkdir -p "$WORKDIR/files/bin"
+sed 's/192\.168\.1\.1/192.168.7.1/' \
+    "$WORKDIR/package/base-files/files/bin/config_generate" \
+    > "$WORKDIR/files/bin/config_generate"
+chmod +x "$WORKDIR/files/bin/config_generate"
 
 echo "==> 准备 R3G 配置"
 if ! grep -qx 'CONFIG_TARGET_ramips_mt7621_DEVICE_xiaomi_mi-router-3g=y' .config 2>/dev/null; then
@@ -120,6 +155,9 @@ make -j"$JOBS"
 echo "==> 收集产物"
 mkdir -p "$OUTDIR"
 cp "$TARGET_BIN"/*xiaomi_mi-router-3g*sysupgrade*.bin "$OUTDIR"/ 2>/dev/null || true
+cp "$TARGET_BIN"/*xiaomi_mi-router-3g-initramfs-kernel.bin "$OUTDIR"/ 2>/dev/null || true
+cp "$TARGET_BIN"/*xiaomi_mi-router-3g-squashfs-kernel1.bin "$OUTDIR"/ 2>/dev/null || true
+cp "$TARGET_BIN"/*xiaomi_mi-router-3g-squashfs-rootfs0.bin "$OUTDIR"/ 2>/dev/null || true
 cp "$TARGET_BIN"/*.manifest "$OUTDIR"/ 2>/dev/null || true
 cp "$TARGET_BIN"/*.buildinfo "$OUTDIR"/ 2>/dev/null || true
 for p in mmdvmhost dmrgateway mmdvm-dashboard kmod-i2c-ch341; do

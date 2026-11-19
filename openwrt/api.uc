@@ -816,7 +816,7 @@ function scanSerialPorts() {
 	let res = [];
 	let list = FS.lsdir("/dev") ?? [];
 	for (let n in list) {
-		if (match(n, /^tty(USB|ACM|AMA|HS)[0-9]+$/)) push(res, "/dev/" + n);
+		if (match(n, /^tty(USB|ACM|AMA|HS|MSM)[0-9]+$/)) push(res, "/dev/" + n);
 	}
 	sort(res);
 	return res;
@@ -2190,6 +2190,9 @@ const FW_RC = FW_DIR + "/rc";
 const FW_STATE_FILE = FW_DIR + "/state.json";
 const FW_DEFAULT_SRC = "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/raw/main/fw/";
 const FW_DEFAULT_ALT = "https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main/fw/";
+/* 固件更新检查结果缓存（5 分钟）：4G/弱网下每次刷页面都探测太慢 */
+const FWCHECK_CACHE = "/tmp/dashboard_fwcheck.json";
+const FWCHECK_TTL   = 300;
 
 function fwBoard() {
 	let b = trim(FS.readfile("/tmp/sysinfo/board_name") ?? "");
@@ -2232,18 +2235,23 @@ function fwFetchManifest(url) {
 	let f = FW_DIR + "/manifest.json";
 	sh("rm -f " + sq(f));
 	let u = url + ((index(url, "?") >= 0) ? "&" : "?") + "t=" + time();
-	sh("uclient-fetch -q -T 20 -O " + sq(f) + " " + sq(u) + " 2>/dev/null");
+	sh("uclient-fetch -q -T 8 -O " + sq(f) + " " + sq(u) + " 2>/dev/null");
 	let o = FS.readfile(f);
 	if (o == null || !length(trim(o))) return null;
 	let v = null;
 	try { v = json(o); } catch (e) { v = null; }
 	return (type(v) == "object" && v != null) ? v : null;
 }
+/* 先只查 Gitee（直连约 0.5~1 秒），两个候选键都失败才走 GitHub 镜像兜底，
+   避免每台设备正常检查时都被 ghproxy 的 6~7 秒拖慢 */
 function fwManifest() {
 	let cand = [fwBoardKey(fwBoard()), fwBoardKey(fwTarget())];
 	for (let key in cand) {
 		let m = fwFetchManifest(FW_DEFAULT_SRC + key + ".json");
-		if (m == null) m = fwFetchManifest(FW_DEFAULT_ALT + key + ".json");
+		if (type(m) == "object") return m;
+	}
+	for (let key in cand) {
+		let m = fwFetchManifest(FW_DEFAULT_ALT + key + ".json");
 		if (type(m) == "object") return m;
 	}
 	return null;
@@ -2306,6 +2314,15 @@ function cmdFw() {
 			source: FW_DEFAULT_SRC + fwBoardKey(board) + ".json" });
 	}
 	if (act == "check") {
+		/* 5 分钟内复用上次结果，避免每次打开页面都去探测远端清单 */
+		let ckey = board + "|" + cur;
+		let cd = FS.readfile(FWCHECK_CACHE);
+		if (cd != null) {
+			let c = null;
+			try { c = json(cd); } catch (e) { c = null; }
+			if (type(c) == "object" && c != null && c.key == ckey && time() - (c.t ?? 0) <= FWCHECK_TTL)
+				return out(c.body);
+		}
 		let m = fwManifest();
 		if (m == null) return fail("没有找到该机型的固件清单（" + board + "）");
 		let ver = trim(sprintf("%s", m.version ?? ""));
@@ -2314,9 +2331,11 @@ function cmdFw() {
 		if (length(mb) && mb != board) return fail("固件机型不匹配：" + mb);
 		let mt = trim(m.target ?? "");
 		if (length(mt) && mt != fwTarget()) return fail("固件目标平台不匹配：" + mt);
-		return out({ ok: true, current: cur, latest: ver, versionName: trim(m.versionName ?? ver),
+		let body = { ok: true, current: cur, latest: ver, versionName: trim(m.versionName ?? ver),
 			board: board, target: fwTarget(), size: +(m.size ?? 0), notes: trim(m.notes ?? ""),
-			updateAvailable: (cur == "unknown") || fwNewer(ver, cur) });
+			updateAvailable: (cur == "unknown") || fwNewer(ver, cur) };
+		try { writeCache(FWCHECK_CACHE, { t: time(), key: ckey, body: body }); } catch (e) {}
+		return out(body);
 	}
 	if (act == "download") {
 		if (method != "POST") return fail("需要 POST");

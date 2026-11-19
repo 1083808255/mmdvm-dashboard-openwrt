@@ -49,6 +49,7 @@
 #include <linux/usb.h>
 #include <linux/i2c.h>
 #include <linux/gpio.h>
+#include <linux/gpio/driver.h>
 #include <linux/irq.h>
 #include <linux/kthread.h>
 
@@ -843,7 +844,11 @@ int ch341_gpio_get_multiple (struct gpio_chip *chip,
     return CH341_OK;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+int ch341_gpio_set (struct gpio_chip *chip, unsigned offset, int value)
+#else
 void ch341_gpio_set (struct gpio_chip *chip, unsigned offset, int value)
+#endif
 {
     #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,5,0)
     struct ch341_device* ch341_dev = (struct ch341_device*)gpiochip_get_data(chip);
@@ -851,8 +856,13 @@ void ch341_gpio_set (struct gpio_chip *chip, unsigned offset, int value)
     struct ch341_device* ch341_dev = container_of(chip, struct ch341_device, gpio);
     #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+    CHECK_PARAM_RET (ch341_dev, -EINVAL);
+    CHECK_PARAM_RET (offset < ch341_dev->gpio_num, -EINVAL);
+#else
     CHECK_PARAM (ch341_dev);
     CHECK_PARAM (offset < ch341_dev->gpio_num);
+#endif
 
     if (value)
         ch341_dev->gpio_io_data |= ch341_dev->gpio_bits[offset];
@@ -863,10 +873,19 @@ void ch341_gpio_set (struct gpio_chip *chip, unsigned offset, int value)
     //          offset, value, ch341_dev->gpio_io_data);
 
     ch341_i2c_write_outputs (ch341_dev);
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+    return CH341_OK;
+#endif
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+int ch341_gpio_set_multiple (struct gpio_chip *chip,
+                             unsigned long *mask, unsigned long *bits)
+#else
 void ch341_gpio_set_multiple (struct gpio_chip *chip,
                               unsigned long *mask, unsigned long *bits)
+#endif
 {
     #if LINUX_VERSION_CODE >= KERNEL_VERSION(4,5,0)
     struct ch341_device* ch341_dev = (struct ch341_device*)gpiochip_get_data(chip);
@@ -875,9 +894,15 @@ void ch341_gpio_set_multiple (struct gpio_chip *chip,
     #endif
     int i;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+    CHECK_PARAM_RET (ch341_dev, -EINVAL);
+    CHECK_PARAM_RET (mask, -EINVAL);
+    CHECK_PARAM_RET (bits, -EINVAL);
+#else
     CHECK_PARAM (ch341_dev);
     CHECK_PARAM (mask);
     CHECK_PARAM (bits);
+#endif
 
     for (i = 0; i < ch341_dev->gpio_num; i++)
         if (*mask & (1 << i) && ch341_dev->gpio_pins[i]->mode == CH341_PIN_MODE_OUT)
@@ -893,7 +918,11 @@ void ch341_gpio_set_multiple (struct gpio_chip *chip,
 
     ch341_i2c_write_outputs (ch341_dev);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0)
+    return CH341_OK;
+#else
     return;
+#endif
 }
 
 
@@ -1047,8 +1076,13 @@ static int ch341_gpio_probe (struct ch341_device* ch341_dev)
     for (i = 0; i < CH341_GPIO_NUM_PINS; i++)
     {
         // in case the pin as CS signal, it is an GPIO pin
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,4,0)
         if ((result = gpio_request(gpio->base + j, ch341_board_config[i].name)) ||
             (result = gpio_export (gpio->base + j, ch341_board_config[i].pin != 21 ? true : false)))
+#else
+        /* 6.4 起内核移除了 legacy sysfs GPIO 导出接口，只保留 GPIO 申请 */
+        if ((result = gpio_request(gpio->base + j, ch341_board_config[i].name)))
+#endif
         {
             DEV_ERR (CH341_IF_ADDR, "failed to export GPIO %s: %d",
                      ch341_board_config[i].name, result);

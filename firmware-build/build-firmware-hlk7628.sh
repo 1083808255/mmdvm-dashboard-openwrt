@@ -77,6 +77,13 @@ fi
 
 cd "$WORKDIR"
 
+echo "==> 默认 LAN 地址改为 192.168.7.1（x86 方案除外）"
+mkdir -p "$WORKDIR/files/bin"
+sed 's/192\.168\.1\.1/192.168.7.1/' \
+	"$WORKDIR/package/base-files/files/bin/config_generate" \
+	> "$WORKDIR/files/bin/config_generate"
+chmod +x "$WORKDIR/files/bin/config_generate"
+
 echo "==> 写入 7628 目标配置"
 cat > .config <<'EOF'
 CONFIG_TARGET_ramips=y

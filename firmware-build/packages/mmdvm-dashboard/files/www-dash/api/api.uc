@@ -816,7 +816,7 @@ function scanSerialPorts() {
 	let res = [];
 	let list = FS.lsdir("/dev") ?? [];
 	for (let n in list) {
-		if (match(n, /^tty(USB|ACM|AMA|HS)[0-9]+$/)) push(res, "/dev/" + n);
+		if (match(n, /^tty(USB|ACM|AMA|HS|MSM)[0-9]+$/)) push(res, "/dev/" + n);
 	}
 	sort(res);
 	return res;
@@ -1174,11 +1174,13 @@ function hexVal(s) {
 	}
 	return v;
 }
-/* 物理内存总量（MB）：/proc/iomem 里 System RAM 各段求和。内核启动会保留一部分，
-   所以它比 MemTotal 大。读不到时退回 dmesg 的物理内存总量 */
+/* 物理内存总量（MB）：优先取 dmesg 里内核报告的物理容量（xK/yK 的 y），
+   它包含内核保留内存；读不到时退回 /proc/iomem 的 System RAM 求和 */
 function physMemMb() {
 	let kb = 0;
-	for (let l in split(FS.readfile("/proc/iomem") ?? "", "\n")) {
+	let m = match(sh("dmesg 2>/dev/null | grep -m1 'Memory:'"), /Memory:[ \t]+[0-9]+K\/([0-9]+)K/);
+	if (m != null && length(m) > 1) kb = +m[1];
+	if (kb <= 0) for (let l in split(FS.readfile("/proc/iomem") ?? "", "\n")) {
 		if (index(l, "System RAM") < 0) continue;
 		let i = index(l, ":");
 		if (i < 0) continue;
@@ -1189,10 +1191,6 @@ function physMemMb() {
 		/* 地址被内核打码成全 0 时每段只剩 1 字节，跳过 */
 		if (b - a + 1 < 4096) continue;
 		kb += int((b - a + 1) / 1024);
-	}
-	if (kb <= 0) {
-		let m = match(sh("dmesg 2>/dev/null | grep -m1 'Memory:'"), /Memory:[ \t]+[0-9]+K\/([0-9]+)K/);
-		if (m != null && length(m) > 1) kb = +m[1];
 	}
 	if (kb <= 0) return 0;
 	/* 向上取整：虚拟机分配 120M 时应显示 120 而不是 119 */
@@ -1226,11 +1224,11 @@ function cmdSystem() {
 	let mem = FS.readfile("/proc/meminfo") ?? "";
 	let total = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
 	for (let l in split(mem, "\n")) {
-		if (substr(l, 0, 9) == "MemTotal:") total = +trim(substr(l, index(l, ":") + 1));
-		if (substr(l, 0, 8) == "MemFree:") freeKb = +trim(substr(l, index(l, ":") + 1));
-		if (substr(l, 0, 8) == "Buffers:") bufKb = +trim(substr(l, index(l, ":") + 1));
-		if (substr(l, 0, 7) == "Cached:") cacheKb = +trim(substr(l, index(l, ":") + 1));
-		if (substr(l, 0, 13) == "SReclaimable:") reclaimKb = +trim(substr(l, index(l, ":") + 1));
+		if (substr(l, 0, 9) == "MemTotal:") total = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 8) == "MemFree:") freeKb = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 8) == "Buffers:") bufKb = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 7) == "Cached:") cacheKb = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 13) == "SReclaimable:") reclaimKb = int(trim(substr(l, index(l, ":") + 1)));
 	}
 	let la = words(FS.readfile("/proc/loadavg") ?? "");
 	let up = int(trim(split(FS.readfile("/proc/uptime") ?? "0", " ")[0]));
@@ -1510,20 +1508,29 @@ function cmdLhClear() {
 
 /* ---------- BrandMeister 静态组（API Key 方式） ---------- */
 const BM_API = "https://api.brandmeister.network/v2";
-/* 当前设备的 DMR ID：优先用静态组页面保存的覆盖值，否则取基础配置里的 DMR ID 1（去掉 ESSID） */
+/* 当前设备的 DMR ID：基础配置里的 DMR ID 1 + ESSID（BM 按完整 9 位设备 ID 区分静态组）；
+   手动覆盖优先，7 位覆盖值同样补上 ESSID */
+function bmWithEssid(id, essid) {
+	id = trim(id); essid = trim(essid);
+	if (!length(id)) return "";
+	if (length(essid) && match(essid, /^[0-9]{1,2}$/) != null) {
+		if (length(essid) == 1) essid = "0" + essid;
+		if (length(id) <= 7) id = id + essid;
+	}
+	return id;
+}
 function bmDeviceId() {
 	let st = state();
-	let ov = trim(st.bmDeviceId ?? "");
-	if (length(ov) && match(ov, /^[0-9]{4,9}$/) != null) return ov;
 	let ids = st.dmrIds;
+	let e0 = (type(ids) == "array" && ids[0] != null) ? trim(ids[0].essid ?? "") : "";
+	let ov = trim(st.bmDeviceId ?? "");
+	if (length(ov) && match(ov, /^[0-9]{4,9}$/) != null) return bmWithEssid(ov, e0);
 	if (type(ids) == "array" && ids[0] != null) {
 		let id = trim(ids[0].id ?? "");
-		if (length(id)) return id;
+		if (length(id)) return bmWithEssid(id, e0);
 	}
 	let m = ini(INI_DIR + "MMDVM.ini");
-	let raw = trim((m["DMR"] ?? {}).Id ?? "");
-	if (length(raw) == 9) raw = substr(raw, 0, 7);
-	return raw;
+	return trim((m["DMR"] ?? {}).Id ?? "");
 }
 function bmKey() { return trim(state().bmApiKey ?? ""); }
 /* 调 BM API：method + 路径 + 可选 JSON body，返回 { code, body }。
@@ -2190,6 +2197,9 @@ const FW_RC = FW_DIR + "/rc";
 const FW_STATE_FILE = FW_DIR + "/state.json";
 const FW_DEFAULT_SRC = "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/raw/main/fw/";
 const FW_DEFAULT_ALT = "https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main/fw/";
+/* 固件更新检查结果缓存（5 分钟）：4G/弱网下每次刷页面都探测太慢 */
+const FWCHECK_CACHE = "/tmp/dashboard_fwcheck.json";
+const FWCHECK_TTL   = 300;
 
 function fwBoard() {
 	let b = trim(FS.readfile("/tmp/sysinfo/board_name") ?? "");
@@ -2232,18 +2242,23 @@ function fwFetchManifest(url) {
 	let f = FW_DIR + "/manifest.json";
 	sh("rm -f " + sq(f));
 	let u = url + ((index(url, "?") >= 0) ? "&" : "?") + "t=" + time();
-	sh("uclient-fetch -q -T 20 -O " + sq(f) + " " + sq(u) + " 2>/dev/null");
+	sh("uclient-fetch -q -T 8 -O " + sq(f) + " " + sq(u) + " 2>/dev/null");
 	let o = FS.readfile(f);
 	if (o == null || !length(trim(o))) return null;
 	let v = null;
 	try { v = json(o); } catch (e) { v = null; }
 	return (type(v) == "object" && v != null) ? v : null;
 }
+/* 先只查 Gitee（直连约 0.5~1 秒），两个候选键都失败才走 GitHub 镜像兜底，
+   避免每台设备正常检查时都被 ghproxy 的 6~7 秒拖慢 */
 function fwManifest() {
 	let cand = [fwBoardKey(fwBoard()), fwBoardKey(fwTarget())];
 	for (let key in cand) {
 		let m = fwFetchManifest(FW_DEFAULT_SRC + key + ".json");
-		if (m == null) m = fwFetchManifest(FW_DEFAULT_ALT + key + ".json");
+		if (type(m) == "object") return m;
+	}
+	for (let key in cand) {
+		let m = fwFetchManifest(FW_DEFAULT_ALT + key + ".json");
 		if (type(m) == "object") return m;
 	}
 	return null;
@@ -2306,6 +2321,15 @@ function cmdFw() {
 			source: FW_DEFAULT_SRC + fwBoardKey(board) + ".json" });
 	}
 	if (act == "check") {
+		/* 5 分钟内复用上次结果，避免每次打开页面都去探测远端清单 */
+		let ckey = board + "|" + cur;
+		let cd = FS.readfile(FWCHECK_CACHE);
+		if (cd != null) {
+			let c = null;
+			try { c = json(cd); } catch (e) { c = null; }
+			if (type(c) == "object" && c != null && c.key == ckey && time() - (c.t ?? 0) <= FWCHECK_TTL)
+				return out(c.body);
+		}
 		let m = fwManifest();
 		if (m == null) return fail("没有找到该机型的固件清单（" + board + "）");
 		let ver = trim(sprintf("%s", m.version ?? ""));
@@ -2314,9 +2338,11 @@ function cmdFw() {
 		if (length(mb) && mb != board) return fail("固件机型不匹配：" + mb);
 		let mt = trim(m.target ?? "");
 		if (length(mt) && mt != fwTarget()) return fail("固件目标平台不匹配：" + mt);
-		return out({ ok: true, current: cur, latest: ver, versionName: trim(m.versionName ?? ver),
+		let body = { ok: true, current: cur, latest: ver, versionName: trim(m.versionName ?? ver),
 			board: board, target: fwTarget(), size: +(m.size ?? 0), notes: trim(m.notes ?? ""),
-			updateAvailable: (cur == "unknown") || fwNewer(ver, cur) });
+			updateAvailable: (cur == "unknown") || fwNewer(ver, cur) };
+		try { writeCache(FWCHECK_CACHE, { t: time(), key: ckey, body: body }); } catch (e) {}
+		return out(body);
 	}
 	if (act == "download") {
 		if (method != "POST") return fail("需要 POST");
