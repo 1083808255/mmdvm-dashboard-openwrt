@@ -87,8 +87,8 @@ header{
 .topnav .submenu a.active{color:var(--accent);background:var(--card2)}
 .topnav .nav-group:hover .submenu{display:block}
 .topnav .nav-group.open .submenu{display:block}
-.topnav-logout{color:var(--red);margin-left:14px}
-.topnav-logout:hover{color:#fca5a5;background:rgba(248,113,113,.1)}
+.topnav .topnav-logout{color:var(--faint);font-size:13px;margin-left:14px}
+.topnav .topnav-logout:hover{color:var(--muted);background:var(--card)}
 
 /* 电脑版行内密码框（手机版隐藏） */
 .pc-auth{display:none}
@@ -123,9 +123,10 @@ aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
 .submenu a.active{color:var(--accent);background:var(--card)}
 .nav-group{display:block}
 .nav-foot{margin-top:14px;padding-top:12px;border-top:1px solid var(--border2)}
-.nav-logout{color:var(--red)}
-.nav-logout svg{stroke:var(--red)}
-.nav-logout:hover{color:#fca5a5;background:rgba(248,113,113,.1)}
+.nav .nav-logout{color:var(--faint);font-size:15px}
+.nav .nav-logout svg{stroke:var(--faint)}
+.nav .nav-logout:hover{color:var(--muted);background:var(--card)}
+.nav .nav-logout:hover svg{stroke:var(--muted)}
 @media (min-width:861px){
   .nav-group:hover .submenu{display:block}
   /* 电脑版锁定态：隐藏顶部菜单，显示「菜单」按钮 + 行内密码框 */
