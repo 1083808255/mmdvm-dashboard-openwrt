@@ -313,7 +313,7 @@ function gpsBySlot(file) {
 	if (!length(file)) return {};
 	let st = FS.stat(file);
 	if (st == null) return {};
-	let sig = file + "|" + st.size + "|" + st.mtime + "|v2";
+	let sig = file + "|" + st.size + "|" + st.mtime + "|v3";
 	let c = null;
 	try { c = json(FS.readfile(GPS_CACHE) ?? ""); } catch (e) { c = null; }
 	let same = (c != null && c.file == file && type(c.slots) == "object");
@@ -323,7 +323,7 @@ function gpsBySlot(file) {
 	let lastDir = same ? (c.lastDir ?? null) : null;
 	let from = 0;
 	if (same && type(c.off) == "int" && c.off > 0 && c.off <= st.size) from = c.off;
-	if (from > 300) from -= 300;
+	if (from > 4096) from -= 4096;
 	let chunk = (from > 0) ? sh("tail -c +" + (from + 1) + " " + file) : (FS.readfile(file) ?? "");
 	for (let l in split(chunk, "\n")) {
 		/* 语音头方向：received RF = 本机手台上行，received network = 远端下行 */
@@ -1500,7 +1500,8 @@ function cmdLastheard() {
 			if (!length(a)) addrPrefetch(q.gps.lat, q.gps.lon);
 			let km = hasMe ? distKm(myLat, myLon, q.gps.lat, q.gps.lon) : null;
 			g4 = { lat: q.gps.lat, lon: q.gps.lon, addr: a,
-				dist: (km != null) ? ((km < 10) ? (rnd(km * 10) / 10) : rnd(km)) : null };
+				dist: (km != null) ? ((km < 10) ? (rnd(km * 10) / 10) : rnd(km)) : null,
+				base: lg1 ? "radio" : "config" };
 		}
 		/* 历史只回传通话组与时间戳（时间由前端按 ts 格式化），减小响应体积 */
 		let hist = (type(e.hist) == "array") ? e.hist : [];
@@ -1822,7 +1823,7 @@ function cmdLive() {
 		/* 地址只读缓存，未命中就丢给后台进程去查，避免实时接口被网络请求拖慢 */
 		let a = addrCached(g.lat, g.lon);
 		if (!length(a)) addrPrefetch(g.lat, g.lon);
-		slots[k].gps = { lat: g.lat, lon: g.lon, addr: a, dist: d };
+		slots[k].gps = { lat: g.lat, lon: g.lon, addr: a, dist: d, base: lg2 ? "radio" : "config" };
 	}
 	let body = { duplex: duplex, mode: length(modes) ? modes[0] : "DMR", slots: slots };
 	shortPut(LIVE_CACHE, body, file);

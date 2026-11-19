@@ -2278,10 +2278,11 @@ function showLhTip(btn, pin){
   const t = lhTipBox();
   const addr = btn.dataset.addr || '地址还在解析，稍后自动补上';
   const dist = btn.dataset.dist;
+  const dbase = btn.dataset.base;
   t.innerHTML =
     `<div><span class="k">地址</span> ${esc(addr)}</div>` +
     `<div><span class="k">坐标</span> ${(+btn.dataset.lat).toFixed(5)}, ${(+btn.dataset.lon).toFixed(5)}</div>` +
-    (dist ? `<div><span class="k">距离</span> ${esc(dist)} km</div>` : '');
+    (dist ? `<div><span class="k">距离</span> ${esc(dist)} km${dbase==='radio' ? ' (实时)' : ''}</div>` : '');
   t.classList.add('show');
   const r = btn.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
   let left = r.right - w; if(left < 8) left = 8;
@@ -5120,7 +5121,7 @@ function renderSlot(n, s, mode){
       /* 只有成功解析出地址才显示；查不到地址（境外坐标等）就整项隐藏 */
       const place = (g && g.addr) ? g.addr : '';
       if(place){
-        gEl.textContent = place + (g.dist!=null ? ' · ' + g.dist + 'km' : '');
+        gEl.textContent = place + (g.dist!=null ? ' · ' + g.dist + 'km' + (g.base==='radio' ? '(实时)' : '') : '');
         gEl.title = place + ' (' + (+g.lat).toFixed(3) + ',' + (+g.lon).toFixed(3) + ')';
         gwEl.style.display = '';
       } else {
@@ -5186,7 +5187,7 @@ async function renderLastheardLog(){
     const berCls = (isFinite(berNum) && berNum > 3) ? ' bad' : '';
     const g = (r.gps && r.gps.lat != null && r.gps.lon != null) ? r.gps : null;
     const geoBtn = g
-      ? `<button class="lh-geo" data-lat="${(+g.lat).toFixed(6)}" data-lon="${(+g.lon).toFixed(6)}" data-addr="${esc(g.addr||'')}" data-dist="${g.dist==null?'':g.dist}" title="查看 GPS 定位">${pin}</button>`
+      ? `<button class="lh-geo" data-lat="${(+g.lat).toFixed(6)}" data-lon="${(+g.lon).toFixed(6)}" data-addr="${esc(g.addr||'')}" data-dist="${g.dist==null?'':g.dist}" data-base="${g.base||''}" title="查看 GPS 定位">${pin}</button>`
       : '';
     return `<div class="lh-item${isTx?' tx':''}">
       <div class="lh-flag">${flagForCallsign(call, id)}</div>
