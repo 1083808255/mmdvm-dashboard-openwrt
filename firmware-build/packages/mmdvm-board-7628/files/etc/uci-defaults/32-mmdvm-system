@@ -1,6 +1,6 @@
 #!/bin/sh
 # 主机名与时区
-uci set system.@system[0].hostname='MMDVM-7628'
+uci set system.@system[0].hostname='MMDVM-OpenWrt'
 uci set system.@system[0].timezone='CST-8'
 uci set system.@system[0].zonename='Asia/Shanghai'
 uci commit system
