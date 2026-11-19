@@ -2409,8 +2409,8 @@ function route(){
   const seg = (location.hash.replace(/^#\//,'') || 'qso').split('/');
   let view = seg[0];
   if(!['qso','config','basic','services','adv','cal','tg','radio','system'].includes(view)) view = 'qso';
-  /* 电脑版：菜单未解锁且需要密码时，只能停留在通联信息页，阻止直达其它视图 */
-  if(typeof isPC === 'function' && isPC() && authRequired && !menuUnlocked && view !== 'qso'){
+  /* 菜单未解锁且需要密码时，只能停留在通联信息页，阻止直达其它视图（手机/电脑一致） */
+  if(authRequired && !menuUnlocked && view !== 'qso'){
     location.hash = '#/qso';
     return;
   }
@@ -2516,7 +2516,7 @@ function askPassword(){
 async function tryOpenMenu(){
   const sb = $('#sidebar');
   if(sb.classList.contains('open')){ closeSidebar(); return; }
-  if(isPC() && authRequired && !menuUnlocked){
+  if(authRequired && !menuUnlocked){
     const pw = await askPassword();
     if(pw == null) return;
     menuUnlocked = true;
