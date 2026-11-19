@@ -349,16 +349,24 @@ function gpsBySlot(file) {
 	try { FS.writefile(GPS_CACHE, sprintf("%J", { file: file, sig: sig, off: from + length(chunk), lastSlot: lastSlot, lastDir: lastDir, slots: slots })); } catch (e) {}
 	return slots;
 }
-/* 本机基准位置：1 小时内收到过本机手台（RF 方向）内嵌 GPS 就用它，否则返回 null（由调用方回退到配置值） */
+/* 通话 GPS 缓存时长（小时，1~48，默认 1）：存于 [Info] GPS_CacheHours，MMDVMHost 会忽略该键 */
+function gpsCacheHours() {
+	let inf = (ini(INI_DIR + "MMDVM.ini")["Info"] ?? {});
+	let h = +trim(inf.GPS_CacheHours ?? "");
+	if (!(h >= 1 && h <= 48)) h = 1;
+	return h;
+}
+/* 本机基准位置：缓存时长内收到过本机手台（RF 方向）内嵌 GPS 就用它，否则返回 null（由调用方回退到配置值） */
 function localGps(file) {
 	let slots = gpsBySlot(file);
 	let now = time(), best = null;
+	let ttl = gpsCacheHours() * 3600;
 	for (let k in slots) {
 		let g = slots[k];
 		if (type(g) != "object" || g == null || g.src != "rf") continue;
 		if (!g.lat || !g.lon) continue;
 		let ts = (type(g.ts) == "int") ? g.ts : 0;
-		if (ts <= 0 || now - ts > 3600) continue;
+		if (ts <= 0 || now - ts > ttl) continue;
 		if (best == null || ts > (best.ts ?? 0)) best = g;
 	}
 	return best;
@@ -1137,6 +1145,7 @@ function cmdStatus() {
 			latitude: inf.Latitude ?? "0.0",
 			longitude: inf.Longitude ?? "0.0",
 			height: inf.Height ?? "0",
+			gpsCacheHours: gpsCacheHours(),
 			location: inf.Location ?? "",
 			description: inf.Description ?? "",
 			url: inf.URL ?? "",
@@ -2628,6 +2637,9 @@ if (name == "ports") {
 			if (length(lat) && match(lat, /^-?[0-9]+(\.[0-9]+)?$/) == null) { fail("纬度应为数字"); return; }
 			if (length(lon) && match(lon, /^-?[0-9]+(\.[0-9]+)?$/) == null) { fail("经度应为数字"); return; }
 			if (length(hgt) && match(hgt, /^-?[0-9]+$/) == null) { fail("高度应为整数"); return; }
+			/* 通话 GPS 缓存时间：1~48 小时 */
+			let gpsTtl = trim(d.gpsCacheHours ?? "");
+			if (length(gpsTtl) && (match(gpsTtl, /^[0-9]{1,2}$/) == null || +gpsTtl < 1 || +gpsTtl > 48)) { fail("GPS 缓存时间应为 1~48 小时"); return; }
 			/* 连接字段校验 */
 			if (length(dmrType) && match(dmrType, /^(Gateway|Direct)$/i) == null) { fail("类型不合法"); return; }
 			if (length(slot1) && match(slot1, /^[01]$/) == null) { fail("时隙1 应为 0 或 1"); return; }
@@ -2656,6 +2668,7 @@ if (name == "ports") {
 			if (length(lat)) { setIniSec(f, "Info", "Latitude", lat); setIniSec(gw, "Info", "Latitude", lat); }
 			if (length(lon)) { setIniSec(f, "Info", "Longitude", lon); setIniSec(gw, "Info", "Longitude", lon); }
 			if (length(hgt)) { setIniSec(f, "Info", "Height", hgt); setIniSec(gw, "Info", "Height", hgt); }
+			if (length(gpsTtl)) { setIniSec(f, "Info", "GPS_CacheHours", gpsTtl); setIniSec(gw, "Info", "GPS_CacheHours", gpsTtl); }
 			if (length(loc)) { setIniSec(f, "Info", "Location", loc); setIniSec(gw, "Info", "Location", loc); }
 			if (length(desc)) { setIniSec(f, "Info", "Description", desc); setIniSec(gw, "Info", "Description", desc); }
 			if (length(url)) { setIniSec(f, "Info", "URL", url); setIniSec(gw, "Info", "URL", url); }

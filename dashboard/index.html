@@ -1559,6 +1559,7 @@ th{font-size:12px}
         <div class="field field-latitude" data-brow="35"><label>纬度 <small>(Latitude)</small></label><input id="basic-latitude" class="inp" type="text" inputmode="decimal" placeholder="0.0"></div>
         <div class="field field-longitude" data-brow="35"><label>经度 <small>(Longitude)</small></label><input id="basic-longitude" class="inp" type="text" inputmode="decimal" placeholder="0.0"></div>
         <div class="field field-height" data-brow="35"><label>高度 <small>(Height)</small></label><input id="basic-height" class="inp" type="text" inputmode="numeric" placeholder="0"></div>
+        <div class="field field-gpsttl" data-brow="35"><label>通话 GPS 缓存 <small>(Hours)</small></label><select id="basic-gpsttl" class="inp"></select></div>
         <div class="field field-location" data-brow="36"><label>位置 <small>(Location)</small></label><input id="basic-location" class="inp" type="text" placeholder="Nowhere"></div>
         <div class="field field-description" data-brow="37"><label>描述 <small>(Description)</small></label><input id="basic-description" class="inp" type="text"></div>
         <div class="field field-url" data-brow="38"><label>网址 <small>(URL)</small></label><input id="basic-url" class="inp" type="text"></div>
@@ -3143,8 +3144,10 @@ async function renderBasic(){
   $('#basic-rxfreq').value = m.rxFreq ? fmtFreq(m.rxFreq) : '';
   $('#basic-txfreq').value = m.txFreq ? fmtFreq(m.txFreq) : '';
   /* 位置信息（Info 段共有字段，与 DMRGateway.ini 同步） */
+  fillGpsTtlOptions();
   $('#basic-latitude').value = m.latitude || '0.0';
   $('#basic-longitude').value = m.longitude || '0.0';
+  $('#basic-gpsttl').value = String(m.gpsCacheHours || 1);
   $('#basic-height').value = m.height || '0';
   $('#basic-location').value = m.location || '';
   $('#basic-description').value = m.description || '';
@@ -3182,6 +3185,15 @@ async function renderBasic(){
   syncDmrTypeRule();
   layoutBasicRows();
   fitPortBoxes();
+}
+/* 通话 GPS 缓存时间下拉：1~48 小时 */
+function fillGpsTtlOptions(){
+  const s = $('#basic-gpsttl');
+  if(!s || s.dataset.ready) return;
+  let h = '';
+  for(let i=1;i<=48;i++) h += `<option value="${i}">${i} 小时</option>`;
+  s.innerHTML = h;
+  s.dataset.ready = '1';
 }
 /* 电脑端把基本信息字段按 5 行分组，手机端保持原有平铺网格 */
 function layoutBasicRows(){
@@ -3481,6 +3493,7 @@ function saveBasic(){
       latitude: $('#basic-latitude').value.trim(),
       longitude: $('#basic-longitude').value.trim(),
       height: $('#basic-height').value.trim(),
+      gpsCacheHours: $('#basic-gpsttl').value,
       location: $('#basic-location').value.trim(),
       description: $('#basic-description').value.trim(),
       url: $('#basic-url').value.trim(),
