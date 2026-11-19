@@ -87,6 +87,16 @@ header{
 .topnav .submenu a.active{color:var(--accent);background:var(--card2)}
 .topnav .nav-group:hover .submenu{display:block}
 .topnav .nav-group.open .submenu{display:block}
+.topnav-logout{color:var(--red);margin-left:14px}
+.topnav-logout:hover{color:#fca5a5;background:rgba(248,113,113,.1)}
+
+/* 电脑版行内密码框（手机版隐藏） */
+.pc-auth{display:none}
+.pc-auth input{height:34px;width:150px;padding:0 10px;border:1px solid var(--border);border-radius:9px;
+  background:var(--card);color:var(--text);font-size:14px;font-family:inherit;outline:none;transition:.15s}
+.pc-auth input:focus{border-color:var(--accent)}
+.pc-auth.err input{border-color:var(--red);animation:authShake .32s ease}
+.pc-auth-err{color:var(--red);font-size:12px;white-space:nowrap}
 
 /* ===== Sidebar ===== */
 aside{
@@ -117,14 +127,19 @@ aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
 .nav-logout:hover{color:#fca5a5;background:rgba(248,113,113,.1)}
 @media (min-width:861px){
   .nav-group:hover .submenu{display:block}
-  /* 电脑版：顶部 topnav 隐藏，菜单收起到品牌右侧的按钮，点击弹出抽屉 */
+  /* 电脑版锁定态：隐藏顶部菜单，显示「菜单」按钮 + 行内密码框 */
   .topnav{display:none}
   .brand{order:1}
   .menuBtn{display:flex;order:2;width:auto;padding:0 14px;gap:8px}
   .menuBtn .menuBtn-label{display:inline}
-  .hspacer{display:block;order:3}
-  .hstatus{order:4}
-  .clock{order:5}
+  .pc-auth{display:flex;order:3;align-items:center;gap:6px}
+  .hspacer{display:block;order:4}
+  .hstatus{order:5}
+  .clock{order:6}
+  /* 电脑版解锁态：恢复原始顶部菜单（末尾带注销），隐藏「菜单」按钮与密码框 */
+  header.nav-unlocked .topnav{display:flex;order:2}
+  header.nav-unlocked .menuBtn{display:none}
+  header.nav-unlocked .pc-auth{display:none}
   /* 电脑版配置页：仅设置项右移 100px，卡片边框与标题不动 */
   #view-config .cfg-sec > :not(.cfg-sec-h):not(.cfg-sec-head){margin-left:100px}
   /* 电脑版基础配置：设置项同样右移 100px，卡片边框与标题不动 */
@@ -1324,6 +1339,10 @@ th{font-size:12px}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     <span class="menuBtn-label">菜单</span>
   </button>
+  <div class="pc-auth" id="pcAuth">
+    <input id="pcAuthPw" type="password" placeholder="输入密码解锁菜单" autocomplete="current-password">
+    <span class="pc-auth-err" id="pcAuthErr"></span>
+  </div>
   <div class="brand">
     <div class="logo">
       <svg viewBox="0 0 24 24" fill="none" stroke="#06231a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1360,6 +1379,7 @@ th{font-size:12px}
         <a href="#/system" data-view="system">系统信息</a>
       </div>
     </div>
+    <a href="javascript:;" class="topnav-logout" id="topnavLogout">注销</a>
   </nav>
   <div class="hspacer"></div>
   <div class="hstatus" id="netStatus"><span class="net-item"><span class="net-name">设备</span><span class="net-state err">未连接</span></span></div>
@@ -2528,11 +2548,20 @@ function askPassword(){
   });
 }
 function markActivity(){ lastActivity = Date.now(); }
+function applyNavLockUI(){
+  const h = document.querySelector('header');
+  if(!h) return;
+  /* 已解锁 或 不需要密码（未设 root 密码/预览模式）→ 电脑版显示原始顶部菜单 */
+  h.classList.toggle('nav-unlocked', !!menuUnlocked || authRequired === false);
+}
 function lockMenu(){
   menuUnlocked = false;
   try{ sessionStorage.removeItem('dash_menu_unlocked'); }catch(e){}
   lastActivity = 0;
   closeSidebar();
+  const pcPw = $('#pcAuthPw'); if(pcPw) pcPw.value = '';
+  const pcErr = $('#pcAuthErr'); if(pcErr) pcErr.textContent = '';
+  applyNavLockUI();
   const seg = (location.hash.replace(/^#\//,'') || 'qso').split('/');
   if(seg[0] !== 'qso'){ location.hash = '#/qso'; }
 }
@@ -2549,7 +2578,38 @@ document.addEventListener('visibilitychange', ()=>{
     lockMenu();
   }
 });
+async function tryPcUnlock(){
+  const box = $('#pcAuth'), pw = $('#pcAuthPw'), err = $('#pcAuthErr'), btn = $('#menuBtn');
+  if(!box || !pw) return;
+  const v = pw.value;
+  if(!v){ pw.focus(); return; }
+  err.textContent = '';
+  const label = btn ? btn.querySelector('.menuBtn-label') : null;
+  const oldText = label ? label.textContent : '';
+  if(label) label.textContent = '验证中…';
+  try{
+    const r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: v }) });
+    const j = await r.json();
+    if(j && j.ok && j.granted){
+      menuUnlocked = true;
+      try{ sessionStorage.setItem('dash_menu_unlocked','1'); }catch(e){}
+      lastActivity = Date.now();
+      applyNavLockUI();
+    } else {
+      err.textContent = (j && j.error) || '密码错误';
+      pw.value = ''; pw.focus();
+      box.classList.remove('shake'); void box.offsetWidth; box.classList.add('shake');
+    }
+  }catch(e){ err.textContent = '网络错误，请重试'; }
+  if(label) label.textContent = oldText;
+}
 async function tryOpenMenu(){
+  if(isPC()){
+    /* 电脑版：行内密码框解锁，不使用抽屉；解锁后顶部菜单自动显示 */
+    if(authRequired && !menuUnlocked){ await tryPcUnlock(); }
+    return;
+  }
+  /* 手机版：保持抽屉 + 密码弹窗 */
   const sb = $('#sidebar');
   if(sb.classList.contains('open')){ closeSidebar(); return; }
   if(authRequired && !menuUnlocked){
@@ -2558,12 +2618,21 @@ async function tryOpenMenu(){
     menuUnlocked = true;
     try{ sessionStorage.setItem('dash_menu_unlocked','1'); }catch(e){}
     lastActivity = Date.now();
+    applyNavLockUI();
   }
   openSidebar();
 }
 $('#menuBtn').addEventListener('click', tryOpenMenu);
 $('#overlay').addEventListener('click', closeSidebar);
 $('#navLogout').addEventListener('click', lockMenu);
+$('#topnavLogout').addEventListener('click', lockMenu);
+const pcAuthPw = $('#pcAuthPw');
+if(pcAuthPw){
+  pcAuthPw.addEventListener('keydown', e=>{
+    if(e.key === 'Enter'){ e.preventDefault(); tryPcUnlock(); }
+  });
+  pcAuthPw.addEventListener('input', ()=>{ const er=$('#pcAuthErr'); if(er) er.textContent=''; });
+}
 
 /* ---------- 时钟（页面隐藏或时钟不可见时不写 DOM） ---------- */
 const clockEl = $('#clock');
@@ -6358,6 +6427,7 @@ bindFwModal();
 window.addEventListener('DOMContentLoaded', async ()=>{
   /* 先探测 LuCI 是否设置了密码，再渲染首屏，避免未解锁时闪现其它视图 */
   await Promise.race([ loadAuthStatus(), new Promise(r=>setTimeout(r, 1500)) ]);
+  applyNavLockUI();
   route();
 });
 /* 首次加载（含手动刷新网页）带 ping=1，强制做一次 ping 测试 */
