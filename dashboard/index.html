@@ -5696,8 +5696,17 @@ async function renderTg(){
   const l1 = $('#tg-list-1'), l2 = $('#tg-list-2');
   if(hintEl && !hintEl.innerHTML) hintEl.innerHTML = '<div class="tg-hint">正在从 BrandMeister 读取…</div>';
   if(dynHintEl && !dynHintEl.innerHTML) dynHintEl.innerHTML = '<div class="tg-hint">正在从 BrandMeister 读取…</div>';
-  const r = await api('/api/tg');
+  let r = await api('/api/tg');
   await loadTgDmrIds();
+  /* 基础配置只有一个 46 开头的 ID 时自动应用并保存，免去进 API 弹窗手动配置 */
+  const ids46 = (tgDmrIds || []).filter(it=>it && it.id && String(it.id).indexOf('46') === 0);
+  if(ids46.length === 1){
+    const want = ids46[0].id + (ids46[0].essid || '');
+    if(String((r && r.override) || '') !== want){
+      const j = await tgPost({ act:'key', deviceId: want }, true);
+      if(j && j.ok) r = await api('/api/tg');
+    }
+  }
   tgDeviceId = (r && r.deviceId) || '';
   fillTgDevOptions(tgDeviceId, r && r.override);
   const keyInp = $('#tg-key');
