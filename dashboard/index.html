@@ -2282,7 +2282,7 @@ function showLhTip(btn, pin){
   t.innerHTML =
     `<div><span class="k">地址</span> ${esc(addr)}</div>` +
     `<div><span class="k">坐标</span> ${(+btn.dataset.lat).toFixed(5)}, ${(+btn.dataset.lon).toFixed(5)}</div>` +
-    (dist ? `<div><span class="k">距离</span> ${esc(dist)} km${dbase==='radio' ? ' (实时)' : ''}</div>` : '');
+    (dist ? `<div><span class="k">距离</span> ${esc(dist)} km${dbase==='radio' ? ' (GPS)' : ''}</div>` : '');
   t.classList.add('show');
   const r = btn.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
   let left = r.right - w; if(left < 8) left = 8;
@@ -5121,7 +5121,7 @@ function renderSlot(n, s, mode){
       /* 只有成功解析出地址才显示；查不到地址（境外坐标等）就整项隐藏 */
       const place = (g && g.addr) ? g.addr : '';
       if(place){
-        gEl.textContent = place + (g.dist!=null ? ' · ' + g.dist + 'km' + (g.base==='radio' ? '(实时)' : '') : '');
+        gEl.textContent = place + (g.dist!=null ? ' · ' + g.dist + 'km' + (g.base==='radio' ? '(GPS)' : '') : '');
         gEl.title = place + ' (' + (+g.lat).toFixed(3) + ',' + (+g.lon).toFixed(3) + ')';
         gwEl.style.display = '';
       } else {
