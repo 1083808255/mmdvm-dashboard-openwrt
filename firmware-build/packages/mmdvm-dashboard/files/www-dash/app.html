@@ -70,6 +70,7 @@ header{
 .menuBtn{display:none;width:38px;height:38px;border:1px solid var(--border);border-radius:10px;background:var(--card);
   color:var(--text);cursor:pointer;align-items:center;justify-content:center}
 .menuBtn svg{width:20px;height:20px}
+.menuBtn .menuBtn-label{display:none;font-size:14px;font-weight:600}
 
 /* ===== Top nav (PC) ===== */
 .topnav{display:none;align-items:center;gap:2px;height:100%}
@@ -89,10 +90,11 @@ header{
 
 /* ===== Sidebar ===== */
 aside{
-  position:fixed;top:var(--header-h);left:0;bottom:0;width:var(--sidebar-w);z-index:46;
+  position:fixed;top:0;left:0;bottom:0;width:var(--sidebar-w);z-index:60;
   background:var(--bg2);border-right:1px solid var(--border);padding:14px 10px;overflow-y:auto;
-  transition:transform .24s ease;
+  transform:translateX(-100%);transition:transform .24s ease;
 }
+aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
 .nav-label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--text);font-weight:600;padding:10px 12px 6px}
 .nav a{
   display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:10px;color:var(--muted);
@@ -111,10 +113,14 @@ aside{
 .nav-group{display:block}
 @media (min-width:861px){
   .nav-group:hover .submenu{display:block}
-  /* 电脑版：顶部菜单在剩余空间内居中，右侧状态与时钟保持贴右 */
-  .topnav{display:flex;flex:1;justify-content:center}
-  .hspacer{display:none}
-  aside#sidebar{display:none}
+  /* 电脑版：顶部 topnav 隐藏，菜单收起到品牌右侧的按钮，点击弹出抽屉 */
+  .topnav{display:none}
+  .brand{order:1}
+  .menuBtn{display:flex;order:2;width:auto;padding:0 14px;gap:8px}
+  .menuBtn .menuBtn-label{display:inline}
+  .hspacer{display:block;order:3}
+  .hstatus{order:4}
+  .clock{order:5}
   /* 电脑版配置页：仅设置项右移 100px，卡片边框与标题不动 */
   #view-config .cfg-sec > :not(.cfg-sec-h):not(.cfg-sec-head){margin-left:100px}
   /* 电脑版基础配置：设置项同样右移 100px，卡片边框与标题不动 */
@@ -1287,6 +1293,21 @@ th{font-size:12px}
 /* 确认框要盖在更新弹窗之上，否则从更新弹窗点安装时看不到确认提示 */
 #uiModal{z-index:200}
 
+/* ===== 菜单密码弹窗 ===== */
+#authModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
+  background:rgba(3,6,9,.72);backdrop-filter:blur(3px)}
+#authModal.show{display:flex}
+#authModal .um-box{width:min(420px,100%);max-height:82vh;display:flex;flex-direction:column;
+  background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);
+  box-shadow:0 18px 60px rgba(0,0,0,.65);overflow:hidden;animation:umIn .16s ease}
+#authModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
+#authModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:normal;overflow-y:auto}
+#authModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
+#authModal .inp{width:100%}
+#authErr{color:var(--red);font-size:13px;margin-top:8px;min-height:18px}
+#authModal.shake .um-box{animation:umIn .16s ease, authShake .32s ease}
+@keyframes authShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+
 /* ===== overlay ===== */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:55;opacity:0;pointer-events:none;transition:.2s}
 .overlay.on{opacity:1;pointer-events:auto}
@@ -1295,8 +1316,9 @@ th{font-size:12px}
 <body>
 
 <header>
-  <button class="menuBtn" id="menuBtn" aria-label="menu">
+  <button class="menuBtn" id="menuBtn" aria-label="菜单">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    <span class="menuBtn-label">菜单</span>
   </button>
   <div class="brand">
     <div class="logo">
@@ -1854,6 +1876,22 @@ th{font-size:12px}
   </div>
 </div>
 
+<!-- 菜单密码弹窗：密码与 LuCI 的 root 密码同步 -->
+<div id="authModal">
+  <div class="um-box">
+    <div class="um-head">菜单已锁定</div>
+    <div class="um-body">
+      <p style="margin:0 0 12px;color:var(--muted);font-size:13.5px">请输入 LuCI 登录密码以打开菜单（与路由器管理密码一致）。</p>
+      <input id="authPw" class="inp" type="password" placeholder="LuCI 密码" autocomplete="current-password">
+      <div id="authErr"></div>
+    </div>
+    <div class="um-foot">
+      <button class="btn" id="authCancel" type="button">取消</button>
+      <button class="btn primary" id="authOk" type="button">解锁</button>
+    </div>
+  </div>
+</div>
+
 <div id="tgKeyModal">
   <div class="um-box">
     <div class="um-head">BrandMeister API</div>
@@ -2371,6 +2409,11 @@ function route(){
   const seg = (location.hash.replace(/^#\//,'') || 'qso').split('/');
   let view = seg[0];
   if(!['qso','config','basic','services','adv','cal','tg','radio','system'].includes(view)) view = 'qso';
+  /* 电脑版：菜单未解锁且需要密码时，只能停留在通联信息页，阻止直达其它视图 */
+  if(typeof isPC === 'function' && isPC() && authRequired && !menuUnlocked && view !== 'qso'){
+    location.hash = '#/qso';
+    return;
+  }
   /* 进入高级页（原始 INI 编辑）前二次确认，取消则退回原页面 */
   const prevKey = lastRoute;
   if(view === 'adv' && !(prevKey || '').startsWith('adv') && !advGate){
@@ -2425,9 +2468,62 @@ document.addEventListener('click', e=>{
     $$('#topnav .nav-group').forEach(g=>g.classList.remove('open'));
 });
 
-/* ---------- 侧边栏 ---------- */
+/* ---------- 侧边栏 / 菜单密码（与 LuCI 的 root 密码同步） ---------- */
 function closeSidebar(){ $('#sidebar').classList.remove('open'); $('#overlay').classList.remove('on'); }
-$('#menuBtn').addEventListener('click', ()=>{ $('#sidebar').classList.toggle('open'); $('#overlay').classList.toggle('on'); });
+function openSidebar(){ $('#sidebar').classList.add('open'); $('#overlay').classList.add('on'); }
+/* authRequired: null=未探测 / false=LuCI 无密码（不设门）/ true=需要密码；menuUnlocked: 本次会话已解锁 */
+let authRequired = null;
+let menuUnlocked = false;
+const isPC = () => window.matchMedia('(min-width:861px)').matches;
+async function loadAuthStatus(){
+  try{
+    const r = await fetch('/api/auth', { cache:'no-store' });
+    const j = await r.json();
+    authRequired = !!(j && j.ok && j.required);
+  }catch(e){ authRequired = false; }  /* 预览模式 / 无后端：不设密码门 */
+}
+function askPassword(){
+  return new Promise(resolve=>{
+    const m = $('#authModal'), pw = $('#authPw'), err = $('#authErr'), ok = $('#authOk'), cancel = $('#authCancel');
+    if(!m || !pw){ resolve(null); return; }
+    err.textContent = ''; pw.value = ''; m.classList.remove('shake');
+    let settled = false;
+    const finish = (val)=>{ if(settled) return; settled = true; m.classList.remove('show','shake'); m.onclick = null; document.removeEventListener('keydown', onKey); resolve(val); };
+    const onKey = (e)=>{
+      if(e.key === 'Escape'){ e.preventDefault(); finish(null); }
+      else if(e.key === 'Enter'){ e.preventDefault(); ok.click(); }
+    };
+    pw.oninput = ()=>{ err.textContent = ''; };
+    ok.onclick = async ()=>{
+      const v = pw.value;
+      err.textContent = '';
+      ok.disabled = true; const old = ok.textContent; ok.textContent = '验证中…';
+      try{
+        const r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: v }) });
+        const j = await r.json();
+        if(j && j.ok && j.granted){ finish(v); }
+        else { err.textContent = (j && j.error) || '密码错误'; pw.value=''; pw.focus(); m.classList.remove('shake'); void m.offsetWidth; m.classList.add('shake'); }
+      }catch(e){ err.textContent = '网络错误，请重试'; }
+      ok.disabled = false; ok.textContent = old;
+    };
+    cancel.onclick = ()=>finish(null);
+    m.onclick = (e)=>{ if(e.target === m) finish(null); };
+    m.classList.add('show');
+    document.addEventListener('keydown', onKey);
+    setTimeout(()=>{ try{ pw.focus(); }catch(e){} }, 30);
+  });
+}
+async function tryOpenMenu(){
+  const sb = $('#sidebar');
+  if(sb.classList.contains('open')){ closeSidebar(); return; }
+  if(isPC() && authRequired && !menuUnlocked){
+    const pw = await askPassword();
+    if(pw == null) return;
+    menuUnlocked = true;
+  }
+  openSidebar();
+}
+$('#menuBtn').addEventListener('click', tryOpenMenu);
 $('#overlay').addEventListener('click', closeSidebar);
 
 /* ---------- 时钟（页面隐藏或时钟不可见时不写 DOM） ---------- */
@@ -6220,7 +6316,11 @@ bindCal();
 bindTg();
 bindOtaModal();
 bindFwModal();
-window.addEventListener('DOMContentLoaded', route);
+window.addEventListener('DOMContentLoaded', async ()=>{
+  /* 先探测 LuCI 是否设置了密码，再渲染首屏，避免未解锁时闪现其它视图 */
+  await Promise.race([ loadAuthStatus(), new Promise(r=>setTimeout(r, 1500)) ]);
+  route();
+});
 /* 首次加载（含手动刷新网页）带 ping=1，强制做一次 ping 测试 */
 api('/api/status?ping=1');
 prefetchCfgs();

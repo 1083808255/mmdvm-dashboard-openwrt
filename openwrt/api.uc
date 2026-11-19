@@ -1956,7 +1956,7 @@ const OTA_CACHE = "/tmp/dashboard-ota-cache.json";
 const OTA_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/dashboard.json";
 /* 备用清单：Gitee 不可达时回退到 GitHub API */
 const OTA_DEFAULT_ALT = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
-const DASH_ENDPOINTS = ["basic","calibration","configs","fw","lastheard","lhclear","live","log","luci","ota","page","ports","services","status","system","tg","xlxhosts"];
+const DASH_ENDPOINTS = ["auth","basic","calibration","configs","fw","lastheard","lhclear","live","log","luci","ota","page","ports","services","status","system","tg","xlxhosts"];
 
 function sq(s) {
 	let t = sprintf("%s", s), o = "";
@@ -2430,6 +2430,29 @@ function cmdLuci() {
 	out({ ok: true, url: "http://" + host + ":" + port + "/cgi-bin/luci" });
 }
 
+/* ---------- 菜单密码：与 LuCI 共用 root 密码（/etc/shadow），校验走 rpcd session ---------- */
+function rootHasPassword() {
+	let data = FS.readfile("/etc/shadow");
+	if (data == null) return false;
+	for (let line in split(data, "\n")) {
+		if (substr(line, 0, 5) == "root:") {
+			let f = split(line, ":");
+			let h = f[1] ?? "";
+			/* 空 / ! / * / 以 ! 开头 → 未设置或锁定，不需要密码 */
+			if (!length(h) || h == "!" || h == "*" || substr(h, 0, 1) == "!") return false;
+			return true;
+		}
+	}
+	return false;
+}
+function verifyRootPassword(pass) {
+	if (type(pass) != "string") pass = "";
+	/* 用 %J 序列化避免密码中的特殊字符破坏 JSON；sq() 避免破坏 shell 命令 */
+	let msg = sprintf("%J", { username: "root", password: pass, timeout: 30 });
+	let o = trim(sh("ubus call session login " + sq(msg) + " 2>/dev/null"));
+	return index(o, "ubus_rpc_session") >= 0;
+}
+
 /* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等） */
 if (name == "ports") {
 	out({ ok: true, serialPorts: scanSerialPorts(), i2cBuses: scanI2cBuses() });
@@ -2748,6 +2771,18 @@ if (name == "ports") {
 	else {
 		print("Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\n\r\n");
 		print(html);
+	}
+} else if (name == "auth") {
+	/* GET  → 是否需要密码（与 LuCI 的 root 密码同步）
+	   POST → 校验密码，成功 granted:true */
+	if (method == "POST") {
+		let d = body() ?? {};
+		let pass = (type(d.password) == "string") ? d.password : "";
+		if (!rootHasPassword()) { out({ ok: true, granted: true, required: false }); return; }
+		if (verifyRootPassword(pass)) out({ ok: true, granted: true, required: true });
+		else out({ ok: false, granted: false, error: "密码错误" });
+	} else {
+		out({ ok: true, required: rootHasPassword() });
 	}
 } else {
 	fail("未知接口");
