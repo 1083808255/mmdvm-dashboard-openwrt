@@ -5011,7 +5011,7 @@ function stopCalMon(){
   if(sw) sw.checked = false;
   setCalBadge('已停止', 'off');
 }
-const UI_VER = '20261119z58';
+const UI_VER = '20261119z59';
 /* 界面显示的版本号：V0.<构建序号>，小数位最多 4 位；稳定前主版本保持 0 */
 function dashVer(){ const m = /z(\d+)$/.exec(UI_VER); return m ? `V0.${m[1]}` : `V0.0`; }
 /* forceMs：指定固定刷新周期（自动校准用 3000ms），省略则跟随下拉框 */
