@@ -313,18 +313,22 @@ function gpsBySlot(file) {
 	if (!length(file)) return {};
 	let st = FS.stat(file);
 	if (st == null) return {};
-	let sig = file + "|" + st.size + "|" + st.mtime;
+	let sig = file + "|" + st.size + "|" + st.mtime + "|v2";
 	let c = null;
 	try { c = json(FS.readfile(GPS_CACHE) ?? ""); } catch (e) { c = null; }
 	let same = (c != null && c.file == file && type(c.slots) == "object");
 	if (same && c.sig == sig) return c.slots;
 	let slots = same ? c.slots : {};
 	let lastSlot = same ? (c.lastSlot ?? null) : null;
+	let lastDir = same ? (c.lastDir ?? null) : null;
 	let from = 0;
 	if (same && type(c.off) == "int" && c.off > 0 && c.off <= st.size) from = c.off;
 	if (from > 300) from -= 300;
 	let chunk = (from > 0) ? sh("tail -c +" + (from + 1) + " " + file) : (FS.readfile(file) ?? "");
 	for (let l in split(chunk, "\n")) {
+		/* 语音头方向：received RF = 本机手台上行，received network = 远端下行 */
+		if (index(l, "received RF") >= 0) { lastDir = "rf"; let s0 = slotOf(l); if (s0 != null) lastSlot = s0; continue; }
+		if (index(l, "received network") >= 0) { lastDir = "net"; let s1 = slotOf(l); if (s1 != null) lastSlot = s1; continue; }
 		if (index(l, "Embedded GPS Info") >= 0) {
 			let sl = slotOf(l);
 			if (sl != null) lastSlot = sl;
@@ -340,10 +344,24 @@ function gpsBySlot(file) {
 		let ei = index(tail, "]");
 		let lo = (ei > 0) ? trim(substr(tail, 0, ei)) : "";
 		if (!length(la) || !length(lo)) continue;
-		slots[lastSlot] = { lat: +la, lon: +lo, ts: epochOf(tsOf(l)) };
+		slots[lastSlot] = { lat: +la, lon: +lo, ts: epochOf(tsOf(l)), src: lastDir };
 	}
-	try { FS.writefile(GPS_CACHE, sprintf("%J", { file: file, sig: sig, off: from + length(chunk), lastSlot: lastSlot, slots: slots })); } catch (e) {}
+	try { FS.writefile(GPS_CACHE, sprintf("%J", { file: file, sig: sig, off: from + length(chunk), lastSlot: lastSlot, lastDir: lastDir, slots: slots })); } catch (e) {}
 	return slots;
+}
+/* 本机基准位置：1 小时内收到过本机手台（RF 方向）内嵌 GPS 就用它，否则返回 null（由调用方回退到配置值） */
+function localGps(file) {
+	let slots = gpsBySlot(file);
+	let now = time(), best = null;
+	for (let k in slots) {
+		let g = slots[k];
+		if (type(g) != "object" || g == null || g.src != "rf") continue;
+		if (!g.lat || !g.lon) continue;
+		let ts = (type(g.ts) == "int") ? g.ts : 0;
+		if (ts <= 0 || now - ts > 3600) continue;
+		if (best == null || ts > (best.ts ?? 0)) best = g;
+	}
+	return best;
 }
 /* 逆地理缓存键：0.01° 网格 */
 function geoKey(lat, lon) { return sprintf("%.2f,%.2f", +lat, +lon); }
@@ -1455,7 +1473,9 @@ function cmdLastheard() {
 	let r = [];
 	/* 通联记录里的内嵌 GPS：地址只读缓存，未命中交给后台进程查，下一次刷新补上 */
 	let inf = (ini(INI_DIR + "MMDVM.ini")["Info"] ?? {});
-	let myLat = +trim(inf.Latitude ?? ""), myLon = +trim(inf.Longitude ?? "");
+	/* 1 小时内收到过本机手台上报的 GPS 就以它为基准，否则用配置 [Info] 的经纬度 */
+	let lg1 = localGps(file);
+	let myLat = lg1 ? +lg1.lat : +trim(inf.Latitude ?? ""), myLon = lg1 ? +lg1.lon : +trim(inf.Longitude ?? "");
 	let hasMe = ((myLat < 0 ? -myLat : myLat) > 0.0001 || (myLon < 0 ? -myLon : myLon) > 0.0001);
 	for (let e in pick) {
 		let q = e.rec;
@@ -1772,7 +1792,9 @@ function cmdLive() {
 	/* 这次通联里对端上报的内嵌 GPS（APRS）：解析出坐标、逆地理地址、与我这里的距离 */
 	let gpss = gpsBySlot(file);
 	let inf = m["Info"] ?? {};
-	let myLat = +trim(inf.Latitude ?? ""), myLon = +trim(inf.Longitude ?? "");
+	/* 1 小时内收到过本机手台上报的 GPS 就以它为基准，否则用配置 [Info] 的经纬度 */
+	let lg2 = localGps(file);
+	let myLat = lg2 ? +lg2.lat : +trim(inf.Latitude ?? ""), myLon = lg2 ? +lg2.lon : +trim(inf.Longitude ?? "");
 	let hasMe = ((myLat < 0 ? -myLat : myLat) > 0.0001 || (myLon < 0 ? -myLon : myLon) > 0.0001);
 	for (let k in slots) {
 		let g = gpss[k];
