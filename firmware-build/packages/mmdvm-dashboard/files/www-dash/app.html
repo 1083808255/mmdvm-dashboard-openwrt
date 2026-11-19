@@ -3908,13 +3908,14 @@ function renderSections(content){
           const preset = GW_HOST_PRESETS.some(p=>p[0] === cur);
           const opts = GW_HOST_PRESETS.map(p=>`<option value="${esc(p[0])}"${p[0]===cur?' selected':''}>${esc(p[0])}</option>`).join('');
           const ddOpts = GW_HOST_PRESETS.map(p=>`<div class="port-opt" data-val="${esc(p[0])}">${esc(p[0])}</div>`).join('');
+          const uid = 'cfg-srvname-' + String(s.name).replace(/[^A-Za-z0-9]+/g,'-') + '-' + i;
           return `<div class="field cfg-kv cfg-gw-name" data-tok="${i}">
             <label><span>服务器名称</span> <span class="mono" style="color:var(--faint);font-size:12px">Name</span></label>
             <div class="port-combobox">
               <select class="inp cfg-gw-name-select" data-key="${esc(t.key)}">${opts}<option value="__custom__"${preset?'':' selected'}>自定义</option></select>
-              <input class="inp cfg-gw-name-custom" id="cfg-srvname-${i}-custom" value="${esc(preset?'':cur)}" placeholder="自定义服务器名称" autocomplete="off" style="display:${preset?'none':'block'}">
-              <button type="button" class="port-arrow cfg-srvname-arrow" data-for="cfg-srvname-${i}-custom" style="display:${preset?'none':'flex'}">▾</button>
-              <div class="port-dropdown" id="cfg-srvname-${i}-custom-dropdown">${ddOpts}</div>
+              <input class="inp cfg-gw-name-custom" id="${uid}" value="${esc(preset?'':cur)}" placeholder="自定义服务器名称" autocomplete="off" style="display:${preset?'none':'block'}">
+              <button type="button" class="port-arrow cfg-srvname-arrow" data-for="${uid}" style="display:${preset?'none':'flex'}">▾</button>
+              <div class="port-dropdown" id="${uid}-dropdown">${ddOpts}</div>
             </div>
           </div>`;
         }
