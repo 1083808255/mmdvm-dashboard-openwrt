@@ -4350,7 +4350,7 @@ function applyGwNameCustom(inp){
   const addr = card.querySelector('.cfg-gw-addr input');
   const port = card.querySelector('.cfg-gw-port input');
   if(host){
-    sel.value = host;
+    sel.value = inp.value.trim();
     if(addr) addr.value = host;
     if(port) port.value = '62031';
   }
