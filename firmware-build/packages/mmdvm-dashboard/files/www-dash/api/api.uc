@@ -1513,6 +1513,7 @@ const BM_API = "https://api.brandmeister.network/v2";
 function bmWithEssid(id, essid) {
 	id = trim(id); essid = trim(essid);
 	if (!length(id)) return "";
+	if (length(id) >= 9) return id;
 	if (length(essid) && match(essid, /^[0-9]{1,2}$/) != null) {
 		if (length(essid) == 1) essid = "0" + essid;
 		if (length(id) <= 7) id = id + essid;
@@ -1530,7 +1531,7 @@ function bmDeviceId() {
 		if (length(id)) return bmWithEssid(id, e0);
 	}
 	let m = ini(INI_DIR + "MMDVM.ini");
-	return trim((m["DMR"] ?? {}).Id ?? "");
+	return bmWithEssid(trim((m["DMR"] ?? {}).Id ?? ""), e0);
 }
 function bmKey() { return trim(state().bmApiKey ?? ""); }
 /* 调 BM API：method + 路径 + 可选 JSON body，返回 { code, body }。
