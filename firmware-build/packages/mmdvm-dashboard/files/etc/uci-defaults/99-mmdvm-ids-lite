@@ -8,6 +8,9 @@ if [ -f "$INI" ]; then
 	sed -i '/^\[DMR Id Lookup\]/,/^\[/ s|^File=.*|File=/etc/mmdvm/DMRIds.lite|; /^\[DMR Id Lookup\]/,/^\[/ s|^Time=.*|Time=1|' "$INI"
 fi
 
+# 升级后立即生成一次精简库，避免首次开机的一小时内硬件屏只显示数字 ID
+[ -x /usr/bin/mmdvm-ids-lite ] && /usr/bin/mmdvm-ids-lite >/dev/null 2>&1
+
 CRON=/etc/crontabs/root
 LINE='9 * * * * /usr/bin/mmdvm-ids-lite >/dev/null 2>&1'
 mkdir -p /etc/crontabs

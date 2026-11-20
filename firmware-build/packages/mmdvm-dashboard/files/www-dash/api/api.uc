@@ -1102,7 +1102,9 @@ function cmdStatus() {
 	let modemType = "", modemFw = "";
 	let mdCache = null;
 	try { mdCache = json(FS.readfile("/tmp/dashboard_modem.json") ?? ""); } catch (e) { mdCache = null; }
-	if (type(mdCache) == "object" && mdCache != null && (time() - (+(mdCache.t ?? 0))) <= 21600) {
+	/* 解析成功缓存 6 小时；解析失败（如刚重启时日志还没写入）只缓存 2 分钟 */
+	let mdTtl = (type(mdCache) == "object" && mdCache != null && length(mdCache.type ?? "") ? 21600 : 120);
+	if (type(mdCache) == "object" && mdCache != null && (time() - (+(mdCache.t ?? 0))) <= mdTtl) {
 		modemType = mdCache.type ?? "";
 		modemFw = mdCache.fw ?? "";
 	} else {

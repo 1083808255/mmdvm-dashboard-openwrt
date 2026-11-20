@@ -13,8 +13,30 @@ html,body{height:100%;margin:0;background:#0b0f14;color:#aab6c2;
 <body>
 <div>正在加载最新界面…</div>
 <script>
-/* 入口跳板：走 /api/page（CGI 输出 HTML 并强制 no-store），彻底绕过缓存 */
-location.replace('/api/page?v=' + Date.now() + (location.hash || ''));
+/* 入口跳板：优先走 /api/page（CGI 输出 HTML 并强制 no-store），彻底绕过缓存。
+   若接口繁忙（设备负载高时可能排队），3 秒后回退到静态 /app.html，保证页面一定能打开。 */
+(function(){
+  var v = Date.now();
+  var done = false;
+  function fallback(){
+    if(done) return;
+    done = true;
+    location.replace('/app.html?v=' + v + (location.hash || ''));
+  }
+  setTimeout(fallback, 3000);
+  try{
+    var ctrl = ('AbortController' in window) ? new AbortController() : null;
+    if(ctrl) setTimeout(function(){ ctrl.abort(); }, 2800);
+    fetch('/api/page?v=' + v, {cache:'no-store', signal: ctrl ? ctrl.signal : undefined})
+      .then(function(r){ if(!r.ok) throw 0; return r.text(); })
+      .then(function(html){
+        if(done) return;
+        done = true;
+        document.open(); document.write(html); document.close();
+      })
+      .catch(fallback);
+  }catch(e){ fallback(); }
+})();
 </script>
 </body>
 </html>
