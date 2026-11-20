@@ -1,0 +1,10 @@
+#!/bin/sh
+# 关闭 MMDVMHost 的全量 ID 库加载：2.9MB 的 DMRIds.dat 会展开成约 58MB 堆内存，
+# 在 98MB 内存的设备上会全部被压到 zram，导致持续换页。
+# 呼号解析由仪表盘的 dashboard_ids.cache 负责，功能不受影响。
+INI=/etc/mmdvm/MMDVM.ini
+[ -f "$INI" ] || exit 0
+if grep -q '^File=/etc/mmdvm/DMRIds.dat' "$INI" 2>/dev/null; then
+	sed -i '/^\[DMR Id Lookup\]/,/^\[/ s|^File=.*|File=/dev/null|' "$INI"
+fi
+exit 0
