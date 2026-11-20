@@ -2,21 +2,31 @@
 # 通过 RadioID API 按需查询 DMR ID 对应的呼号，结果缓存到本地
 # 用法: mmdvm-idlookup <dmrid> [dmrid...]
 CACHE=/etc/mmdvm/dashboard_ids.cache
-LOCK=/tmp/mmdvm_idlookup.lock
-
-[ -f "$LOCK" ] && exit 0
-touch "$LOCK"
 
 for id in "$@"; do
 	[ -z "$id" ] && continue
 	[ -f "$CACHE" ] && grep -q "^$id	" "$CACHE" 2>/dev/null && continue
+	# 网络异常时 60 秒内不重试：实时接口每 0.7 秒轮询一次，失败重试会造成请求风暴
+	FAIL=/tmp/mmdvm_idlookup_fail_$id
+	if [ -f "$FAIL" ]; then
+		age=$(( $(date +%s) - $(date -r "$FAIL" +%s 2>/dev/null || echo 0) ))
+		[ "$age" -lt 60 ] && continue
+	fi
+	# 按 ID 原子加锁（mkdir 是原子操作），并发请求不会对同一 ID 重复发起查询
+	LOCK=/tmp/mmdvm_idlookup_$id.lock
+	mkdir "$LOCK" 2>/dev/null || continue
 	body=$(wget -q -T 6 -O - "https://database.radioid.net/api/dmr/user/?id=$id" 2>/dev/null)
 	call=$(printf '%s' "$body" | sed -n 's/.*"callsign":"\([^"]*\)".*/\1/p' | head -1)
 	if [ -n "$call" ]; then
 		printf '%s\t%s\n' "$id" "$call" >> "$CACHE"
-	else
+		rm -f "$FAIL"
+	elif printf '%s' "$body" | grep -q '"id"'; then
+		# 接口正常返回但没有呼号，记为未命中，避免反复查询
 		printf '%s\t-\n' "$id" >> "$CACHE"
+		rm -f "$FAIL"
+	else
+		# 超时/断网：不写缓存，仅做冷却标记，等下个周期再试
+		touch "$FAIL"
 	fi
+	rmdir "$LOCK" 2>/dev/null
 done
-
-rm -f "$LOCK"
