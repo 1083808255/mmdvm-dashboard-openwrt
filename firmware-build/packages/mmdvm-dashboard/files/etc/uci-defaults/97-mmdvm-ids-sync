@@ -6,5 +6,6 @@ mkdir -p /etc/crontabs
 grep -qF "$LINE" "$CRON" 2>/dev/null || echo "$LINE" >> "$CRON"
 # 开机检查：文件缺失时才下载全球 ID 库
 [ -x /etc/init.d/mmdvm-ids ] && /etc/init.d/mmdvm-ids enable >/dev/null 2>&1
+[ -x /etc/init.d/mmdvm-ch341 ] && /etc/init.d/mmdvm-ch341 enable >/dev/null 2>&1
 /etc/init.d/cron restart >/dev/null 2>&1
 exit 0
