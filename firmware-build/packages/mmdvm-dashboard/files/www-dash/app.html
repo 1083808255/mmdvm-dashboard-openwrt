@@ -1333,6 +1333,46 @@ th{font-size:12px}
 #authModal.shake .um-box{animation:umIn .16s ease, authShake .32s ease}
 @keyframes authShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 
+/* ===== DMR 实时语音 ===== */
+.audio-card{padding:12px 16px;background:linear-gradient(135deg,rgba(52,211,153,.055),transparent 55%),var(--card)}
+/* 电脑版：全部信息一行——标题、按钮、状态徽标、通联信息依次排开 */
+.audio-row{display:grid;grid-template-columns:auto auto auto 1fr;align-items:center;gap:8px 10px}
+.audio-title{grid-area:1/1/2/2;display:flex;align-items:center;gap:9px;font-size:15px;font-weight:700;white-space:nowrap}
+.audio-title .at-mini{display:none}
+/* 状态徽标紧挨在按钮右侧；挂起时可点击恢复播音 */
+.audio-badge{grid-area:1/3/2/4;justify-self:start;display:flex;align-items:center}
+#dmrAudioBadge{border:0;font:inherit;cursor:default}
+.audio-card.resume-need #dmrAudioBadge{cursor:pointer;box-shadow:0 0 0 1px rgba(251,191,36,.5)}
+.audio-now{grid-area:1/4/2/5;display:flex;align-items:baseline;justify-content:flex-start;gap:9px;min-width:0;overflow:hidden}
+#dmrAudioCall{font-family:var(--mono);font-size:17px;font-weight:800;white-space:nowrap}
+#dmrAudioTarget{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 空闲时把「空闲中」居中显示 */
+.audio-card.idle .audio-now{gap:0}
+.audio-card.idle #dmrAudioCall{color:var(--muted);font-weight:700}
+/* 电脑版按钮紧跟标题，位于状态徽标之前 */
+.audio-controls{grid-area:1/2/2/3;justify-self:start;display:flex;align-items:center;justify-content:flex-start;gap:12px;flex-wrap:nowrap}
+/* 按钮文字与按钮本身都不换行，窄屏下两个按钮始终并排 */
+.audio-controls .btn{flex:none;white-space:nowrap}
+/* 时隙切换：单按钮循环 自动 → 时隙1 → 时隙2 */
+#dmrAudioSlotBtn{min-width:66px;justify-content:center;color:var(--accent);border-color:var(--accent);background:rgba(52,211,153,.12)}
+#dmrAudioSlotBtn:hover{color:var(--accent);background:rgba(52,211,153,.2)}
+@media (max-width:600px){
+  /* 手机版：卡片加高约一半，标题+状态、通联信息、按钮三行 */
+  .audio-card{display:flex;flex-direction:column;min-height:168px}
+  .audio-row{flex:1;display:flex;flex-wrap:wrap;align-content:space-between;gap:8px}
+  .audio-title{order:1;flex:1 1 auto;font-size:14px;gap:6px;min-width:0;overflow:hidden}
+  .audio-badge{order:2;margin-left:auto}
+  .audio-now{order:3;flex:1 1 100%;justify-content:center;min-width:0;overflow:hidden}
+  .audio-controls{order:4;flex:1 1 100%;justify-content:flex-start;gap:8px;
+    margin-top:0;padding-top:8px;border-top:1px solid var(--border)}
+  .audio-controls .btn{padding-left:8px;padding-right:8px}
+  #dmrAudioBadge{padding:3px 7px}
+}
+@media (max-width:359px){
+  .audio-title .at-full{display:none}
+  .audio-title .at-mini{display:inline}
+}
+
 /* ===== overlay ===== */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:55;opacity:0;pointer-events:none;transition:.2s}
 .overlay.on{opacity:1;pointer-events:auto}
@@ -1513,6 +1553,25 @@ th{font-size:12px}
             <span class="sm"><b>时长</b><span id="slot2-dur">00:00</span></span>
             <span class="sm" id="slot2-geow" style="display:none"><b>位置</b><span id="slot2-geo">—</span></span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:14px"></div>
+
+    <div class="card audio-card idle" id="dmrAudioCard">
+      <div class="audio-row">
+        <div class="audio-title"><span class="at-full">实时语音</span><span class="at-mini">语音</span></div>
+        <div class="audio-now">
+          <span id="dmrAudioCall">空闲中</span>
+          <span id="dmrAudioTarget"></span>
+        </div>
+        <div class="audio-controls">
+          <button class="btn primary sm" id="dmrAudioToggle" type="button">开启收听</button>
+          <button class="btn sm" id="dmrAudioSlotBtn" type="button" title="点击切换：自动 → 时隙1 → 时隙2">自动</button>
+        </div>
+        <div class="audio-badge">
+          <button class="badge off" id="dmrAudioBadge" type="button" title="点击恢复收听"><span class="bdot"></span><span id="dmrAudioState">未开启</span></button>
         </div>
       </div>
     </div>
@@ -5003,7 +5062,7 @@ async function renderQso(){
    前台始终 0.7s，保证通联显示实时性；后台标签页降频到 30s */
 function qsoDelay(){
   if(document.hidden) return 30000;
-  return 700;
+  return 2000;
 }
 function scheduleQso(){
   if(qsoTimer) return;
@@ -5040,6 +5099,8 @@ document.addEventListener('visibilitychange', ()=>{
 function renderLive(l){
   $('#slot-1').style.display = l.duplex ? '' : 'none';
   const slots = l.slots || {};
+  dmrLiveSlots = slots;
+  updateDmrAudioCall();
   /* 呼叫身份变化（新呼叫开始 / 呼叫结束）时立即刷新最近通联，
      不再等 15 秒定时器——连续通联时前后两笔切换不会漏掉 */
   for(const n of ['1','2']){
@@ -6457,11 +6518,290 @@ async function fwAction(){
   }catch(e){ fwMsg('下载启动失败', true); b.disabled = false; b.textContent = '重试'; }
 }
 
+/* ---------- DMR 实时语音（WebSocket + Web Audio） ---------- */
+let dmrAudioEnabled = false, dmrAudioWs = null, dmrAudioRetry = null, dmrAudioConnectTimer = null;
+let dmrAudioCtx = null, dmrAudioGain = null, dmrAudioComp = null, dmrAudioHp = null, dmrAudioLp = null, dmrAudioNext = 0;
+let dmrAudioCurrent = null, dmrLiveSlots = {}, dmrAudioSlot = 0;
+const dmrAudioSources = new Set();
+/* md380 固件解码输出电平很低（峰值约 -42dBFS），用 AGC 自动拉到合适响度 */
+const DMR_AUDIO_TARGET_PEAK = 0.55;   // 目标峰值
+const DMR_AUDIO_MAX_GAIN = 90;        // 最大放大倍数，防止静音段把底噪拉满
+let dmrAudioAgc = 1;
+const DMR_AUDIO_SLOT_LABELS = ['自动', '时隙1', '时隙2'];
+
+function dmrAudioSendSlot(){
+  if(dmrAudioWs && dmrAudioWs.readyState === WebSocket.OPEN){
+    try{ dmrAudioWs.send(JSON.stringify({ type:'slot', slot: dmrAudioSlot })); }catch(e){}
+  }
+}
+function dmrAudioSyncSlotBtn(){
+  const b = $('#dmrAudioSlotBtn');
+  if(b) b.textContent = DMR_AUDIO_SLOT_LABELS[dmrAudioSlot] || '自动';
+}
+
+function dmrAudioState(text, kind){
+  const badge = $('#dmrAudioBadge'), state = $('#dmrAudioState');
+  if(!badge || !state) return;
+  const cls = 'badge ' + (kind || 'off');
+  if(badge.className !== cls) badge.className = cls;
+  if(state.textContent !== text) state.textContent = text;
+  const card = $('#dmrAudioCard');
+  if(card) card.classList.toggle('resume-need', text === '点击页面继续收听');
+}
+function dmrAudioStopSources(){
+  for(const src of dmrAudioSources){
+    try{ src.stop(); }catch(e){}
+    try{ src.disconnect(); }catch(e){}
+  }
+  dmrAudioSources.clear();
+}
+function dmrAudioCardIdle(on){
+  const card = $('#dmrAudioCard');
+  if(!card) return;
+  card.classList.toggle('idle', !!on);
+  if(on){
+    $('#dmrAudioCall').textContent = '空闲中';
+    $('#dmrAudioTarget').textContent = '';
+  }
+}
+function updateDmrAudioCall(){
+  const callEl = $('#dmrAudioCall'), targetEl = $('#dmrAudioTarget');
+  if(!callEl || !targetEl) return;
+  const c = dmrAudioCurrent;
+  /* 没有语音时保留上一次的呼号/ID/时隙，方便回看 */
+  if(!c) return;
+  dmrAudioCardIdle(false);
+  const s = dmrLiveSlots[String(c.slot)] || {};
+  const matched = String(s.id || '') === String(c.src);
+  const callsign = matched ? (s.callsign || '') : '';
+  const target = matched && s.target ? s.target : ('目标 ' + c.dst);
+  callEl.textContent = callsign || String(c.src);
+  targetEl.textContent = (callsign ? c.src + ' · ' : '') + '→ ' + target + ' · 时隙 ' + c.slot;
+}
+function dmrAudioPlay(data){
+  if(!dmrAudioEnabled || !dmrAudioCtx || !dmrAudioGain || !data || data.byteLength < 2) return;
+  /* 浏览器在刷新后可能挂起音频上下文：此时丢弃音频并提示，避免排出一堆不播放的块 */
+  if(dmrAudioCtx.state !== 'running'){
+    dmrAudioStopSources();
+    dmrAudioNext = 0;
+    dmrAudioState('点击页面继续收听', 'warn');
+    return;
+  }
+  const dv = new DataView(data), count = Math.floor(dv.byteLength / 2);
+  if(!count) return;
+  const buf = dmrAudioCtx.createBuffer(1, count, 8000);
+  const out = buf.getChannelData(0);
+  let pk = 0;
+  for(let i=0; i<count; i++){
+    const v = dv.getInt16(i * 2, true) / 32768;
+    out[i] = v;
+    const a = v < 0 ? -v : v;
+    if(a > pk) pk = a;
+  }
+  /* AGC：按本段峰值平滑调整增益，安静说话也能听清，且不会因固定增益破音 */
+  if(pk > 0.0025 && dmrAudioGain){
+    const target = Math.min(DMR_AUDIO_MAX_GAIN, Math.max(1, DMR_AUDIO_TARGET_PEAK / pk));
+    dmrAudioAgc += (target - dmrAudioAgc) * (target < dmrAudioAgc ? .5 : .25);
+    dmrAudioGain.gain.setTargetAtTime(dmrAudioAgc, dmrAudioCtx.currentTime, .06);
+  }
+  const now = dmrAudioCtx.currentTime;
+  if(!dmrAudioNext || dmrAudioNext < now + .03 || dmrAudioNext > now + 1){
+    if(dmrAudioNext > now + 1) dmrAudioStopSources();
+    dmrAudioNext = now + .1;
+  }
+  const src = dmrAudioCtx.createBufferSource();
+  src.buffer = buf;
+  /* 每段 2ms 淡入淡出，避免数据块边界产生咔哒声 */
+  const fade = dmrAudioCtx.createGain();
+  const t0 = dmrAudioNext, t1 = dmrAudioNext + buf.duration;
+  fade.gain.setValueAtTime(0, t0);
+  fade.gain.linearRampToValueAtTime(1, t0 + .002);
+  fade.gain.setValueAtTime(1, Math.max(t0 + .002, t1 - .002));
+  fade.gain.linearRampToValueAtTime(0, t1);
+  src.connect(fade);
+  fade.connect(dmrAudioHp || dmrAudioGain);
+  dmrAudioSources.add(src);
+  src.onended = ()=>{ dmrAudioSources.delete(src); try{ src.disconnect(); fade.disconnect(); }catch(e){} };
+  src.start(dmrAudioNext);
+  dmrAudioNext += buf.duration;
+  dmrAudioState('正在播放', 'ok');
+}
+function dmrAudioConnect(){
+  if(!dmrAudioEnabled) return;
+  if(dmrAudioWs && (dmrAudioWs.readyState === WebSocket.OPEN || dmrAudioWs.readyState === WebSocket.CONNECTING)) return;
+  clearTimeout(dmrAudioRetry);
+  dmrAudioState('连接中…', 'warn');
+  const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  let ws;
+  try{ ws = new WebSocket(scheme + location.hostname + ':62040'); }
+  catch(e){ dmrAudioState('连接失败，正在重试', 'err'); dmrAudioRetry = setTimeout(dmrAudioConnect, 2000); return; }
+  dmrAudioWs = ws;
+  ws.binaryType = 'arraybuffer';
+  /* 连接卡住（长时间 CONNECTING）时主动关闭并重试，避免一直停在"连接中…" */
+  clearTimeout(dmrAudioConnectTimer);
+  dmrAudioConnectTimer = setTimeout(()=>{
+    if(ws === dmrAudioWs && ws.readyState !== WebSocket.OPEN){ try{ ws.close(); }catch(e){} }
+  }, 4000);
+  ws.onopen = ()=>{
+    clearTimeout(dmrAudioConnectTimer);
+    if(ws === dmrAudioWs){ dmrAudioState('空闲中', 'ok'); dmrAudioSendSlot(); }
+  };
+  ws.onmessage = ev=>{
+    if(!dmrAudioEnabled || ws !== dmrAudioWs) return;
+    if(typeof ev.data === 'string'){
+      let m;
+      try{ m = JSON.parse(ev.data); }catch(e){ return; }
+      if(m.type === 'call'){
+        const changed = !dmrAudioCurrent || dmrAudioCurrent.stream !== Number(m.stream) || dmrAudioCurrent.src !== Number(m.src);
+        dmrAudioCurrent = { src:Number(m.src), dst:Number(m.dst), slot:Number(m.slot), stream:Number(m.stream) };
+        if(changed){ dmrAudioStopSources(); dmrAudioNext = 0; }
+        updateDmrAudioCall();
+        dmrAudioState('接收中', 'ok');
+      }else if(m.type === 'end'){
+        dmrAudioCurrent = null;
+        dmrAudioStopSources();
+        dmrAudioNext = 0;
+        updateDmrAudioCall();
+        dmrAudioState('空闲中', 'ok');
+      }
+      return;
+    }
+    dmrAudioPlay(ev.data);
+  };
+  ws.onerror = ()=>{ try{ ws.close(); }catch(e){} };
+  ws.onclose = ()=>{
+    clearTimeout(dmrAudioConnectTimer);
+    if(dmrAudioWs === ws) dmrAudioWs = null;
+    if(!dmrAudioEnabled) return;
+    dmrAudioState('连接断开，正在重试', 'err');
+    clearTimeout(dmrAudioRetry);
+    dmrAudioRetry = setTimeout(dmrAudioConnect, 2000);
+  };
+}
+function dmrAudioEnable(){
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC){ dmrAudioState('浏览器不支持 Web Audio', 'err'); return; }
+  if(!dmrAudioCtx){
+    dmrAudioCtx = new AC();
+    dmrAudioHp = dmrAudioCtx.createBiquadFilter();
+    dmrAudioHp.type = 'highpass';
+    dmrAudioHp.frequency.value = 180;   // 去掉低频隆隆声
+    dmrAudioHp.Q.value = 0.7;
+    dmrAudioLp = dmrAudioCtx.createBiquadFilter();
+    dmrAudioLp.type = 'lowpass';
+    dmrAudioLp.frequency.value = 3400;  // 语音带宽，切掉 AMBE 带外嘶声
+    dmrAudioLp.Q.value = 0.7;
+    dmrAudioGain = dmrAudioCtx.createGain();
+    dmrAudioComp = dmrAudioCtx.createDynamicsCompressor();
+    dmrAudioComp.threshold.value = -8;
+    dmrAudioComp.knee.value = 12;
+    dmrAudioComp.ratio.value = 6;
+    dmrAudioComp.attack.value = 0.003;
+    dmrAudioComp.release.value = 0.2;
+    dmrAudioAgc = 1;
+    dmrAudioGain.gain.value = 1;
+    dmrAudioHp.connect(dmrAudioLp);
+    dmrAudioLp.connect(dmrAudioGain);
+    dmrAudioGain.connect(dmrAudioComp);
+    dmrAudioComp.connect(dmrAudioCtx.destination);
+    /* 上下文被浏览器挂起/恢复时同步更新提示（刷新后、切后台再回来） */
+    dmrAudioCtx.onstatechange = ()=>{
+      if(!dmrAudioEnabled) return;
+      if(dmrAudioCtx.state === 'running'){
+        dmrAudioNext = 0;
+        dmrAudioState(dmrAudioCurrent ? '正在播放' : '空闲中', 'ok');
+      } else {
+        dmrAudioState('点击页面继续收听', 'warn');
+      }
+    };
+  }
+  dmrAudioEnabled = true;
+  try{ localStorage.setItem('dmrAudioOn', '1'); localStorage.setItem('dmrAudioSlot', String(dmrAudioSlot)); }catch(e){}
+  dmrAudioCtx.resume().catch(()=>{});
+  $('#dmrAudioToggle').textContent = '停止收听';
+  dmrAudioConnect();
+  /* 刷新后浏览器可能禁止自动播音，随便点一下页面就恢复 */
+  setTimeout(()=>{
+    if(dmrAudioEnabled && dmrAudioCtx && dmrAudioCtx.state !== 'running')
+      dmrAudioState('点击页面继续收听', 'warn');
+  }, 400);
+}
+/* 恢复被浏览器挂起的音频上下文（刷新后需要一次用户手势） */
+function dmrAudioResume(){
+  if(!dmrAudioEnabled) return;
+  dmrAudioConnect();
+  if(!dmrAudioCtx || dmrAudioCtx.state === 'running') return;
+  dmrAudioCtx.resume().then(()=>{
+    dmrAudioNext = 0;
+    if(dmrAudioEnabled) dmrAudioState(dmrAudioCurrent ? '正在播放' : '空闲中', 'ok');
+  }).catch(()=>{});
+}
+function dmrAudioDisable(){
+  dmrAudioEnabled = false;
+  try{ localStorage.removeItem('dmrAudioOn'); }catch(e){}
+  clearTimeout(dmrAudioRetry);
+  if(dmrAudioWs){
+    const ws = dmrAudioWs;
+    dmrAudioWs = null;
+    ws.onclose = null;
+    try{ ws.close(); }catch(e){}
+  }
+  dmrAudioStopSources();
+  dmrAudioNext = 0;
+  dmrAudioCurrent = null;
+  if(dmrAudioCtx) dmrAudioCtx.suspend().catch(()=>{});
+  $('#dmrAudioToggle').textContent = '开启收听';
+  dmrAudioCurrent = null;
+  dmrAudioCardIdle(true);
+  updateDmrAudioCall();
+  dmrAudioState('未开启', 'off');
+}
+function bindDmrAudio(){
+  $('#dmrAudioToggle').addEventListener('click', ()=>{ if(dmrAudioEnabled) dmrAudioDisable(); else dmrAudioEnable(); });
+  $('#dmrAudioBadge').addEventListener('click', dmrAudioResume);
+  /* 单按钮循环：自动 → 时隙1 → 时隙2 → 自动 */
+  $('#dmrAudioSlotBtn').addEventListener('click', ()=>{
+    dmrAudioSlot = (dmrAudioSlot + 1) % 3;
+    try{ localStorage.setItem('dmrAudioSlot', String(dmrAudioSlot)); }catch(e){}
+    dmrAudioSyncSlotBtn();
+    dmrAudioSendSlot();
+  });
+  /* 手机切到后台再回来时，音频上下文可能被挂起，恢复后继续播放 */
+  document.addEventListener('visibilitychange', ()=>{
+    if(!document.hidden && dmrAudioEnabled && dmrAudioCtx && dmrAudioCtx.state === 'suspended') dmrAudioCtx.resume().catch(()=>{});
+  });
+  /* 刷新后若音频被浏览器挂起，任一触摸/按键都恢复播放 */
+  /* 刷新后若音频被浏览器挂起，任一触摸/按键都恢复播放；徽标也可直接点 */
+  const resumeAudio = ()=>{ dmrAudioResume(); };
+  document.addEventListener('pointerdown', resumeAudio, true);
+  document.addEventListener('touchend', resumeAudio, true);
+  document.addEventListener('click', resumeAudio, true);
+  document.addEventListener('keydown', resumeAudio, true);
+
+  /* 记住收听状态：刷新页面、切到配置页后自动继续收听，只有手动点停止才关闭 */
+  let savedSlot = 0, savedOn = false;
+  try{
+    savedSlot = parseInt(localStorage.getItem('dmrAudioSlot') || '0', 10) || 0;
+    savedOn = localStorage.getItem('dmrAudioOn') === '1';
+  }catch(e){}
+  dmrAudioSlot = savedSlot % 3;
+  dmrAudioSyncSlotBtn();
+  if(savedOn){
+    setTimeout(()=>{
+      if(dmrAudioEnabled) return;
+      dmrAudioEnable();
+      if(dmrAudioCtx && dmrAudioCtx.state !== 'running') dmrAudioState('点击页面继续收听', 'warn');
+    }, 150);
+  }
+  updateDmrAudioCall();
+}
+
 /* ---------- 启动 ---------- */
 bindCal();
 bindTg();
 bindOtaModal();
 bindFwModal();
+bindDmrAudio();
 window.addEventListener('DOMContentLoaded', async ()=>{
   /* 先探测 LuCI 是否设置了密码，再渲染首屏，避免未解锁时闪现其它视图 */
   await Promise.race([ loadAuthStatus(), new Promise(r=>setTimeout(r, 1500)) ]);

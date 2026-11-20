@@ -1284,17 +1284,26 @@ function cmdSystem() {
 	}
 	let prev = null;
 	try { prev = json(FS.readfile(CPU_CACHE) ?? ""); } catch (e) { prev = null; }
-	let cpuPct = 0;
-	if (type(prev) == "object" && prev != null && prev.total > 0 && cTotal > prev.total) {
+	let now = time();
+	let prevT = (type(prev) == "object" && prev != null) ? int(prev.t ?? 0) : 0;
+	let cpuPct = -1;
+	/* 采样窗口至少 5 秒：页面/多标签会频繁调 status，窗口太短会被 jiffy 量化放大成 0% 或 100% */
+	if (type(prev) == "object" && prev != null && prev.total > 0 && cTotal > prev.total && now - prevT >= 5) {
 		let dt = cTotal - prev.total, di = cIdle - (prev.idle ?? 0);
 		cpuPct = (dt > 0) ? rnd((dt - di) * 100 / dt) : 0;
-	} else if (cTotal > 0) {
+	} else if (type(prev) == "object" && prev != null && prev.pct != null && now - prevT < 30) {
+		/* 窗口未满时沿用上次的平滑值 */
+		cpuPct = prev.pct;
+	}
+	if (cpuPct < 0) {
 		/* 首次启动后没有历史采样时，用开机以来的平均值 */
-		cpuPct = rnd((cTotal - cIdle) * 100 / cTotal);
+		cpuPct = (cTotal > 0) ? rnd((cTotal - cIdle) * 100 / cTotal) : 0;
 	}
 	if (cpuPct < 0) cpuPct = 0;
 	if (cpuPct > 100) cpuPct = 100;
-	try { FS.writefile(CPU_CACHE, sprintf("%J", { total: cTotal, idle: cIdle })); } catch (e) {}
+	if (now - prevT >= 5) {
+		try { FS.writefile(CPU_CACHE, sprintf("%J", { total: cTotal, idle: cIdle, t: now, pct: cpuPct })); } catch (e) {}
+	}
 	let totalMb = rnd(total / 1024);
 	/* 已用内存按 free 的算法：总量 - 空闲 - 缓冲 - 缓存 - 可回收，避免把缓存算进已用 */
 	let usedKb = total - freeKb - bufKb - cacheKb - reclaimKb;
@@ -1694,7 +1703,9 @@ function cmdTgPost() {
 function cmdLive() {
 	let file = logFileFor("MMDVM");
 	/* 2 秒短缓存：日志签名未变（无新通话）时直接返回，避免重复反查与 fork */
-	let cached = shortGet(LIVE_CACHE, SHORT_TTL, file);
+	/* 实时接口按纯时间缓存 2 秒：通话期间日志持续增长，不能按文件签名失效，
+	   否则每 0.7 秒都会整份重解析日志，单核 CPU 会被吃满 */
+	let cached = shortGet(LIVE_CACHE, 2, null);
 	if (cached != null) return cached;
 	let m = ini(INI_DIR + "MMDVM.ini");
 	let duplex = (m["General"] ?? {}).Duplex == "1";
@@ -1833,7 +1844,7 @@ function cmdLive() {
 		slots[k].gps = { lat: g.lat, lon: g.lon, addr: a, dist: d, base: lg2 ? "radio" : "config" };
 	}
 	let body = { duplex: duplex, mode: length(modes) ? modes[0] : "DMR", slots: slots };
-	shortPut(LIVE_CACHE, body, file);
+	shortPut(LIVE_CACHE, body, null);
 	return body;
 }
 
