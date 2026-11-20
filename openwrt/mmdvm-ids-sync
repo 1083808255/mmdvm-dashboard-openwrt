@@ -1,0 +1,19 @@
+#!/bin/sh
+# 每天从 RadioID 下载完整用户库，生成「ID<TAB>呼号」文件供仪表盘直接查询。
+# 运行时不再联网查询任何 ID，文件里没有的就直接放弃（界面只显示 ID）。
+# 下载/解析失败时保留旧文件，不影响现有识别能力。
+OUT=/etc/mmdvm/dashboard_ids.cache
+NEW=$OUT.new
+SRC=https://database.radioid.net/static/user.csv
+
+/usr/bin/curl -fsS --max-time 300 "$SRC" 2>/dev/null | \
+	awk -F, 'NR > 1 && $1 ~ /^[0-9]+$/ && $2 != "" { print $1 "\t" $2 }' > "$NEW" 2>/dev/null
+
+n=$(wc -l < "$NEW" 2>/dev/null || echo 0)
+if [ "$n" -gt 10000 ]; then
+	mv "$NEW" "$OUT"
+	logger -t mmdvm-ids-sync "ID 库更新完成：$n 条"
+else
+	rm -f "$NEW"
+	logger -t mmdvm-ids-sync "ID 库下载失败或数据异常（$n 条），保留旧文件"
+fi

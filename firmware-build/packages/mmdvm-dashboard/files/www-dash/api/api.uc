@@ -711,56 +711,62 @@ function parseQso(logfile) {
 }
 
 /* ---------- 呼号 <-> DMR ID ---------- */
+/* 增量缓存：已解析过的呼号直接命中，避免每次请求都 grep 2.9MB 的 DMRIds.dat */
+const IDNAME_CACHE = "/tmp/dashboard_idnames.json";
 function idFor(calls) {
 	let res = {};
 	if (!length(calls)) return res;
-	let mkey = keyOf("id:", calls, null);
-	let hit = memoGet(mkey, 60);
-	if (hit != null) return hit;
-	let pat = "/tmp/dashboard_calls";
-	let s = "";
-	for (let c in calls) s += c + "\n";
-	FS.writefile(pat, s);
-	let cmd = "grep -F -f " + pat + " " + INI_DIR + "DMRIds.dat 2>/dev/null";
-	/* DMRIds.dat 为制表符分隔，个别版本为空格分隔，两种都兼容 */
-	for (let l in split(sh(cmd), "\n")) {
-		let p = split(trim(l), "\t");
-		if (length(p) < 2) p = split(trim(l), " ");
-		if (length(p) >= 2) res[p[1]] = p[0];
+	let st = FS.stat(INI_DIR + "DMRIds.dat");
+	let sig = st != null ? (st.mtime ?? 0) : 0;
+	let d = FS.readfile(IDNAME_CACHE);
+	let c = (d != null) ? json(d) : null;
+	if (type(c) != "object" || c == null || (c.sig ?? -1) != sig) c = { sig: sig, m: {} };
+	let m = c.m ?? {};
+	let miss = [];
+	for (let cs in calls) {
+		if (m[cs] != null) { if (length(m[cs])) res[cs] = m[cs]; }
+		else push(miss, cs);
 	}
-	memoPut(mkey, res);
+	if (length(miss)) {
+		let pat = "/tmp/dashboard_calls";
+		let s = "";
+		for (let cs in miss) s += cs + "\n";
+		FS.writefile(pat, s);
+		let cmd = "grep -F -f " + pat + " " + INI_DIR + "DMRIds.dat 2>/dev/null";
+		/* DMRIds.dat 为制表符分隔，个别版本为空格分隔，两种都兼容 */
+		for (let l in split(sh(cmd), "\n")) {
+			let p = split(trim(l), "\t");
+			if (length(p) < 2) p = split(trim(l), " ");
+			if (length(p) >= 2) { res[p[1]] = p[0]; m[p[1]] = p[0]; }
+		}
+		/* 未命中也记下来，避免同一呼号反复扫描 */
+		for (let cs in miss) if (m[cs] == null) m[cs] = "";
+		c.m = m;
+		writeCache(IDNAME_CACHE, c);
+	}
 	return res;
 }
-/* 本地 DMRIds.dat 太旧时，用缓存 + RadioID API 异步补全呼号 */
+/* ID→呼号：只读每日同步的文件（mmdvm-ids-sync 生成），运行时不再联网查询；
+   文件里没有的直接放弃，界面只显示 ID */
 const ID_CACHE = "/etc/mmdvm/dashboard_ids.cache";
 function resolveCalls(idlist) {
 	let res = {};
 	if (!length(idlist)) return res;
-	let cache = {};
-	let data = FS.readfile(ID_CACHE);
-	if (data != null) {
-		for (let line in split(trim(data), "\n")) {
-			let p = split(line, "\t");
-			if (length(p) >= 2) cache[trim(p[0])] = trim(p[1]);
-		}
+	let mkey = keyOf("rid:", idlist, null);
+	let hit = memoGet(mkey, 300);
+	if (hit != null) return hit;
+	let want = {};
+	for (let id in idlist) want[id] = true;
+	let pat = "/tmp/dashboard_idq";
+	let s = "";
+	for (let id in idlist) s += id + "\n";
+	FS.writefile(pat, s);
+	/* 大文件按需 grep，避免每次请求把整份 ID 库读进内存 */
+	for (let l in split(sh("grep -F -f " + pat + " " + ID_CACHE + " 2>/dev/null"), "\n")) {
+		let p = split(trim(l), "\t");
+		if (length(p) >= 2 && want[p[0]] && p[1] != "-" && length(p[1])) res[p[0]] = p[1];
 	}
-	let miss = [];
-	for (let id in idlist) {
-		let c = cache[id];
-		if (c != null) {
-			if (c != "-" && length(c)) res[id] = c;
-		} else push(miss, id);
-	}
-	if (length(miss)) {
-		let cmd = "mmdvm-idlookup";
-		let n = 0;
-		for (let id in miss) {
-			if (n >= 4) break;
-			cmd += " " + id;
-			n++;
-		}
-		sh("(" + cmd + ") >/dev/null 2>&1 &");
-	}
+	memoPut(mkey, res);
 	return res;
 }
 
@@ -1112,11 +1118,13 @@ function cmdStatus() {
 	let modemType = "", modemFw = "";
 	let mdCache = null;
 	try { mdCache = json(FS.readfile("/tmp/dashboard_modem.json") ?? ""); } catch (e) { mdCache = null; }
-	if (type(mdCache) == "object" && mdCache != null && (time() - (+(mdCache.t ?? 0))) <= 120) {
+	if (type(mdCache) == "object" && mdCache != null && (time() - (+(mdCache.t ?? 0))) <= 21600) {
 		modemType = mdCache.type ?? "";
 		modemFw = mdCache.fw ?? "";
 	} else {
-		let ln = trim(sh("grep -ah 'MMDVM protocol version:' /var/log/mmdvm/MMDVM-*.log 2>/dev/null | tail -1"));
+		/* 只扫最新一个日志文件：历史日志累计可达 10MB，全量 grep 会把单核设备 I/O 拖垮 */
+		let lastLog = trim(sh("ls -t /var/log/mmdvm/MMDVM-*.log 2>/dev/null | head -1"));
+		let ln = length(lastLog) ? trim(sh("grep -ah 'MMDVM protocol version:' \"" + lastLog + "\" 2>/dev/null | tail -1")) : "";
 		let d = between(ln, "description: ", null);
 		if (d != null) {
 			let tok = split(trim(d), " ")[0];
@@ -1124,9 +1132,9 @@ function cmdStatus() {
 			if (p > 0) { modemType = substr(tok, 0, p); modemFw = substr(tok, p + 2); }
 			else modemType = tok;
 		}
-		if (length(modemType)) {
-			try { FS.writefile("/tmp/dashboard_modem.json", sprintf("%J", { t: time(), type: modemType, fw: modemFw }) + "\n"); } catch (e) {}
-		} else if (type(mdCache) == "object" && mdCache != null) {
+		/* 无论是否解析成功都写缓存，避免解析失败时每次请求都重新扫描日志 */
+		try { FS.writefile("/tmp/dashboard_modem.json", sprintf("%J", { t: time(), type: modemType, fw: modemFw }) + "\n"); } catch (e) {}
+		if (!length(modemType) && type(mdCache) == "object" && mdCache != null) {
 			modemType = mdCache.type ?? "";
 			modemFw = mdCache.fw ?? "";
 		}

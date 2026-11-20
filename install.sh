@@ -37,14 +37,20 @@ for s in $ENDPOINTS; do
 done
 
 # 呼号库 / DMR ID 查询等辅助脚本
-cp "$SRC/openwrt/mmdvm-idlookup" "$BIN/mmdvm-idlookup"
+rm -f "$BIN/mmdvm-idlookup"
+cp "$SRC/openwrt/mmdvm-ids-sync" "$BIN/mmdvm-ids-sync"
 cp "$SRC/openwrt/mmdvm-radiowo-sync" "$BIN/mmdvm-radiowo-sync"
 cp "$SRC/openwrt/mmdvm-bg4esi-sync" "$BIN/mmdvm-bg4esi-sync"
 cp "$SRC/openwrt/mmdvm-log-clean" "$BIN/mmdvm-log-clean"
-chmod 0755 "$BIN/mmdvm-idlookup" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean"
+chmod 0755 "$BIN/mmdvm-ids-sync" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean"
 cp "$SRC/openwrt/mmdvm-radiowo.init" "$INIT/mmdvm-radiowo"
 cp "$SRC/openwrt/mmdvm-bg4esi.init" "$INIT/mmdvm-bg4esi"
 chmod 0755 "$INIT/mmdvm-radiowo" "$INIT/mmdvm-bg4esi"
+
+# ID→呼号库：每天 03:37 从 RadioID 同步一次，运行时只查本地文件
+IDS_CRON='37 3 * * * /usr/bin/mmdvm-ids-sync'
+mkdir -p /etc/crontabs
+grep -qF "$IDS_CRON" /etc/crontabs/root 2>/dev/null || echo "$IDS_CRON" >> /etc/crontabs/root
 
 # 日志清理：每天 04:07 删除 2 天前的 MMDVM 日志（/var/log 为内存盘）
 LOG_CRON='7 4 * * * /usr/bin/mmdvm-log-clean'

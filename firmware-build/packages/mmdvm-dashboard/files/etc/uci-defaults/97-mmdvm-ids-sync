@@ -1,0 +1,8 @@
+#!/bin/sh
+# 安装每日 ID→呼号库同步任务：每天 03:37 下载 RadioID 完整用户库
+CRON=/etc/crontabs/root
+LINE='37 3 * * * /usr/bin/mmdvm-ids-sync'
+mkdir -p /etc/crontabs
+grep -qF "$LINE" "$CRON" 2>/dev/null || echo "$LINE" >> "$CRON"
+/etc/init.d/cron restart >/dev/null 2>&1
+exit 0

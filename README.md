@@ -26,7 +26,7 @@
 ├── openwrt/
 │   ├── api.uc            # 后端 CGI（部署为 /www-dash/api/api.uc）
 │   ├── uhttpd.config     # uhttpd 站点配置样例
-│   ├── mmdvm-idlookup    # 按 DMR ID 查询呼号（RadioID API，带本地缓存）
+│   ├── mmdvm-ids-sync    # 每天同步 ID→呼号库（RadioID 完整用户库，运行时只查本地文件）
 │   ├── mmdvm-radiowo-sync# 同步 radiowo 呼号库（含中国用户省市区地址）
 │   ├── mmdvm-radiowo.init# 开机自动同步 radiowo 库
 │   ├── mmdvm-bg4esi-sync # 同步 BG4ESI 中文通讯录（46 开头 ID）
@@ -67,7 +67,7 @@ sh install.sh
 - 前端入口统一走 `/api/page`（CGI 输出 HTML 并强制 `Cache-Control: no-store`），配合 `loader.html` 的版本参数，升级后不会读到旧页面。
 - 状态接口 `/api/status` 带 2 秒短缓存；直连模式的服务器连接状态按日志增量解析，ping 值 10 秒一次，且只对已连接的服务器测试。
 - 配置读写直接作用于 `/etc/mmdvm/MMDVM.ini`、`/etc/mmdvm/DMRGateway.ini`，修改前请自行备份。
-- 呼号库：`/etc/mmdvm/DMRIds.dat`（本地）、`/etc/mmdvm/radiowo_user.csv`、`/etc/mmdvm/bg4esi.csv`、`/etc/mmdvm/dashboard_ids.cache`（在线查询缓存）。
+- 呼号库：`/etc/mmdvm/DMRIds.dat`（本地）、`/etc/mmdvm/radiowo_user.csv`、`/etc/mmdvm/bg4esi.csv`、`/etc/mmdvm/dashboard_ids.cache`（每日同步的 ID→呼号库，运行时不再联网查询）。
 
 ## 安全提示
 
@@ -77,7 +77,7 @@ sh install.sh
 
 ```sh
 rm -rf /www-dash/api /www-dash/app.html /www-dash/index.html
-rm -f /usr/bin/mmdvm-idlookup /usr/bin/mmdvm-radiowo-sync /usr/bin/mmdvm-bg4esi-sync
+rm -f /usr/bin/mmdvm-ids-sync /usr/bin/mmdvm-radiowo-sync /usr/bin/mmdvm-bg4esi-sync
 rm -f /etc/init.d/mmdvm-radiowo /etc/init.d/mmdvm-bg4esi
 uci delete uhttpd.dashboard && uci commit uhttpd
 /etc/init.d/uhttpd restart

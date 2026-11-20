@@ -43,7 +43,7 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/www-dash/api/api.uc $(1)/www-dash/api/api.uc
 	$(foreach e,$(DASH_ENDPOINTS),$(LN) api.uc $(1)/www-dash/api/$(e);)
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-idlookup $(1)/usr/bin/mmdvm-idlookup
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-ids-sync $(1)/usr/bin/mmdvm-ids-sync
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-radiowo-sync $(1)/usr/bin/mmdvm-radiowo-sync
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-bg4esi-sync $(1)/usr/bin/mmdvm-bg4esi-sync
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-log-clean $(1)/usr/bin/mmdvm-log-clean
@@ -59,6 +59,7 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/94-mmdvm-luci $(1)/etc/uci-defaults/94-mmdvm-luci
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/95-mmdvm-autostart $(1)/etc/uci-defaults/95-mmdvm-autostart
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/96-mmdvm-defaults $(1)/etc/uci-defaults/96-mmdvm-defaults
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/97-mmdvm-ids-sync $(1)/etc/uci-defaults/97-mmdvm-ids-sync
 endef
 
 $(eval $(call BuildPackage,mmdvm-dashboard))
