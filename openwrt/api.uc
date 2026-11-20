@@ -772,25 +772,9 @@ function resolveCalls(idlist) {
 
 /* ---------- 中国呼号地址（radiowo 呼号库，86 开头 ID 使用） ---------- */
 const RW_CSV = "/etc/mmdvm/radiowo_user.csv";
-const RW_TS = "/etc/mmdvm/radiowo_user.ts";
-const RW_TTL = 86400;
-function radiowoSync() {
-	let mt = int(trim(FS.readfile(RW_TS) ?? ""));
-	let now = time();
-	if (mt > 0 && now - mt < RW_TTL) return;
-	sh("(mmdvm-radiowo-sync) >/dev/null 2>&1 &");
-}
 
 /* ---------- 中国呼号地址（BG4ESI 中文通讯录，46 开头 ID 使用） ---------- */
 const BG_CSV = "/etc/mmdvm/bg4esi.csv";
-const BG_TS = "/etc/mmdvm/bg4esi.ts";
-const BG_TTL = 86400;
-function bgSync() {
-	let mt = int(trim(FS.readfile(BG_TS) ?? ""));
-	let now = time();
-	if (mt > 0 && now - mt < BG_TTL) return;
-	sh("(mmdvm-bg4esi-sync) >/dev/null 2>&1 &");
-}
 function fmtAddr(state, city, remark) {
 	let a = trim(state ?? ""), b = trim(city ?? ""), c = trim(remark ?? "");
 	let s = a;
@@ -1480,8 +1464,6 @@ function cmdLastheard() {
 		let extra = idFor(miss);
 		for (let c in extra) ids[c] = extra[c];
 	}
-	radiowoSync();
-	bgSync();
 	let ids46 = [], ids86 = [], otherIds = [];
 	for (let x in idlist) {
 		if (is46Id(x)) push(ids46, x);
@@ -1771,8 +1753,6 @@ function cmdLive() {
 		else if (!seen[c.callsign]) { seen[c.callsign] = 1; push(calls, c.callsign); }
 	}
 	let ids = idFor(calls);
-	radiowoSync();
-	bgSync();
 	let ids46 = [], ids86 = [], otherIds = [];
 	for (let x in idlist) {
 		if (is46Id(x)) push(ids46, x);

@@ -60,6 +60,7 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/95-mmdvm-autostart $(1)/etc/uci-defaults/95-mmdvm-autostart
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/96-mmdvm-defaults $(1)/etc/uci-defaults/96-mmdvm-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/97-mmdvm-ids-sync $(1)/etc/uci-defaults/97-mmdvm-ids-sync
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/98-mmdvm-cn-sync $(1)/etc/uci-defaults/98-mmdvm-cn-sync
 endef
 
 $(eval $(call BuildPackage,mmdvm-dashboard))

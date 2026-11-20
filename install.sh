@@ -52,6 +52,12 @@ IDS_CRON='37 3 * * * /usr/bin/mmdvm-ids-sync'
 mkdir -p /etc/crontabs
 grep -qF "$IDS_CRON" /etc/crontabs/root 2>/dev/null || echo "$IDS_CRON" >> /etc/crontabs/root
 
+# 中文呼号库：每天 03:17 / 03:23 同步一次，运行时只查本地文件
+BG_CRON='17 3 * * * /usr/bin/mmdvm-bg4esi-sync >/dev/null 2>&1'
+RW_CRON='23 3 * * * /usr/bin/mmdvm-radiowo-sync >/dev/null 2>&1'
+grep -qF "$BG_CRON" /etc/crontabs/root 2>/dev/null || echo "$BG_CRON" >> /etc/crontabs/root
+grep -qF "$RW_CRON" /etc/crontabs/root 2>/dev/null || echo "$RW_CRON" >> /etc/crontabs/root
+
 # 日志清理：每天 04:07 删除 2 天前的 MMDVM 日志（/var/log 为内存盘）
 LOG_CRON='7 4 * * * /usr/bin/mmdvm-log-clean'
 mkdir -p /etc/crontabs
