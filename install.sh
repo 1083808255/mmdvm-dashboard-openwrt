@@ -39,10 +39,11 @@ done
 # 呼号库 / DMR ID 查询等辅助脚本
 rm -f "$BIN/mmdvm-idlookup"
 cp "$SRC/openwrt/mmdvm-ids-sync" "$BIN/mmdvm-ids-sync"
+cp "$SRC/openwrt/mmdvm-ids-lite" "$BIN/mmdvm-ids-lite"
 cp "$SRC/openwrt/mmdvm-radiowo-sync" "$BIN/mmdvm-radiowo-sync"
 cp "$SRC/openwrt/mmdvm-bg4esi-sync" "$BIN/mmdvm-bg4esi-sync"
 cp "$SRC/openwrt/mmdvm-log-clean" "$BIN/mmdvm-log-clean"
-chmod 0755 "$BIN/mmdvm-ids-sync" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean"
+chmod 0755 "$BIN/mmdvm-ids-sync" "$BIN/mmdvm-ids-lite" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean"
 cp "$SRC/openwrt/mmdvm-radiowo.init" "$INIT/mmdvm-radiowo"
 cp "$SRC/openwrt/mmdvm-bg4esi.init" "$INIT/mmdvm-bg4esi"
 cp "$SRC/openwrt/mmdvm-ids.init" "$INIT/mmdvm-ids"
@@ -61,6 +62,10 @@ BG_CRON='17 3 * * * /usr/bin/mmdvm-bg4esi-sync >/dev/null 2>&1'
 RW_CRON='23 3 * * * /usr/bin/mmdvm-radiowo-sync >/dev/null 2>&1'
 grep -qF "$BG_CRON" /etc/crontabs/root 2>/dev/null || echo "$BG_CRON" >> /etc/crontabs/root
 grep -qF "$RW_CRON" /etc/crontabs/root 2>/dev/null || echo "$RW_CRON" >> /etc/crontabs/root
+
+# 硬件屏用的精简 ID 库：每小时刷新一次（46/86 全量 + 最近heard过）
+LITE_CRON='9 * * * * /usr/bin/mmdvm-ids-lite >/dev/null 2>&1'
+grep -qF "$LITE_CRON" /etc/crontabs/root 2>/dev/null || echo "$LITE_CRON" >> /etc/crontabs/root
 
 # 日志清理：每天 04:07 删除 2 天前的 MMDVM 日志（/var/log 为内存盘）
 LOG_CRON='7 4 * * * /usr/bin/mmdvm-log-clean'

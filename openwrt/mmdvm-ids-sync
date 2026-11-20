@@ -27,3 +27,6 @@ else
 	rm -f "$NEW"
 	logger -t mmdvm-ids-sync "ID 库下载失败或数据异常（$n 条）"
 fi
+
+# 同步更新硬件屏用的精简库
+/usr/bin/mmdvm-ids-lite >/dev/null 2>&1

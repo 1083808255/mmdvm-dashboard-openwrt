@@ -1,0 +1,16 @@
+#!/bin/sh
+# 把 MMDVMHost 的 ID 库切换到精简版：
+# 全量 DMRIds.dat 会展开成约 58MB 堆内存，导致 98MB 内存的设备持续换页；
+# 精简库由 mmdvm-ids-lite 每小时生成（46/86 全量 + 最近出现过的 ID）。
+# 仪表盘本身使用 dashboard_ids.cache，不受影响。
+INI=/etc/mmdvm/MMDVM.ini
+if [ -f "$INI" ]; then
+	sed -i '/^\[DMR Id Lookup\]/,/^\[/ s|^File=.*|File=/etc/mmdvm/DMRIds.lite|; /^\[DMR Id Lookup\]/,/^\[/ s|^Time=.*|Time=1|' "$INI"
+fi
+
+CRON=/etc/crontabs/root
+LINE='9 * * * * /usr/bin/mmdvm-ids-lite >/dev/null 2>&1'
+mkdir -p /etc/crontabs
+grep -qF "$LINE" "$CRON" 2>/dev/null || echo "$LINE" >> "$CRON"
+/etc/init.d/cron restart >/dev/null 2>&1
+exit 0
