@@ -2,6 +2,17 @@
 # 通过 RadioID API 按需查询 DMR ID 对应的呼号，结果缓存到本地
 # 用法: mmdvm-idlookup <dmrid> [dmrid...]
 CACHE=/etc/mmdvm/dashboard_ids.cache
+GLOCK=/tmp/mmdvm_idlookup.run
+
+# 全局单飞：同一时间只允许一个查询进程，避免多个新 ID 同时建 HTTPS 连接把单核 CPU 打满
+if ! mkdir "$GLOCK" 2>/dev/null; then
+	age=$(( $(date +%s) - $(date -r "$GLOCK" +%s 2>/dev/null || echo 0) ))
+	# 残留锁超过 60 秒视为异常退出，强制接管
+	[ "$age" -lt 60 ] && exit 0
+	rmdir "$GLOCK" 2>/dev/null
+	mkdir "$GLOCK" 2>/dev/null || exit 0
+fi
+trap 'rmdir "$GLOCK" 2>/dev/null' EXIT INT TERM
 
 for id in "$@"; do
 	[ -z "$id" ] && continue
@@ -14,7 +25,12 @@ for id in "$@"; do
 	fi
 	# 按 ID 原子加锁（mkdir 是原子操作），并发请求不会对同一 ID 重复发起查询
 	LOCK=/tmp/mmdvm_idlookup_$id.lock
-	mkdir "$LOCK" 2>/dev/null || continue
+	if ! mkdir "$LOCK" 2>/dev/null; then
+		age=$(( $(date +%s) - $(date -r "$LOCK" +%s 2>/dev/null || echo 0) ))
+		[ "$age" -lt 30 ] && continue
+		rmdir "$LOCK" 2>/dev/null
+		mkdir "$LOCK" 2>/dev/null || continue
+	fi
 	body=$(wget -q -T 6 -O - "https://database.radioid.net/api/dmr/user/?id=$id" 2>/dev/null)
 	call=$(printf '%s' "$body" | sed -n 's/.*"callsign":"\([^"]*\)".*/\1/p' | head -1)
 	if [ -n "$call" ]; then
