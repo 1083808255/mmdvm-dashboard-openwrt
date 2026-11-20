@@ -45,7 +45,9 @@ cp "$SRC/openwrt/mmdvm-log-clean" "$BIN/mmdvm-log-clean"
 chmod 0755 "$BIN/mmdvm-ids-sync" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean"
 cp "$SRC/openwrt/mmdvm-radiowo.init" "$INIT/mmdvm-radiowo"
 cp "$SRC/openwrt/mmdvm-bg4esi.init" "$INIT/mmdvm-bg4esi"
-chmod 0755 "$INIT/mmdvm-radiowo" "$INIT/mmdvm-bg4esi"
+cp "$SRC/openwrt/mmdvm-ids.init" "$INIT/mmdvm-ids"
+chmod 0755 "$INIT/mmdvm-radiowo" "$INIT/mmdvm-bg4esi" "$INIT/mmdvm-ids"
+"$INIT/mmdvm-ids" enable >/dev/null 2>&1
 
 # ID→呼号库：每天 03:37 从 RadioID 同步一次，运行时只查本地文件
 IDS_CRON='37 3 * * * /usr/bin/mmdvm-ids-sync'

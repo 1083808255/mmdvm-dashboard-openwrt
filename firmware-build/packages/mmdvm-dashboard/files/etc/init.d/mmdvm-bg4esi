@@ -4,6 +4,8 @@ START=95
 STOP=10
 
 start() {
+	# 已有文件就不重新下载，缺失时才联网
+	[ -s /etc/mmdvm/bg4esi.csv ] && return 0
 	( sleep 20; /usr/bin/mmdvm-bg4esi-sync ) >/dev/null 2>&1 &
 }
 

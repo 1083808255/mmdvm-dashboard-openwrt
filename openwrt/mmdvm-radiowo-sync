@@ -10,6 +10,14 @@ LOCK="/tmp/mmdvm_radiowo.lock"
 [ -f "$LOCK" ] && exit 0
 touch "$LOCK"
 
+# 更新前删除旧文件
+rm -f "$OUT"
+avail=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
+if [ -n "$avail" ] && [ "$avail" -lt 2048 ]; then
+	rm -f "$LOCK"
+	exit 0
+fi
+
 wget -q -T 40 -O "$TMP" "$URL" 2>/dev/null
 if [ -s "$TMP" ] && head -1 "$TMP" | grep -q '^RADIO_ID,CALLSIGN'; then
 	mv "$TMP" "$OUT"

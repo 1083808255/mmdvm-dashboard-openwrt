@@ -22,6 +22,13 @@ fail() {
 command -v unzip >/dev/null 2>&1 || fail "unzip not available"
 command -v iconv >/dev/null 2>&1 || fail "iconv not available"
 
+# 更新前删除旧文件；空间不足时放弃本次更新
+rm -f "$OUT"
+avail=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
+if [ -n "$avail" ] && [ "$avail" -lt 8192 ]; then
+	fail "not enough space"
+fi
+
 cd "$TMPDIR"
 wget -q -T 40 -O stripped.zip "$URL" 2>/dev/null || fail "download failed"
 unzip -q -o stripped.zip 2>/dev/null || fail "unzip failed"
