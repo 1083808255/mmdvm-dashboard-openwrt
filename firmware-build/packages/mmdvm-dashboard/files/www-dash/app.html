@@ -6605,9 +6605,11 @@ function dmrAudioPlay(data){
     dmrAudioGain.gain.setTargetAtTime(dmrAudioAgc, dmrAudioCtx.currentTime, .06);
   }
   const now = dmrAudioCtx.currentTime;
-  if(!dmrAudioNext || dmrAudioNext < now + .03 || dmrAudioNext > now + 1){
-    if(dmrAudioNext > now + 1) dmrAudioStopSources();
-    dmrAudioNext = now + .1;
+  /* 预缓冲 300ms：服务端按 100ms 攒批下发，且下发节拍本身有 100ms 粒度，
+     只有 100ms 缓冲时网络/调度一抖动就会排空，听起来就是断续卡顿 */
+  if(!dmrAudioNext || dmrAudioNext < now + .03 || dmrAudioNext > now + 1.5){
+    if(dmrAudioNext > now + 1.5) dmrAudioStopSources();
+    dmrAudioNext = now + .3;
   }
   const src = dmrAudioCtx.createBufferSource();
   src.buffer = buf;
