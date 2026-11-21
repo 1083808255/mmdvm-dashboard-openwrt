@@ -1,0 +1,26 @@
+#!/bin/sh /etc/rc.common
+# Reset boot counters and acknowledge a successful boot to the bootloader.
+
+START=99
+
+boot() {
+	case $(board_name) in
+	linksys,mr7350)
+		mtd resetbc s_env || true
+		;;
+	redmi,ax5-jdcloud)
+		# Acknowledge the successful boot to Xiaomi stock U-Boot and pin
+		# it to the currently booted rootfs slot. OpenWrt never writes the
+		# alternate ("overlay") slot, so if the bootloader switches away
+		# from the active slot the device will not boot. Re-asserting these
+		# on every boot keeps the A/B selection stable across reboots.
+		local cur
+		cur="$(fw_printenv -n flag_boot_rootfs 2>/dev/null)"
+		[ -n "$cur" ] || cur=0
+		fw_setenv flag_boot_success 1 2>/dev/null
+		fw_setenv flag_last_success "$cur" 2>/dev/null
+		fw_setenv flag_try_sys1_failed 8 2>/dev/null
+		fw_setenv flag_try_sys2_failed 8 2>/dev/null
+		;;
+	esac
+}
