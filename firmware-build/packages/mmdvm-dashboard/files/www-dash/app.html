@@ -67,6 +67,8 @@ header{
 @keyframes netpulse{0%,100%{box-shadow:0 0 0.22em 0.04em rgba(52,211,153,.92)}50%{box-shadow:0 0 0.3em 0.06em rgba(52,211,153,.55)}}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(52,211,153,.18)}50%{box-shadow:0 0 0 5px rgba(52,211,153,.08)}}
 .clock{font-family:var(--mono);font-size:14px;color:var(--muted)}
+/* 菜单按钮与密码框的容器：手机版保持原有流式布局，电脑版整体居中 */
+.nav-slot{display:contents}
 .menuBtn{display:none;width:38px;height:38px;border:1px solid var(--border);border-radius:10px;background:var(--card);
   color:var(--text);cursor:pointer;align-items:center;justify-content:center}
 .menuBtn svg{width:20px;height:20px}
@@ -137,7 +139,9 @@ aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
   .menuBtn{display:flex;order:2;width:auto;padding:0 14px;gap:8px}
   .menuBtn .menuBtn-label{display:inline}
   .pc-auth{display:none;order:3;align-items:center;gap:6px}
-  header.pc-auth-open .pc-auth{display:flex;position:absolute;left:50%;transform:translateX(-50%)}
+  header.pc-auth-open .pc-auth{display:flex}
+  /* 电脑版：菜单按钮与密码框作为一组整体居中 */
+  .nav-slot{display:flex;align-items:center;gap:10px;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
   .hspacer{display:block;order:4}
   .hstatus{order:5}
   .clock{order:6}
@@ -1384,6 +1388,7 @@ th{font-size:12px}
 <body>
 
 <header>
+  <div class="nav-slot">
   <button class="menuBtn" id="menuBtn" aria-label="菜单">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     <span class="menuBtn-label">菜单</span>
@@ -1392,6 +1397,7 @@ th{font-size:12px}
     <input id="pcAuthPw" type="password" placeholder="输入密码解锁菜单" autocomplete="current-password">
     <span class="pc-auth-hint" id="pcAuthHint">与路由器管理密码一致，回车确认</span>
     <span class="pc-auth-err" id="pcAuthErr"></span>
+  </div>
   </div>
   <div class="brand">
     <div class="logo">
