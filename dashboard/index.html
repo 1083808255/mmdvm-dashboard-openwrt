@@ -5058,11 +5058,11 @@ async function renderQso(){
   try { await qsoOnce(); } catch(e) { console.warn('[qso] 首次刷新失败', e); }
   scheduleQso();
 }
-/* 0.7s 轮询：后端只读缓存（地址查询走后台进程），单次响应约几十毫秒。
-   前台始终 0.7s，保证通联显示实时性；后台标签页降频到 30s */
+/* 1 秒轮询：后端只读缓存（地址查询走后台进程），单次响应约几十毫秒。
+   前台始终 1 秒，保证通联显示实时性；后台标签页降频到 30s */
 function qsoDelay(){
   if(document.hidden) return 30000;
-  return 700;
+  return 1000;
 }
 function scheduleQso(){
   if(qsoTimer) return;
@@ -6520,12 +6520,13 @@ async function fwAction(){
 
 /* ---------- DMR 实时语音（WebSocket + Web Audio） ---------- */
 let dmrAudioEnabled = false, dmrAudioWs = null, dmrAudioRetry = null, dmrAudioConnectTimer = null;
-let dmrAudioCtx = null, dmrAudioGain = null, dmrAudioComp = null, dmrAudioHp = null, dmrAudioLp = null, dmrAudioNext = 0;
+let dmrAudioAwaitCall = false;   /* 手动切时隙后，丢弃旧时隙在途音频，直到收到新 call */
+let dmrAudioCtx = null, dmrAudioGain = null, dmrAudioComp = null, dmrAudioHp = null, dmrAudioLp = null, dmrAudioShelf = null, dmrAudioNext = 0;
 let dmrAudioCurrent = null, dmrLiveSlots = {}, dmrAudioSlot = 0;
 const dmrAudioSources = new Set();
 /* md380 固件解码输出电平很低（峰值约 -42dBFS），用 AGC 自动拉到合适响度 */
-const DMR_AUDIO_TARGET_PEAK = 0.55;   // 目标峰值
-const DMR_AUDIO_MAX_GAIN = 90;        // 最大放大倍数，防止静音段把底噪拉满
+const DMR_AUDIO_TARGET_PEAK = 0.715;   // 目标峰值（0.55 × 1.3，音量提高 30%）
+const DMR_AUDIO_MAX_GAIN = 30;        // 最大放大倍数，压低安静段/间隙的底噪
 let dmrAudioAgc = 1;
 const DMR_AUDIO_SLOT_LABELS = ['自动', '时隙1', '时隙2'];
 
@@ -6580,6 +6581,8 @@ function updateDmrAudioCall(){
 }
 function dmrAudioPlay(data){
   if(!dmrAudioEnabled || !dmrAudioCtx || !dmrAudioGain || !data || data.byteLength < 2) return;
+  /* 手动切时隙后，旧时隙可能还有音频在途：丢弃到收到新时隙的 call 为止 */
+  if(dmrAudioAwaitCall) return;
   /* 浏览器在刷新后可能挂起音频上下文：此时丢弃音频并提示，避免排出一堆不播放的块 */
   if(dmrAudioCtx.state !== 'running'){
     dmrAudioStopSources();
@@ -6654,6 +6657,7 @@ function dmrAudioConnect(){
       let m;
       try{ m = JSON.parse(ev.data); }catch(e){ return; }
       if(m.type === 'call'){
+        dmrAudioAwaitCall = false;
         const changed = !dmrAudioCurrent || dmrAudioCurrent.stream !== Number(m.stream) || dmrAudioCurrent.src !== Number(m.src);
         dmrAudioCurrent = { src:Number(m.src), dst:Number(m.dst), slot:Number(m.slot), stream:Number(m.stream) };
         if(changed){ dmrAudioStopSources(); dmrAudioNext = 0; }
@@ -6693,6 +6697,10 @@ function dmrAudioEnable(){
     dmrAudioLp.type = 'lowpass';
     dmrAudioLp.frequency.value = 3400;  // 语音带宽，切掉 AMBE 带外嘶声
     dmrAudioLp.Q.value = 0.7;
+    dmrAudioShelf = dmrAudioCtx.createBiquadFilter();
+    dmrAudioShelf.type = 'highshelf';
+    dmrAudioShelf.frequency.value = 2900;  // -3dB：介于过尖与发闷之间
+    dmrAudioShelf.gain.value = -3;
     dmrAudioGain = dmrAudioCtx.createGain();
     dmrAudioComp = dmrAudioCtx.createDynamicsCompressor();
     dmrAudioComp.threshold.value = -8;
@@ -6703,7 +6711,8 @@ function dmrAudioEnable(){
     dmrAudioAgc = 1;
     dmrAudioGain.gain.value = 1;
     dmrAudioHp.connect(dmrAudioLp);
-    dmrAudioLp.connect(dmrAudioGain);
+    dmrAudioLp.connect(dmrAudioShelf);
+    dmrAudioShelf.connect(dmrAudioGain);
     dmrAudioGain.connect(dmrAudioComp);
     dmrAudioComp.connect(dmrAudioCtx.destination);
     /* 上下文被浏览器挂起/恢复时同步更新提示（刷新后、切后台再回来） */
@@ -6718,6 +6727,7 @@ function dmrAudioEnable(){
     };
   }
   dmrAudioEnabled = true;
+  dmrAudioAwaitCall = false;
   try{ localStorage.setItem('dmrAudioOn', '1'); localStorage.setItem('dmrAudioSlot', String(dmrAudioSlot)); }catch(e){}
   dmrAudioCtx.resume().catch(()=>{});
   $('#dmrAudioToggle').textContent = '停止收听';
@@ -6740,6 +6750,7 @@ function dmrAudioResume(){
 }
 function dmrAudioDisable(){
   dmrAudioEnabled = false;
+  dmrAudioAwaitCall = false;
   try{ localStorage.removeItem('dmrAudioOn'); }catch(e){}
   clearTimeout(dmrAudioRetry);
   if(dmrAudioWs){
@@ -6766,6 +6777,12 @@ function bindDmrAudio(){
     dmrAudioSlot = (dmrAudioSlot + 1) % 3;
     try{ localStorage.setItem('dmrAudioSlot', String(dmrAudioSlot)); }catch(e){}
     dmrAudioSyncSlotBtn();
+    /* 本地立即切断旧时隙声音，不等服务端回包：已排期的缓冲可能有 1 秒多，不清理会拖尾 */
+    dmrAudioCurrent = null;
+    dmrAudioAwaitCall = true;
+    dmrAudioStopSources();
+    dmrAudioNext = 0;
+    dmrAudioState('空闲中', 'ok');
     dmrAudioSendSlot();
   });
   /* 手机切到后台再回来时，音频上下文可能被挂起，恢复后继续播放 */

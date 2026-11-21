@@ -26,6 +26,20 @@ openwrt/luci-redirect.html
 # 编译产物（固件镜像等，体积大，不入库）
 firmware/
 
+# 本地调试产物与临时脚本
+.askpass*.cmd
+ax5test/
+/dmrstream/
+meminfo.sh
+emu_test.sh
+setup_qemu.sh
+sample.amb
+qemu-arm-static
+md380-emu
+
+# 设备诊断导出（含设备信息，不入库）
+Xiaomi-Mi-Router-*.json
+
 # OTA 发布产物（提交到独立的 dashboard-ota 仓库）
 ota/dist/
 

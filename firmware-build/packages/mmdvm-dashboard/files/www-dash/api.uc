@@ -716,24 +716,31 @@ const IDNAME_CACHE = "/tmp/dashboard_idnames.json";
 function idFor(calls) {
 	let res = {};
 	if (!length(calls)) return res;
-	let st = FS.stat(INI_DIR + "DMRIds.dat");
-	let sig = st != null ? (st.mtime ?? 0) : 0;
+	/* 呼号→ID 可能分布在三个库：MMDVMHost 原库、精简库、每日同步的完整库。
+	   日志里的呼号由 MMDVMHost 用精简库解析，原库往往很旧，因此全部参与检索 */
+	let files = [], sig = "v2";
+	for (let f in [INI_DIR + "DMRIds.dat", INI_DIR + "DMRIds.lite", ID_CACHE]) {
+		let st = FS.stat(f);
+		if (st == null) continue;
+		push(files, f);
+		sig += "|" + f + ":" + (st.size ?? 0) + ":" + (st.mtime ?? 0);
+	}
 	let d = FS.readfile(IDNAME_CACHE);
 	let c = (d != null) ? json(d) : null;
-	if (type(c) != "object" || c == null || (c.sig ?? -1) != sig) c = { sig: sig, m: {} };
+	if (type(c) != "object" || c == null || (c.sig ?? "") != sig) c = { sig: sig, m: {} };
 	let m = c.m ?? {};
 	let miss = [];
 	for (let cs in calls) {
 		if (m[cs] != null) { if (length(m[cs])) res[cs] = m[cs]; }
 		else push(miss, cs);
 	}
-	if (length(miss)) {
+	if (length(miss) && length(files)) {
 		let pat = "/tmp/dashboard_calls";
 		let s = "";
 		for (let cs in miss) s += cs + "\n";
 		FS.writefile(pat, s);
-		let cmd = "grep -F -f " + pat + " " + INI_DIR + "DMRIds.dat 2>/dev/null";
-		/* DMRIds.dat 为制表符分隔，个别版本为空格分隔，两种都兼容 */
+		/* DMRIds.dat / 精简库 / 完整库均为「ID<TAB>呼号」，个别版本为空格分隔，两种都兼容 */
+		let cmd = "grep -h -F -f " + pat + " " + join(" ", files) + " 2>/dev/null";
 		for (let l in split(sh(cmd), "\n")) {
 			let p = split(trim(l), "\t");
 			if (length(p) < 2) p = split(trim(l), " ");
@@ -1426,6 +1433,37 @@ function cmdLastheard() {
 		push(nidCalls, q.callsign);
 	}
 	let c2id = length(nidCalls) ? idFor(nidCalls) : {};
+	/* 旧数据迁移：以前 ID 反查不到时按 "C:呼号" 聚合，现在能查到 ID 就并入 ID 键，
+	   否则同一条通联会同时以「呼号键」和「ID 键」出现两次 */
+	let lhk = [];
+	for (let k in st.ids) push(lhk, k);
+	let mergedOld = false;
+	for (let k in lhk) {
+		if (substr(k, 0, 2) != "C:") continue;
+		let cs = substr(k, 2);
+		let nid = c2id[cs] ?? "";
+		if (!length(nid)) continue;
+		let e = st.ids[k];
+		if (e == null || type(e) != "object") continue;
+		let d = st.ids[nid];
+		if (d == null || type(d) != "object") {
+			st.ids[nid] = e;
+			e.id = nid;
+		} else {
+			/* 合并历史：按时间戳去重，保留较新的记录与水位 */
+			let hs = (type(d.hist) == "array") ? d.hist : [];
+			let seenTs = {};
+			for (let h in hs) if (h != null && h.ts != null) seenTs[h.ts] = 1;
+			for (let h in (type(e.hist) == "array") ? e.hist : [])
+				if (h != null && h.ts != null && !seenTs[h.ts]) { push(hs, h); seenTs[h.ts] = 1; }
+			d.hist = hs;
+			if ((+e.last || 0) > (+d.last || 0)) { d.last = e.last; d.rec = e.rec; }
+			if (!length(d.id)) d.id = nid;
+		}
+		delete st.ids[k];
+		mergedOld = true;
+	}
+	if (mergedOld) lhSave(st);
 	let added = false;
 	for (let q in recs) {
 		let id = q.isId ? q.callsign : (c2id[q.callsign] ?? "");
@@ -1704,10 +1742,9 @@ function cmdTgPost() {
 
 function cmdLive() {
 	let file = logFileFor("MMDVM");
-	/* 2 秒短缓存：日志签名未变（无新通话）时直接返回，避免重复反查与 fork */
-	/* 实时接口按纯时间缓存 2 秒：通话期间日志持续增长，不能按文件签名失效，
-	   否则每 0.7 秒都会整份重解析日志，单核 CPU 会被吃满 */
-	let cached = shortGet(LIVE_CACHE, 2, null);
+	/* 实时接口只做同一秒内去重（0.7 秒轮询下几乎每次都重新解析），
+	   保证通联显示实时性；单次解析已是增量读取日志尾部 */
+	let cached = shortGet(LIVE_CACHE, 0, null);
 	if (cached != null) return cached;
 	let m = ini(INI_DIR + "MMDVM.ini");
 	let duplex = (m["General"] ?? {}).Duplex == "1";

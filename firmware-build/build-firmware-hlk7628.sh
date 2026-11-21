@@ -40,15 +40,15 @@ if [ ! -d "$WORKDIR" ]; then
 fi
 
 echo "==> 同步固件包"
-for p in mmdvmhost dmrgateway mmdvm-dashboard mmdvm-board-7628 air780e-monitor; do
+for p in mmdvmhost dmrgateway mmdvm-dashboard dmrstream mmdvm-board-7628 air780e-monitor; do
 	rm -rf "$WORKDIR/package/$p"
 	cp -a "$SCRIPT_DIR/packages/$p" "$WORKDIR/package/$p"
 done
 
 echo "==> 生成整机固件版本号"
 # 固件版本与仪表盘版本保持一致（如 V0.607）
-FWV=$(tr -d ' \t\r\n' < "$SCRIPT_DIR/../dashboard/VERSION" 2>/dev/null || true)
-[ -n "$FWV" ] || { echo "ERROR: 缺少 dashboard/VERSION" >&2; exit 1; }
+FWV=$(tr -d ' \t\r\n' < "$SCRIPT_DIR/packages/mmdvm-dashboard/files/www-dash/VERSION" 2>/dev/null || true)
+[ -n "$FWV" ] || { echo "ERROR: 缺少仪表盘 VERSION" >&2; exit 1; }
 mkdir -p "$WORKDIR/files/etc/mmdvm"
 printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
 
@@ -127,6 +127,7 @@ for opt in \
 	CONFIG_PACKAGE_mmdvmhost=y \
 	CONFIG_PACKAGE_dmrgateway=y \
 	CONFIG_PACKAGE_mmdvm-dashboard=y \
+	CONFIG_PACKAGE_dmrstream=y \
 	CONFIG_PACKAGE_mmdvm-board-7628=y \
 	CONFIG_PACKAGE_air780e-monitor=y \
 	CONFIG_PACKAGE_unzip=y \
@@ -151,7 +152,7 @@ cp "$TARGET_BIN"/*hilink_hlk-7628n*sysupgrade*.bin "$OUTDIR"/ 2>/dev/null || tru
 cp "$TARGET_BIN"/*hilink_hlk-7628n*initramfs-kernel.bin "$OUTDIR"/ 2>/dev/null || true
 cp "$TARGET_BIN"/*.manifest "$OUTDIR"/ 2>/dev/null || true
 cp "$TARGET_BIN"/*.buildinfo "$OUTDIR"/ 2>/dev/null || true
-for p in mmdvmhost dmrgateway mmdvm-dashboard mmdvm-board-7628 air780e-monitor; do
+for p in mmdvmhost dmrgateway mmdvm-dashboard dmrstream mmdvm-board-7628 air780e-monitor; do
 	cp "$TARGET_BIN"/packages/${p}_*.ipk "$OUTDIR"/ 2>/dev/null || true
 	cp bin/packages/mipsel_24kc/*/${p}_*.ipk "$OUTDIR"/ 2>/dev/null || true
 done
