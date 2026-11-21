@@ -2831,7 +2831,7 @@ function otaModalMsg(t, bad, notesHtml){
   const el = $('#ota-m-msg');
   if(!el) return;
   el.innerHTML = esc(t || '') + (notesHtml || '');
-  el.style.color = bad ? 'var(--red)' : 'var(--muted)';
+  el.style.color = bad ? 'var(--red)' : 'var(--text)';
 }
 /* 更新说明按条目拆分：编号与内容分列，内容换行时缩进到文字处，不与编号对齐 */
 function otaNotesHtml(notes){
@@ -6393,7 +6393,7 @@ function fwBarShow(p){
 function fwMsg(t, bad, notesHtml){
   const el = $('#fw-info'); if(!el) return;
   el.innerHTML = esc(t || '') + (notesHtml || '');
-  el.style.color = bad ? 'var(--red)' : 'var(--muted)';
+  el.style.color = bad ? 'var(--red)' : 'var(--text)';
 }
 function fwShowReady(st){
   fwMsg('固件已下载并通过校验：' + (st.versionName || st.version || '新固件') + '（' + fwFmtSize(st.total) + '）\n点击“确认升级”开始写入并重启。');
