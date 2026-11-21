@@ -16,6 +16,17 @@ set(MBELIB_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 # OpenWrt 已注入工具链适用的加固参数；mbelib-neo 额外的 stack-clash 参数不支持 MIPS16。
 set(MBELIB_ENABLE_HARDENING OFF CACHE BOOL "" FORCE)
 
+# ramips（mt7621/mt76x8）默认开启 MIPS16 压缩指令。mbelib-neo 的浮点
+# 合成与 pffft 路径在 MIPS16 下会生成错误代码，运行几秒后写野指针段错误
+# （内核日志 epc/ra 为奇数地址）。这里对整棵树禁用 MIPS16。
+include(CheckCCompilerFlag)
+check_c_compiler_flag(-mno-mips16 HAVE_NO_MIPS16)
+if(HAVE_NO_MIPS16)
+    add_compile_options(-mno-mips16)
+    add_link_options(-mno-mips16)
+    message(STATUS "dmrstream: MIPS16 disabled")
+endif()
+
 add_subdirectory(vendor/mbelib-neo EXCLUDE_FROM_ALL)
 
 add_executable(dmrstreamd
