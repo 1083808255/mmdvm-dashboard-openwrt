@@ -9,8 +9,10 @@
 #   - 目标 ramips/mt76x8，profile hilink_hlk-7628n
 #   - 应用 DTS（I2C/GPIO0-3/serial1/128MB/console 移到 ttyS2）
 #   - 应用 02_network：单网口全部作为 LAN
-#   - 同步本地包：mmdvmhost / dmrgateway / mmdvm-dashboard /
-#     mmdvm-board-7628 / air780e-monitor / kmod-i2c-mt7621
+#   - 同步本地包：mmdvmhost / dmrgateway / mmdvm-dashboard / dmrstream /
+#     mmdvm-board-7628 / air780e-monitor
+#   - dmrstream 的 mbelib-neo 必须禁用 MIPS16（见 packages/dmrstream/src/CMakeLists.txt），
+#     ramips 平台若用 MIPS16 编译会在运行几秒后段错误
 set -eu
 
 BASE_SRC=${BASE_SRC:-$HOME/openwrt-23.05.6}
