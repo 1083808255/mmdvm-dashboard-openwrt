@@ -1332,12 +1332,12 @@ th{font-size:12px}
 @keyframes umIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
 #uiModal .um-head,#tgKeyModal .um-head,#xlxModal .um-head,#otaModal .um-head,#fwModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
 #uiModal .um-body,#tgKeyModal .um-body,#xlxModal .um-body,#otaModal .um-body,#fwModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
-/* 更新说明：手机版整体右移 20px，电脑版右移 50px；条目编号与内容分列，长行缩进到文字处 */
-#ota-m-msg,#fw-info{font-size:13px;padding-left:20px}
-@media (min-width:861px){#ota-m-msg,#fw-info{font-size:13.5px;padding-left:50px}}
+/* 更新说明：手机版左移后的缩进 10px，电脑版 20px；内容灰色显示，长行与首字对齐 */
+#ota-m-msg,#fw-info{font-size:13px;padding-left:10px}
+@media (min-width:861px){#ota-m-msg,#fw-info{font-size:13.5px;padding-left:20px}}
 .ota-note{display:flex;gap:6px;margin-top:3px}
 .ota-no{flex:none;color:var(--faint);font-family:var(--mono)}
-.ota-tx{flex:1;min-width:0}
+.ota-tx{flex:1;min-width:0;color:var(--faint)}
 #uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot,#otaModal .um-foot,#fwModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
 /* 确认框要盖在更新弹窗之上，否则从更新弹窗点安装时看不到确认提示 */
 #uiModal{z-index:200}
