@@ -1314,6 +1314,9 @@ th{font-size:12px}
 @keyframes umIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
 #uiModal .um-head,#tgKeyModal .um-head,#xlxModal .um-head,#otaModal .um-head,#fwModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
 #uiModal .um-body,#tgKeyModal .um-body,#xlxModal .um-body,#otaModal .um-body,#fwModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
+/* 更新说明：手机版右移 15px，电脑版右移 30px，字号比正文小一档 */
+#ota-m-msg,#fw-info{font-size:13px;padding-left:15px}
+@media (min-width:861px){#ota-m-msg,#fw-info{font-size:13.5px;padding-left:30px}}
 #uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot,#otaModal .um-foot,#fwModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
 /* 确认框要盖在更新弹窗之上，否则从更新弹窗点安装时看不到确认提示 */
 #uiModal{z-index:200}
@@ -2025,7 +2028,7 @@ th{font-size:12px}
     <div class="um-head">仪表盘更新</div>
     <div class="um-body" style="white-space:normal">
       <p style="margin:0 0 12px">只更新网页界面和 API，不重启设备。安装前会校验 sha256，并自动保留上一版本用于回滚。</p>
-      <div id="ota-m-msg" style="color:var(--muted);font-size:14px;line-height:1.6;min-height:20px;white-space:pre-line"></div>
+      <div id="ota-m-msg" style="color:var(--muted);line-height:1.6;min-height:20px;white-space:pre-line"></div>
     </div>
     <div class="um-foot" style="flex-wrap:wrap">
       <button class="btn" id="ota-m-check" type="button">检查更新</button>
@@ -2040,7 +2043,7 @@ th{font-size:12px}
     <div class="um-head">整机固件更新</div>
     <div class="um-body" style="white-space:normal">
       <p style="margin:0 0 12px">下载完整固件并重启设备，默认保留配置；升级期间通联中断 1–3 分钟。</p>
-      <div id="fw-info" style="font-size:14px;color:var(--muted);line-height:1.7;white-space:pre-line">当前固件：读取中…</div>
+      <div id="fw-info" style="color:var(--muted);line-height:1.7;white-space:pre-line">当前固件：读取中…</div>
       <div id="fw-bar" style="display:none;height:6px;background:var(--border);border-radius:4px;margin:10px 0;overflow:hidden"><i style="display:block;height:100%;width:0%;background:var(--accent);transition:width .3s"></i></div>
     </div>
     <div class="um-foot" style="flex-wrap:wrap">
