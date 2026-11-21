@@ -6446,7 +6446,7 @@ async function fwCheck(){
       fwChecked = j;
       const cur = (j.current === 'unknown') ? '未知' : j.current;
       if(j.updateAvailable){
-        const nt = (j.notes || '').trim();
+        const nt = otaNotesText(j.notes);
         fwMsg('发现新固件 ' + (j.versionName || j.latest) + '（当前 ' + cur + '）\n大小：' + fwFmtSize(j.size) + (nt ? '\n' + nt : ''));
         if(act){ act.disabled = false; act.textContent = '下载并升级'; }
         fwRow(cur, '有更新', 'var(--amber)');
