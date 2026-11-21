@@ -1327,9 +1327,12 @@ th{font-size:12px}
 @keyframes umIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
 #uiModal .um-head,#tgKeyModal .um-head,#xlxModal .um-head,#otaModal .um-head,#fwModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
 #uiModal .um-body,#tgKeyModal .um-body,#xlxModal .um-body,#otaModal .um-body,#fwModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:pre-wrap;overflow-y:auto;word-break:break-word}
-/* 更新说明：手机版右移 15px，电脑版右移 30px，字号比正文小一档 */
-#ota-m-msg,#fw-info{font-size:13px;padding-left:15px}
-@media (min-width:861px){#ota-m-msg,#fw-info{font-size:13.5px;padding-left:30px}}
+/* 更新说明：手机版整体右移 20px，电脑版右移 50px；条目编号与内容分列，长行缩进到文字处 */
+#ota-m-msg,#fw-info{font-size:13px;padding-left:20px}
+@media (min-width:861px){#ota-m-msg,#fw-info{font-size:13.5px;padding-left:50px}}
+.ota-note{display:flex;gap:6px;margin-top:3px}
+.ota-no{flex:none;color:var(--faint);font-family:var(--mono)}
+.ota-tx{flex:1;min-width:0}
 #uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot,#otaModal .um-foot,#fwModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
 /* 确认框要盖在更新弹窗之上，否则从更新弹窗点安装时看不到确认提示 */
 #uiModal{z-index:200}
@@ -2818,17 +2821,19 @@ async function radioCheckOta(){
     b.classList.remove('primary');
   }
 }
-function otaModalMsg(t, bad){
+function otaModalMsg(t, bad, notesHtml){
   const el = $('#ota-m-msg');
   if(!el) return;
-  el.textContent = t || '';
+  el.innerHTML = esc(t || '') + (notesHtml || '');
   el.style.color = bad ? 'var(--red)' : 'var(--muted)';
 }
-/* 更新说明按条目拆行并编号 */
-function otaNotesText(notes){
+/* 更新说明按条目拆分：编号与内容分列，内容换行时缩进到文字处，不与编号对齐 */
+function otaNotesHtml(notes){
   const raw = (notes || '').trim();
   if(!raw) return '';
-  return raw.split(/\r?\n|；|;/).map(s=>s.trim()).filter(Boolean).map((s,i)=>(i+1) + '. ' + s).join('\n');
+  return raw.split(/\r?\n|；|;/).map(s=>s.trim()).filter(Boolean)
+    .map((s,i)=>'<div class="ota-note"><span class="ota-no">'+(i+1)+'.</span>'
+      + '<span class="ota-tx">'+esc(s)+'</span></div>').join('');
 }
 function openOtaModal(){
   const m = $('#otaModal');
@@ -2843,8 +2848,7 @@ function openOtaModal(){
     if(!j || !j.ok){ otaModalMsg((j && j.error) || '检查失败', true); return; }
     radioOtaCache = { t: Date.now(), data: j };
     if(j.updateAvailable){
-      const nt = otaNotesText(j.notes);
-      otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (nt ? '\n' + nt : ''));
+      otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）', false, otaNotesHtml(j.notes));
       $('#ota-m-install').disabled = false;
     }else{
       otaModalMsg('已是最新版本 ' + j.current);
@@ -2866,8 +2870,7 @@ function bindOtaModal(){
       else{
         radioOtaCache = { t: Date.now(), data: j };
         if(j.updateAvailable){
-          const nt = otaNotesText(j.notes);
-          otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）' + (nt ? '\n' + nt : ''));
+          otaModalMsg('发现新版本 ' + j.latest + '（当前 ' + j.current + '）', false, otaNotesHtml(j.notes));
           $('#ota-m-install').disabled = false;
         }else{
           otaModalMsg('已是最新版本 ' + j.current);
@@ -6381,9 +6384,9 @@ function fwBarShow(p){
   b.style.display = 'block';
   b.firstElementChild.style.width = Math.max(0, Math.min(100, p)) + '%';
 }
-function fwMsg(t, bad){
+function fwMsg(t, bad, notesHtml){
   const el = $('#fw-info'); if(!el) return;
-  el.textContent = t || '';
+  el.innerHTML = esc(t || '') + (notesHtml || '');
   el.style.color = bad ? 'var(--red)' : 'var(--muted)';
 }
 function fwShowReady(st){
@@ -6467,8 +6470,7 @@ async function fwCheck(){
       fwChecked = j;
       const cur = (j.current === 'unknown') ? '未知' : j.current;
       if(j.updateAvailable){
-        const nt = otaNotesText(j.notes);
-        fwMsg('发现新固件 ' + (j.versionName || j.latest) + '（当前 ' + cur + '）\n大小：' + fwFmtSize(j.size) + (nt ? '\n' + nt : ''));
+        fwMsg('发现新固件 ' + (j.versionName || j.latest) + '（当前 ' + cur + '）\n大小：' + fwFmtSize(j.size), false, otaNotesHtml(j.notes));
         if(act){ act.disabled = false; act.textContent = '下载并升级'; }
         fwRow(cur, '有更新', 'var(--amber)');
       }else{
