@@ -142,7 +142,7 @@ aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
   .hstatus{order:5}
   .clock{order:6}
   /* 电脑版解锁态：恢复原始顶部菜单（末尾带注销），隐藏「菜单」按钮与密码框 */
-  header.nav-unlocked .topnav{display:flex;order:2}
+  header.nav-unlocked .topnav{display:flex;order:2;position:absolute;left:50%;transform:translateX(-50%)}
   header.nav-unlocked .menuBtn{display:none}
   header.nav-unlocked .pc-auth{display:none}
   /* 电脑版配置页：仅设置项右移 100px，卡片边框与标题不动 */

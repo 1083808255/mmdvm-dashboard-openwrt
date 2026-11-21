@@ -1082,6 +1082,10 @@ function cmdStatus() {
 	}
 	/* DMRGateway 版本：启动行是 “DMRGateway-YYYYMMDD is starting”，跨天兜底同上 */
 	let gwVer = "", gwFound = false;
+	/* 当前网关日志（最新一份）：启动行写在当天日志里，跨天再由缓存与全量 grep 兜底 */
+	let gwData = "";
+	let gwFile = newestLogs("DMRGateway", 1)[0] ?? "";
+	if (length(gwFile)) gwData = FS.readfile(gwFile) ?? "";
 	/* 必须按行匹配：日志里 “DMRGateway-xxx exited on receipt of SIGTERM” 也会出现该前缀，
 	   跨行截取会把整段关停日志当作版本号 */
 	for (let l in split(gwData, "\n")) {
@@ -1118,6 +1122,10 @@ function cmdStatus() {
 		/* 只扫最新一个日志文件：历史日志累计可达 10MB，全量 grep 会把单核设备 I/O 拖垮 */
 		let lastLog = trim(sh("ls -t /var/log/mmdvm/MMDVM-*.log 2>/dev/null | head -1"));
 		let ln = length(lastLog) ? trim(sh("grep -ah 'MMDVM protocol version:' \"" + lastLog + "\" 2>/dev/null | tail -1")) : "";
+		/* protocol 行只在 MMDVMHost 启动时写一次，日志按天滚动后当天文件里可能没有，
+		   此时回看全部日志取最后一次启动的记录（有 6 小时缓存，不会频繁触发） */
+		if (!length(ln))
+			ln = trim(sh("grep -ah 'MMDVM protocol version:' /var/log/mmdvm/MMDVM-*.log 2>/dev/null | tail -1"));
 		let d = between(ln, "description: ", null);
 		if (d != null) {
 			let tok = split(trim(d), " ")[0];
