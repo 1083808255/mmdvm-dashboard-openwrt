@@ -1,6 +1,6 @@
 # 红米 AX5 京东云版刷 OpenWrt + MMDVM 完整教程
 
-本教程对应工作区 `firmware/ax5/` 与 Gitee Release `fw-V0.610` 中的固件。
+本教程以红米 AX5 京东云版 V0.628 为例；后续版本以 OTA 清单返回的信息为准。
 编写前提：设备**已经刷好 OpenWrt**（如暗云版），可以直接用 sysupgrade 整机升级。
 
 ---
@@ -11,31 +11,31 @@
 |---|---|
 | 适用型号 | 红米 AX5 京东云版（`redmi_ax5-jdcloud`，IPQ6000，eMMC） |
 | **不适用** | 红米 AX5 其他版本、AX6、AX3000、AX9000 等（分区/设备树不同，刷错会变砖） |
-| 固件版本 | Lean OpenWrt，内核 6.18.64，`aarch64_cortex-a53`，固件版本 `V0.610` |
-| 固件内含 | MMDVMHost、DMRGateway、MMDVM 仪表盘 V0.610、CH341A USB-I2C 驱动、i2c-tools、USB 串口驱动、LuCI、uhttpd |
+| 固件版本 | Lean OpenWrt（`qualcommax/ipq60xx`），`aarch64_cortex-a53`，固件版本 `V0.628` |
+| 固件内含 | MMDVMHost、DMRGateway、MMDVM 仪表盘 V0.628、dmrstreamd 实时语音、CH341A USB-I2C 驱动、i2c-tools、USB 串口驱动、LuCI、uhttpd |
 | 已启用硬件 | USB3（`usb@8af8800`）、USB2（`usb@70f8800`）、BLSP I2C2/3/6、UART3 |
 | 串口用途 | UART3 = `/dev/ttyMSM0`，默认给双工板；**内核 console 与登录 shell 已关闭** |
 
 ### 文件
 
-本地：`firmware/ax5/`
+本地归档：`ota/dist/fw/`（发布产物，不入库）
 
 | 文件 | 用途 |
 |---|---|
-| `openwrt-qualcommax-ipq60xx-redmi_ax5-jdcloud-squashfs-sysupgrade.bin` | 整机升级（sysupgrade，日常用这个） |
+| `ax5-V0.628-squashfs-sysupgrade.bin` | 整机升级（sysupgrade，日常用这个） |
 
-在线（Gitee Release `fw-V0.610`）：
+在线（Gitee Release `fw-V0.628`）：
 
-- 镜像：<https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.610/openwrt-qualcommax-ipq60xx-redmi_ax5-jdcloud-squashfs-sysupgrade.bin>
+- 镜像：<https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.628/ax5-V0.628-squashfs-sysupgrade.bin>
 - 清单：<https://gitee.com/xyinmaster/mmdvm-openwrt-ota/raw/main/fw/redmi_ax5-jdcloud.json>
 
 | 校验项 | 值 |
 |---|---|
-| 大小 | 33,413,949 字节（约 32 MB） |
-| sha256 | `dc1a89dfcaa5cb0cfd8bae1134f6b3cf192b2687c8c15a2377ad93bb486fc595` |
+| 大小 | 33,516,349 字节（约 32 MB） |
+| sha256 | `0e884d25d5768a604f38f0d89793a3a5370aed4da40f5d5cfb9ab0876ed75523` |
 
-> 编译产物另有 `squashfs-factory.bin`（34 MB）、`initramfs-uImage.itb` 和 `SHA256SUMS`，在构建机
-> `~/firmware-out/ax5-20261118-1213/`；日常升级不需要它们，factory.bin 仅用于 U-Boot 救砖。
+> 编译产物另有 `squashfs-factory.bin`、`initramfs-uImage.itb` 和 `SHA256SUMS`，在构建机
+> `~/firmware-out/ax5-20261121-0015/`；日常升级不需要它们，factory.bin 仅用于 U-Boot 救砖。
 
 ### 风险提示
 
@@ -56,10 +56,10 @@
 
 ```powershell
 # 校验（PowerShell）
-Get-FileHash .\openwrt-qualcommax-ipq60xx-redmi_ax5-jdcloud-squashfs-sysupgrade.bin -Algorithm SHA256
+Get-FileHash .\ax5-V0.628-squashfs-sysupgrade.bin -Algorithm SHA256
 ```
 
-结果应为 `DC1A89DF...486FC595`。
+V0.628 的结果应为 `0E884D25...ED75523`；其他版本必须与所用清单的 `sha256` 完全一致。
 
 **确认当前是 OpenWrt**
 
@@ -80,7 +80,7 @@ Get-FileHash .\openwrt-qualcommax-ipq60xx-redmi_ax5-jdcloud-squashfs-sysupgrade.
 ### 方法 B：SSH 命令行
 
 ```powershell
-scp .\openwrt-qualcommax-ipq60xx-redmi_ax5-jdcloud-squashfs-sysupgrade.bin root@<路由器IP>:/tmp/ax5.bin
+scp .\ax5-V0.628-squashfs-sysupgrade.bin root@<路由器IP>:/tmp/ax5.bin
 ssh root@<路由器IP>
 sysupgrade -n /tmp/ax5.bin
 ```
@@ -220,17 +220,39 @@ MMDVMHost-YYYY-MM-DD.log
 
 出现 `Opening the DMR network` / `Logged into the master successfully` 即连接成功。
 
+V0.626 起固件内置实时语音服务 `dmrstreamd`（WebSocket 62040，开机自启）：仪表盘“实时语音”卡片
+点“开启收听”即可；服务只在有人收听时解码，空闲时仅抓包。
+
 ---
 
 ## 8. 固件与仪表盘 OTA
 
-**仪表盘 OTA**：仪表盘 → 系统 → 网页更新 → 检查更新（当前 `V0.610`）。
+**仪表盘 OTA**：仪表盘 → 系统 → 网页更新 → 检查更新。
 
 **整机固件 OTA**：仪表盘 → 系统 → 固件更新 → 检查更新。
 
 - 清单地址：`https://gitee.com/xyinmaster/mmdvm-openwrt-ota/raw/main/fw/redmi_ax5-jdcloud.json`
 - 服务器只保留最近 3 个版本
 - 下载完成后先校验 sha256，再写入；校验失败会保留原系统
+- V0.628 起，固件在后续 sysupgrade 前固定当前 rootfs 槽，并在每次成功开机后确认
+  `flag_boot_success=1`、复位两个失败计数器，避免小米 U-Boot 切换到空的 p24 槽
+
+### 从 V0.627 或更早版本首次升级
+
+旧系统的升级脚本尚不含固定槽位逻辑。为避免首次升级时碰到 A/B 启动标志问题，建议在旧系统
+SSH 中先执行以下命令，再安装 V0.628；**仅适用于 redmi,ax5-jdcloud**：
+
+```sh
+cur=$(fw_printenv -n flag_boot_rootfs 2>/dev/null)
+[ -n "$cur" ] || cur=0
+fw_setenv flag_boot_rootfs "$cur"
+fw_setenv flag_last_success "$cur"
+fw_setenv flag_boot_success 1
+fw_setenv flag_try_sys1_failed 8
+fw_setenv flag_try_sys2_failed 8
+```
+
+首次进入 V0.628 后无需再手工执行，固件自带的 `bootcount` 会在每次开机后维护。
 
 ---
 
@@ -264,15 +286,17 @@ MMDVMHost-YYYY-MM-DD.log
 构建机（`xy@192.168.8.200`）上：
 
 ```sh
-cd ~/firmware-build-ax5
+cd ~/firmware-build
 ./build-firmware-ax5.sh
 ```
 
 脚本会：
 
-1. 同步 `packages/` 下的 mmdvmhost、dmrgateway、mmdvm-dashboard、i2c-ch341
+1. 同步 `packages/` 下的 mmdvmhost、dmrgateway、mmdvm-dashboard、dmrstream、i2c-ch341
 2. 写入 `fw.version`（取 `packages/mmdvm-dashboard/files/www-dash/VERSION`）
 3. 覆盖设备树 `targets/ax5/ipq6000-ax5-jdcloud.dts`（USB3/USB2、I2C2/3/6、去 console）
 4. 覆盖 `scripts/json_overview_image_info.py`（修正 profiles.json 生成）
-5. 默认串口改 `/dev/ttyMSM0`，关闭 UART 登录 shell
-6. 生成 `.config`、编译、产物收集到 `~/firmware-out/ax5-<时间戳>/`
+5. 覆盖 `targets/ax5/ipq60xx-base-files/`，加入升级前固定槽位与开机确认启动成功的逻辑
+6. 默认串口改 `/dev/ttyMSM0`，关闭 UART 登录 shell
+7. 生成 `.config`、编译，并校验 kernel/rootfs 不超过 p16/p17 分区容量
+8. 产物收集到 `~/firmware-out/ax5-<时间戳>/`
