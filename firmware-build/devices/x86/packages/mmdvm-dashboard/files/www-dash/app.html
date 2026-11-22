@@ -2625,6 +2625,7 @@ function route(){
   if(view!=='qso') stopQsoTick();
   if(view!=='cal'){ stopCalMon(); if(calAuto.on) calAuto.abort = true; }
   if(view!=='tg') stopTgTick();
+  if(view!=='system') stopSysTick();
   if(renderers[view]) renderers[view]();
   if(view==='radio'){ renderLogTabs(); startLog(); }
 }
@@ -6346,6 +6347,27 @@ async function exportDiag(){
   }
 }
 
+/* 系统页 CPU/内存/根分区：每 3 秒刷新一次；只取 lite 字段，避免整页重算 */
+let sysTick = null, sysBusy = false;
+function stopSysTick(){ if(sysTick){ clearInterval(sysTick); sysTick = null; } }
+async function refreshSysMeters(){
+  if(sysBusy || document.hidden) return;
+  if(!document.querySelector('#view-system.on')) return;
+  sysBusy = true;
+  try{
+    const s = await api('/api/system?lite=1');
+    const m = document.querySelectorAll('#sys-overview .sys-meter');
+    if(s && s.cpuPct != null && m.length >= 3){
+      m[0].querySelector('.mv').textContent = s.cpuPct + '%';
+      m[0].querySelector('.bar i').style.width = s.cpuPct + '%';
+      m[1].querySelector('.mv').textContent = s.memUsed + ' / ' + (s.memFree ?? 0) + ' MB';
+      m[1].querySelector('.bar i').style.width = s.memPct + '%';
+      m[2].querySelector('.mv').textContent = s.diskUsed + ' / ' + (s.diskAvail ?? 0) + ' ' + (s.diskUnit || 'GB');
+      m[2].querySelector('.bar i').style.width = s.diskPct + '%';
+    }
+  }catch(e){}
+  sysBusy = false;
+}
 async function renderSystem(){
   const s = await api('/api/system');
   const load = (s.load||[]).join(' / ');
@@ -6449,6 +6471,9 @@ async function renderSystem(){
       .then(r=>r.json()).then(j=>{ toast(j.ok?'设备正在重启，请稍候…':(j.error||'重启失败'), !j.ok); })
       .catch(()=>toast('设备正在重启，请稍候…'));
   });
+  /* 进入系统页后每 3 秒只刷新 CPU/内存/根分区，离开页面时在 route() 里停止 */
+  stopSysTick();
+  sysTick = setInterval(refreshSysMeters, 3000);
 }
 
 /* ---------- 整机固件 OTA（全量升级） ---------- */
@@ -6996,8 +7021,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 /* 首次加载（含手动刷新网页）带 ping=1，强制做一次 ping 测试 */
 api('/api/status?ping=1');
 prefetchCfgs();
-/* 右上角网络连接状态与 CPU/内存：每 3 秒轮询刷新（页面隐藏时跳过），通联信息走 /api/live 不受影响 */
-setInterval(()=>{ if(document.hidden) return; api('/api/status'); }, 3000);
+/* 右上角网络连接状态：每 10 秒轮询刷新（页面隐藏时跳过），通联信息走 /api/live 不受影响 */
+setInterval(()=>{ if(document.hidden) return; api('/api/status'); }, 10000);
 </script>
 </body>
 </html>

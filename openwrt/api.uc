@@ -17,6 +17,7 @@ const STATUS_CACHE = "/tmp/dashboard_status.cache";
 const LIVE_CACHE   = "/tmp/dashboard_live.cache";
 const PING_CACHE   = "/tmp/dashboard_ping.json";
 const CPU_CACHE    = "/tmp/dashboard_cpu.json";
+const PHYS_CACHE   = "/tmp/dashboard_physmem.cache";
 const CONN_CACHE   = "/tmp/dashboard_conn.cache";
 const NET_STATE_CACHE = "/tmp/dashboard_netstate.json";
 const GWSCAN_CACHE = "/tmp/dashboard_gwscan.json";
@@ -1422,6 +1423,15 @@ function physMemMb() {
 	/* 向上取整：虚拟机分配 120M 时应显示 120 而不是 119 */
 	return int((kb + 1023) / 1024);
 }
+/* 物理内存总量只在第一次探测（dmesg 较慢），之后走缓存；lite 刷新不再 fork dmesg */
+function physMemMbCached() {
+	let c = 0;
+	try { c = int(trim(FS.readfile(PHYS_CACHE) ?? "")); } catch (e) { c = 0; }
+	if (c > 0) return c;
+	let v = physMemMb();
+	if (v > 0) try { FS.writefile(PHYS_CACHE, "" + v); } catch (e) {}
+	return v;
+}
 /* 整块磁盘容量（KB）：取 /proc/partitions 中最大的整盘设备，排除 sda1 这类分区 */
 function wholeDiskKb() {
 	let best = 0;
@@ -1447,6 +1457,8 @@ function lteInfo() {
 }
 
 function cmdSystem() {
+	/* ?lite=1：系统页每 3 秒只刷新 CPU/内存/根分区，跳过型号、固件、4G 等高成本字段 */
+	let lite = (qs().lite == "1");
 	let mem = FS.readfile("/proc/meminfo") ?? "";
 	let total = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
 	for (let l in split(mem, "\n")) {
@@ -1473,8 +1485,8 @@ function cmdSystem() {
 	let now = time();
 	let prevT = (type(prev) == "object" && prev != null) ? int(prev.t ?? 0) : 0;
 	let cpuPct = -1;
-	/* 采样窗口至少 5 秒：页面/多标签会频繁调 status，窗口太短会被 jiffy 量化放大成 0% 或 100% */
-	if (type(prev) == "object" && prev != null && prev.total > 0 && cTotal > prev.total && now - prevT >= 5) {
+	/* 采样窗口至少 3 秒：系统页每 3 秒刷新；窗口太短会被 jiffy 量化放大成 0% 或 100% */
+	if (type(prev) == "object" && prev != null && prev.total > 0 && cTotal > prev.total && now - prevT >= 3) {
 		let dt = cTotal - prev.total, di = cIdle - (prev.idle ?? 0);
 		cpuPct = (dt > 0) ? rnd((dt - di) * 100 / dt) : 0;
 	} else if (type(prev) == "object" && prev != null && prev.pct != null && now - prevT < 30) {
@@ -1487,7 +1499,7 @@ function cmdSystem() {
 	}
 	if (cpuPct < 0) cpuPct = 0;
 	if (cpuPct > 100) cpuPct = 100;
-	if (now - prevT >= 5) {
+	if (now - prevT >= 3) {
 		try { FS.writefile(CPU_CACHE, sprintf("%J", { total: cTotal, idle: cIdle, t: now, pct: cpuPct })); } catch (e) {}
 	}
 	let totalMb = rnd(total / 1024);
@@ -1498,18 +1510,34 @@ function cmdSystem() {
 	/* 空闲内存 = MemFree（完全空闲的物理页），不含缓存和可回收部分 */
 	let memFreeMb = rnd(freeKb / 1024);
 	/* 物理内存总量（比 MemTotal 大，含内核保留部分），读取失败时退回 MemTotal */
-	let memPhysMb = physMemMb();
+	let memPhysMb = physMemMbCached();
 	if (memPhysMb < totalMb) memPhysMb = totalMb;
 	let inGb = dTotalKb >= 1048576;
 	let dTotal = inGb ? +sprintf("%.1f", dTotalKb / 1048576) : rnd(dTotalKb / 1024);
 	let dUsed = inGb ? +sprintf("%.1f", dUsedKb / 1048576) : rnd(dUsedKb / 1024);
 	let dAvail = inGb ? +sprintf("%.1f", dAvailKb / 1048576) : rnd(dAvailKb / 1024);
+	let d = int(up / 86400), h = int((up % 86400) / 3600), mi = int((up % 3600) / 60);
+	if (lite) {
+		out({
+			cpuPct: cpuPct,
+			memTotal: totalMb,
+			memPhys: memPhysMb,
+			memUsed: memUsedMb,
+			memFree: memFreeMb,
+			memPct: memPhysMb ? rnd(memUsedMb * 100 / memPhysMb) : 0,
+			diskTotal: dTotal,
+			diskUsed: dUsed,
+			diskAvail: dAvail,
+			diskUnit: inGb ? "GB" : "MB",
+			diskPct: (dUsedKb + dAvailKb) ? rnd(dUsedKb * 100 / (dUsedKb + dAvailKb)) : 0
+		});
+		return;
+	}
 	/* 整块磁盘总容量（含 boot 等分区），读取失败时退回根分区容量 */
 	let devKb = wholeDiskKb();
 	let devGb = devKb >= 1048576;
 	let dDevTotal = devKb ? (devGb ? +sprintf("%.1f", devKb / 1048576) : rnd(devKb / 1024)) : dTotal;
 	let dDevUnit = (devKb ? devGb : inGb) ? "GB" : "MB";
-	let d = int(up / 86400), h = int((up % 86400) / 3600), mi = int((up % 3600) / 60);
 	out({
 		hostname: hostname(),
 		model: trim(FS.readfile("/tmp/sysinfo/model") ?? "—"),
