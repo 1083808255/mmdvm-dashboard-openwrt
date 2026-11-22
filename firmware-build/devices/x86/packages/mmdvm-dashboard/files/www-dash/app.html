@@ -4516,10 +4516,10 @@ function renderSections(content){
       const rows = arr.map((x, idx)=>{
         const isLast = idx === arr.length - 1;
         const num = parseInt(String(x.t.key).replace(/^\D+/, ''), 10) || 0;
-        /* 默认规则用灰色占位提示；所有行都可删除，删除后按剩下的行保存 */
-        const def = (base === 'TGRewrite' && tgDefs[num]) ? tgDefs[num] : '';
+        /* 默认规则只在空白行里用灰色提示；已写入文件的规则直接显示内容，避免看起来是空白 */
+        const def = (base === 'TGRewrite' && tgDefs[num] && String(x.t.value).trim() === '') ? tgDefs[num] : '';
         const ph = def || (base === 'PCRewrite' ? '2,2620000,2,262000,20' : '');
-        const val = (def && String(x.t.value).trim() === def) ? '' : x.t.value;
+        const val = x.t.value;
         return `<div class="rw-row" data-tok="${x.i}">
           <input class="inp" data-key="${esc(x.t.key)}" value="${esc(val)}" placeholder="${esc(ph)}">
           <div class="rw-acts">
