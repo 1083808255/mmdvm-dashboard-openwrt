@@ -130,6 +130,29 @@ function shortPut(path, body, file) {
 	}));
 	FS.rename(tmp, path);
 }
+/* 宽松缓存：只要缓存存在且年龄不超过 maxAge 就返回，忽略来源文件签名。
+   通话中日志每秒都在变，会让 shortGet 的签名校验永久失效，单核每次请求都全量重算，
+   单次逼近前端 8 秒超时后进程不退出、轮询继续发，进而堆积雪崩。给状态/列表类端点
+   一个「最短复用窗口」：几秒内的旧数据远好于把设备卡死机。 */
+function staleGet(path, maxAge) {
+	let d = FS.readfile(path);
+	if (d == null || substr(trim(d), 0, 1) != "{") return null;
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	if (type(v) != "object" || v == null || v.body == null) return null;
+	if (time() - (v.t ?? 0) > maxAge) return null;
+	return v.body;
+}
+/* 单飞锁：同名端点已有实例在跑（锁未过期）时返回 true，调用方应直接退回缓存，
+   绝不再启动第二个重算进程——这是防止「某次慢请求超时后进程不退出、轮询继续发、
+   单核进程越积越多」雪崩的最后一道闸。锁用时间戳，进程崩溃后最多 stale 秒自动释放。 */
+function inFlight(name, stale) {
+	let f = "/tmp/dashboard_" + name + ".flt";
+	let d = FS.readfile(f);
+	if (d != null && (time() - int(d)) < stale) return true;
+	FS.writefile(f, sprintf("%d", time()));
+	return false;
+}
 /* 呼号/地址查询结果短缓存：同一批呼号的 grep / awk 结果 60 秒内不再重复 fork。
    这类数据一天内基本不变，实时性只影响新出现的呼号，60 秒足够 */
 const MEMO = "/tmp/dashboard_memo.json";
@@ -1039,10 +1062,17 @@ function cmdStatus() {
 	let lf = logFileFor("MMDVM");
 	/* ?ping=1：页面手动刷新时强制做一次 ping 测试，并跳过短缓存 */
 	let forcePing = (qs().ping == "1");
-	/* 2 秒短缓存：命中时直接返回，避免重复 fork 多个 sh() 并解析日志 */
+	/* 短缓存：命中（1 秒内且日志未变）时直接返回。通话中日志每秒变化会让签名校验
+	   永久失效，再用宽松缓存兜底 5 秒，避免顶栏每 10 秒请求都全量解析上百 KB 日志，
+	   把单核拖到逼近前端超时；仍 miss 时若已有实例在跑就退回 20 秒内旧结果，防堆积 */
 	if (!forcePing) {
 		let cached = shortGet(STATUS_CACHE, SHORT_TTL, lf);
+		if (cached == null) cached = staleGet(STATUS_CACHE, 5);
 		if (cached != null) return cached;
+		if (inFlight("status", 8)) {
+			let s = staleGet(STATUS_CACHE, 20);
+			if (s != null) return s;
+		}
 	}
 	let m = ini(INI_DIR + "MMDVM.ini");
 	let g = m["General"] ?? {}, inf = m["Info"] ?? {}, mod = m["Modem"] ?? {};
@@ -1652,9 +1682,23 @@ function cmdLastheard() {
 	let sig = fileSig(file) + "#" + fileSig(INI_DIR + "DMRIds.dat") + "#" +
 	          fileSig(BG_CSV) + "#" + fileSig(RW_CSV) + "#" + fileSig(ID_CACHE) + "#" + int(time() / 120);
 	let cc = FS.readfile(LH_CACHE);
+	let cachedBody = null, cachedAge = 9999;
 	if (cc != null && substr(trim(cc), 0, 1) == "{") {
 		let v = json(cc);
-		if (type(v) == "object" && v.sig == sig && type(v.body) == "array") { out(v.body); return; }
+		if (type(v) == "object" && type(v.body) == "array") {
+			cachedBody = v.body;
+			cachedAge = time() - (v.t ?? 0);
+			/* 签名匹配（日志/库都没变）直接用；签名变了但结果在 5 秒内也复用，
+			   避免通话时日志变化导致每次都全量解析 + 查呼号库，逼近超时后堆积雪崩 */
+			if (v.sig == sig || cachedAge <= 5) { out(v.body); return; }
+		}
+	}
+	/* 需要重算：先拿单飞锁，拿不到说明已有实例在跑，退回 20 秒内旧结果（没有则空列表），
+	   绝不再启动第二个重算进程——lastheard 单次解析+查库最重，是堆积雪崩的主要来源 */
+	if (inFlight("lastheard", 8)) {
+		if (cachedBody != null && cachedAge <= 20) out(cachedBody);
+		else out([]);
+		return;
 	}
 	let recs = parseQso().recs;
 	/* 合并阶段只解析 ID：ID 记录用呼号本身，纯呼号记录才查 DMRIds.dat。
@@ -1845,7 +1889,7 @@ function cmdLastheard() {
 			hist: hout
 		});
 	}
-	writeCache(LH_CACHE, { sig: sig, body: r });
+	writeCache(LH_CACHE, { sig: sig, t: time(), body: r });
 	out(r);
 }
 
