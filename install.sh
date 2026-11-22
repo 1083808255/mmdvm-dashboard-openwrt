@@ -50,7 +50,8 @@ cp "$SRC/openwrt/mmdvm-ids-lite" "$BIN/mmdvm-ids-lite"
 cp "$SRC/openwrt/mmdvm-radiowo-sync" "$BIN/mmdvm-radiowo-sync"
 cp "$SRC/openwrt/mmdvm-bg4esi-sync" "$BIN/mmdvm-bg4esi-sync"
 cp "$SRC/openwrt/mmdvm-log-clean" "$BIN/mmdvm-log-clean"
-chmod 0755 "$BIN/mmdvm-ids-sync" "$BIN/mmdvm-ids-lite" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean"
+cp "$SRC/firmware-build/packages/mmdvm-dashboard/files/usr/bin/mmdvm-dashboard-bc-guard" "$BIN/mmdvm-dashboard-bc-guard"
+chmod 0755 "$BIN/mmdvm-ids-sync" "$BIN/mmdvm-ids-lite" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean" "$BIN/mmdvm-dashboard-bc-guard"
 cp "$SRC/openwrt/mmdvm-radiowo.init" "$INIT/mmdvm-radiowo"
 cp "$SRC/openwrt/mmdvm-bg4esi.init" "$INIT/mmdvm-bg4esi"
 cp "$SRC/openwrt/mmdvm-ids.init" "$INIT/mmdvm-ids"
@@ -78,6 +79,10 @@ grep -qF "$LITE_CRON" /etc/crontabs/root 2>/dev/null || echo "$LITE_CRON" >> /et
 LOG_CRON='7 4 * * * /usr/bin/mmdvm-log-clean'
 mkdir -p /etc/crontabs
 grep -qF "$LOG_CRON" /etc/crontabs/root 2>/dev/null || echo "$LOG_CRON" >> /etc/crontabs/root
+
+# 仪表盘字节码守护：api.uc 被换回源码或 ucode 升级后自动重编（每 5 分钟检查）
+BC_CRON='*/5 * * * * /usr/bin/mmdvm-dashboard-bc-guard'
+grep -qF "$BC_CRON" /etc/crontabs/root 2>/dev/null || echo "$BC_CRON" >> /etc/crontabs/root
 
 # LuCI 按需启动：进入路由配置时才拉起 uhttpd 主实例，空闲 10 分钟自动停止
 LUCI_BIN="$SRC/firmware-build/packages/mmdvm-dashboard/files/usr/bin/mmdvm-luci"

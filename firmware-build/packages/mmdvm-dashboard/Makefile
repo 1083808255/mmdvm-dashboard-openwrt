@@ -49,6 +49,7 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-bg4esi-sync $(1)/usr/bin/mmdvm-bg4esi-sync
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-log-clean $(1)/usr/bin/mmdvm-log-clean
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-luci $(1)/usr/bin/mmdvm-luci
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-dashboard-bc-guard $(1)/usr/bin/mmdvm-dashboard-bc-guard
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-radiowo $(1)/etc/init.d/mmdvm-radiowo
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-bg4esi $(1)/etc/init.d/mmdvm-bg4esi
