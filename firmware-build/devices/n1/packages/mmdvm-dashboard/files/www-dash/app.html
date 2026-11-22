@@ -4930,6 +4930,50 @@ window.addEventListener('resize', ()=>{
   clearTimeout(window._cfgGridT);
   window._cfgGridT = setTimeout(layoutCfgGrids, 120);
 });
+/* 网络1的 TG 改写随「网络2是否启用」自动切换：
+   仅网络1 → 全通配（1,1,1,1,9999998 / 2,1,2,1,9999998）
+   网络1+2 → 默认分流规则（46000/91/460000）
+   只接管当前正好是全通配、默认规则或空白的段，用户自定义规则不覆盖 */
+function gwApplyRewriteMode(cache, domVals){
+  if(cfgCurrent !== 'DMRGateway.ini') return;
+  const s1 = cache['DMR Network 1'];
+  if(!s1) return;
+  let en2 = false;
+  const dv = domVals['DMR Network 2\u0000Enabled'];
+  if(dv != null) en2 = /^(1|true|yes|on)$/i.test(String(dv).trim());
+  else {
+    const s2 = cache['DMR Network 2'];
+    const t = s2 && s2.tokens.find(x=>x.type === 'kv' && x.key === 'Enabled');
+    en2 = t ? /^(1|true|yes|on)$/i.test(String(t.value).trim()) : false;
+  }
+  const idxs = s1.tokens.map((t,i)=>({t,i})).filter(x=>x.t.type === 'kv' && /^TGRewrite\d+$/.test(x.t.key));
+  const idOf = x => 'DMR Network 1\u0000' + x.i;
+  const cur = idxs.map(x=>{
+    const v = domVals[idOf(x)];
+    return String((v != null ? v : x.t.value) ?? '').trim();
+  });
+  const PASS = ['1,1,1,1,9999998', '2,1,2,1,9999998'];
+  const DEF = GW_TG_DEFAULTS['DMR Network 1'];
+  const eq = (a,b)=> a.length === b.length && a.every((v,i)=> v === b[i]);
+  if(!(eq(cur, PASS) || eq(cur, DEF) || cur.every(v=> v === ''))) return;
+  const want = en2 ? DEF : PASS;
+  idxs.forEach((x,k)=>{
+    if(k < want.length){
+      x.t.value = want[k];
+      domVals[idOf(x)] = want[k];
+    } else {
+      /* 多出的行在序列化时整行丢弃，避免拼接 token 导致下标错位 */
+      domVals[idOf(x)] = '\u0000DROP';
+    }
+  });
+  let nextNum = 0;
+  idxs.forEach(x=>{ nextNum = Math.max(nextNum, +x.t.key.replace('TGRewrite','') + 1); });
+  for(let k=idxs.length; k<want.length; k++){
+    const idx = s1.tokens.length;
+    s1.tokens.push({ type:'kv', key:'TGRewrite' + (nextNum++), value:want[k], _raw:'', _hasEq:true });
+    domVals['DMR Network 1\u0000' + idx] = want[k];
+  }
+}
 function rebuildContent(keepEmpty){
   const cache = window._cfgSecCache || {};
   /* 收集页面上可见字段的当前值（隐藏字段沿用原值，保证不被删改） */
@@ -4954,6 +4998,7 @@ function rebuildContent(keepEmpty){
       domVals[name + '\u0000' + f.dataset.tok] = val;
     });
   });
+  gwApplyRewriteMode(cache, domVals);
   return Object.keys(cache).map(name=>{
     const lines = cache[name].tokens.map((t,i)=>{
       if(t.type==='kv'){
