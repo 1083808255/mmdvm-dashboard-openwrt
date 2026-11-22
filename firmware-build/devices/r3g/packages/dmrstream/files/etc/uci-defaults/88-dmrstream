@@ -1,0 +1,6 @@
+#!/bin/sh
+# 首次启动启用实时语音服务（WebSocket 62040）
+[ -x /usr/sbin/dmrstreamd ] || exit 0
+/etc/init.d/dmrstreamd enable
+/etc/init.d/dmrstreamd start
+exit 0

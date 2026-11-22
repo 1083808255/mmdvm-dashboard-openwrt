@@ -1,0 +1,14 @@
+#!/bin/sh
+# LuCI 按需启动：默认不随开机启动，仪表盘「进入路由配置」时拉起，空闲 10 分钟后自动停止
+if [ -f /etc/config/uhttpd ]; then
+	uci set uhttpd.main.enabled='0'
+	uci commit uhttpd
+fi
+
+CRON=/etc/crontabs/root
+LINE='*/1 * * * * /usr/bin/mmdvm-luci idle'
+mkdir -p /etc/crontabs
+grep -qF "$LINE" "$CRON" 2>/dev/null || echo "$LINE" >> "$CRON"
+/etc/init.d/cron restart >/dev/null 2>&1
+
+exit 0

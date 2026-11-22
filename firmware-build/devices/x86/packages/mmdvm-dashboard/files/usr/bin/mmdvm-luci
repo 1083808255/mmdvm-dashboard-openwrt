@@ -1,0 +1,92 @@
+#!/bin/sh
+# mmdvm-luci —— 按需启动 LuCI（uhttpd 主实例），无访问后自动停止，避免常驻占用内存
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+PIDFILE=/var/run/mmdvm-luci.pid
+IDLEFILE=/tmp/mmdvm_luci_idle
+IDLE_MIN=10
+
+running() {
+	[ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
+}
+
+start_luci() {
+	if running; then
+		cat "$PIDFILE"
+		return 0
+	fi
+
+	local home host v
+	home="$(uci -q get uhttpd.main.home)"
+	[ -n "$home" ] || home="/www"
+	host="$(uci -q get system.@system[0].hostname)"
+	[ -n "$host" ] || host="OpenWrt"
+
+	set -- -f -h "$home" -r "$host" -x /cgi-bin -u /ubus -t 60 -T 30 -k 20 -A 1 -n 3 -N 100
+	for v in $(uci -q get uhttpd.main.listen_http); do
+		set -- "$@" -p "$v"
+	done
+	if [ -s /etc/uhttpd.crt ] && [ -s /etc/uhttpd.key ]; then
+		set -- "$@" -C /etc/uhttpd.crt -K /etc/uhttpd.key
+		for v in $(uci -q get uhttpd.main.listen_https); do
+			set -- "$@" -s "$v"
+		done
+	fi
+
+	/usr/sbin/uhttpd "$@" >/dev/null 2>&1 &
+	echo $! > "$PIDFILE"
+	echo 0 > "$IDLEFILE"
+	sleep 1
+	if running; then
+		cat "$PIDFILE"
+		return 0
+	fi
+	rm -f "$PIDFILE"
+	return 1
+}
+
+stop_luci() {
+	if running; then
+		kill "$(cat "$PIDFILE")" 2>/dev/null
+		sleep 1
+		kill -9 "$(cat "$PIDFILE")" 2>/dev/null
+	fi
+	rm -f "$PIDFILE"
+	echo 0 > "$IDLEFILE"
+}
+
+# 是否还有浏览器连着 LuCI 端口
+active_conn() {
+	local p ports re
+	ports=""
+	for p in $(uci -q get uhttpd.main.listen_http) $(uci -q get uhttpd.main.listen_https); do
+		ports="$ports|${p##*:}"
+	done
+	[ -n "$ports" ] || ports="|8080"
+	re=":(${ports#|})[[:space:]].*ESTABLISHED"
+	netstat -tn 2>/dev/null | grep -Eq "$re"
+}
+
+idle_tick() {
+	running || return 0
+	if active_conn; then
+		echo 0 > "$IDLEFILE"
+		return 0
+	fi
+	local c
+	c="$(cat "$IDLEFILE" 2>/dev/null)"
+	[ -n "$c" ] || c=0
+	c=$((c + 1))
+	if [ "$c" -ge "$IDLE_MIN" ]; then
+		stop_luci
+	else
+		echo "$c" > "$IDLEFILE"
+	fi
+}
+
+case "$1" in
+	start)  start_luci ;;
+	stop)   stop_luci ;;
+	status) running && echo "running $(cat "$PIDFILE")" || echo "stopped" ;;
+	idle)   idle_tick ;;
+	*)      echo "usage: $0 start|stop|status|idle" >&2; exit 1 ;;
+esac

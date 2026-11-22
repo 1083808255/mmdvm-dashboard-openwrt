@@ -1,0 +1,22 @@
+#!/bin/sh
+# 仪表盘 API 字节码守护：
+# - api.uc 被换回源码（手动覆盖 / 旧安装包）时自动重编；
+# - ucode 升级后旧字节码不兼容时自动重编；
+# - 编译失败则保留源码继续用，不影响功能。
+P=/www-dash/api/api.uc
+SRC=/www-dash/api/api.uc.src
+[ -f "$P" ] || exit 0
+[ -x /usr/bin/ucode ] || exit 0
+
+if head -c 64 "$P" | grep -q ucb; then
+	# 已是字节码：解释器没升级就结束
+	[ "$P" -nt /usr/bin/ucode ] && exit 0
+else
+	# 源码状态：先留一份源码再编译
+	cp -f "$P" "$SRC" 2>/dev/null
+fi
+[ -f "$SRC" ] || exit 0
+ucode -c -s -o "$P.bc" "$SRC" 2>/dev/null || exit 0
+chmod 755 "$P.bc"
+mv -f "$P.bc" "$P"
+exit 0

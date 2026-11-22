@@ -1,0 +1,38 @@
+#!/bin/sh
+# HLK-7628N 无线默认值：同射频 AP + STA，AP 无密码，STA 默认停用
+[ -f /etc/config/wireless ] || exit 0
+
+radio=$(uci show wireless | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p" | head -n1)
+[ -n "$radio" ] || radio=radio0
+
+uci set wireless.$radio.type='mac80211'
+uci set wireless.$radio.band='2g'
+uci set wireless.$radio.channel='auto'
+uci set wireless.$radio.htmode='HT20'
+uci set wireless.$radio.country='CN'
+uci set wireless.$radio.disabled='0'
+
+# AP（无密码）
+uci -q delete wireless.mmdvm_ap
+uci set wireless.mmdvm_ap='wifi-iface'
+uci set wireless.mmdvm_ap.device="$radio"
+uci set wireless.mmdvm_ap.mode='ap'
+uci set wireless.mmdvm_ap.ssid='MMDVM-OpenWrt'
+uci set wireless.mmdvm_ap.encryption='none'
+uci set wireless.mmdvm_ap.network='lan'
+uci set wireless.mmdvm_ap.disabled='0'
+
+# STA 占位：保留已经填好的值，没有才创建
+if [ -z "$(uci -q get wireless.wwan_sta)" ]; then
+	uci set wireless.wwan_sta='wifi-iface'
+	uci set wireless.wwan_sta.device="$radio"
+	uci set wireless.wwan_sta.mode='sta'
+	uci set wireless.wwan_sta.network='wwan'
+	uci set wireless.wwan_sta.ssid='UPSTREAM_SSID'
+	uci set wireless.wwan_sta.encryption='psk2'
+	uci set wireless.wwan_sta.key='UPSTREAM_PASSWORD'
+	uci set wireless.wwan_sta.disabled='1'
+fi
+
+uci commit wireless
+exit 0

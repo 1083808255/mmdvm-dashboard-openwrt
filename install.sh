@@ -50,7 +50,7 @@ cp "$SRC/openwrt/mmdvm-ids-lite" "$BIN/mmdvm-ids-lite"
 cp "$SRC/openwrt/mmdvm-radiowo-sync" "$BIN/mmdvm-radiowo-sync"
 cp "$SRC/openwrt/mmdvm-bg4esi-sync" "$BIN/mmdvm-bg4esi-sync"
 cp "$SRC/openwrt/mmdvm-log-clean" "$BIN/mmdvm-log-clean"
-cp "$SRC/firmware-build/packages/mmdvm-dashboard/files/usr/bin/mmdvm-dashboard-bc-guard" "$BIN/mmdvm-dashboard-bc-guard"
+cp "$SRC/firmware-build/devices/x86/packages/mmdvm-dashboard/files/usr/bin/mmdvm-dashboard-bc-guard" "$BIN/mmdvm-dashboard-bc-guard"
 chmod 0755 "$BIN/mmdvm-ids-sync" "$BIN/mmdvm-ids-lite" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean" "$BIN/mmdvm-dashboard-bc-guard"
 cp "$SRC/openwrt/mmdvm-radiowo.init" "$INIT/mmdvm-radiowo"
 cp "$SRC/openwrt/mmdvm-bg4esi.init" "$INIT/mmdvm-bg4esi"
@@ -85,7 +85,7 @@ BC_CRON='*/5 * * * * /usr/bin/mmdvm-dashboard-bc-guard'
 grep -qF "$BC_CRON" /etc/crontabs/root 2>/dev/null || echo "$BC_CRON" >> /etc/crontabs/root
 
 # LuCI 按需启动：进入路由配置时才拉起 uhttpd 主实例，空闲 10 分钟自动停止
-LUCI_BIN="$SRC/firmware-build/packages/mmdvm-dashboard/files/usr/bin/mmdvm-luci"
+LUCI_BIN="$SRC/firmware-build/devices/x86/packages/mmdvm-dashboard/files/usr/bin/mmdvm-luci"
 if [ -f "$LUCI_BIN" ]; then
 	cp "$LUCI_BIN" "$BIN/mmdvm-luci"
 	chmod 0755 "$BIN/mmdvm-luci"
@@ -105,7 +105,7 @@ done
 # MMDVMHost / DMRGateway 启动脚本：呼号与 DMR ID 都还是默认值时开机跳过，
 # 配置好参数后无需再手动 enable，重启即自动运行
 for f in mmdvmhost dmrgateway; do
-	src="$SRC/firmware-build/packages/$f/files/$f.init"
+	src="$SRC/firmware-build/devices/x86/packages/$f/files/$f.init"
 	[ -f "$src" ] || continue
 	cp "$src" "$INIT/$f"
 	chmod 0755 "$INIT/$f"

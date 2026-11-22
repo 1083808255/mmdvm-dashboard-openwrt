@@ -1,0 +1,4 @@
+config air780e 'main'
+	option enabled '1'
+	option device '/dev/ttyS0'
+	option interval '30'

@@ -1,0 +1,45 @@
+#!/bin/sh
+# 下载 BG4ESI/ytqkl 中文通讯录（gitee mmdvm-CNcontact），过滤 46 开头 ID，转 UTF-8
+set -e
+URL="https://gitee.com/ytqkl/mmdvm-CNcontact/raw/main/stripped.zip"
+OUT="/etc/mmdvm/bg4esi.csv"
+TS="/etc/mmdvm/bg4esi.ts"
+LOCK="/tmp/mmdvm_bg4esi.lock"
+TMPDIR=$(mktemp -d)
+
+# 同一时间只允许一个实例：接口轮询会反复触发同步，没有锁会堆积大量 wget
+[ -f "$LOCK" ] && exit 0
+touch "$LOCK"
+trap "rm -rf $TMPDIR; rm -f $LOCK" EXIT
+
+# 失败也写时间戳，让调用方按 TTL 退避，避免每次请求都重试
+fail() {
+	date +%s > "$TS"
+	echo "$*" >&2
+	exit 1
+}
+
+command -v unzip >/dev/null 2>&1 || fail "unzip not available"
+command -v iconv >/dev/null 2>&1 || fail "iconv not available"
+
+# 更新前删除旧文件；空间不足时放弃本次更新
+rm -f "$OUT"
+avail=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
+if [ -n "$avail" ] && [ "$avail" -lt 8192 ]; then
+	fail "not enough space"
+fi
+
+cd "$TMPDIR"
+wget -q -T 40 -O stripped.zip "$URL" 2>/dev/null || fail "download failed"
+unzip -q -o stripped.zip 2>/dev/null || fail "unzip failed"
+
+# stripped.csv 是 GB18030 编码，转 UTF-8 后只保留 46 开头的行
+iconv -f GB18030 -t UTF-8 stripped.csv 2>/dev/null | awk -F, 'NR==1 || $1 ~ /^46/' > bg4esi.csv
+[ -s bg4esi.csv ] || fail "convert failed"
+mv bg4esi.csv "$OUT"
+
+# 更新时间戳
+date +%s > "$TS"
+
+LINES=$(wc -l < "$OUT")
+echo "done: $LINES lines"

@@ -1,0 +1,10 @@
+#!/bin/sh
+# 安装中文呼号库每日同步任务：03:17 BG4ESI（46 开头）、03:23 radiowo（86 开头）
+CRON=/etc/crontabs/root
+BG='17 3 * * * /usr/bin/mmdvm-bg4esi-sync >/dev/null 2>&1'
+RW='23 3 * * * /usr/bin/mmdvm-radiowo-sync >/dev/null 2>&1'
+mkdir -p /etc/crontabs
+grep -qF "$BG" "$CRON" 2>/dev/null || echo "$BG" >> "$CRON"
+grep -qF "$RW" "$CRON" 2>/dev/null || echo "$RW" >> "$CRON"
+/etc/init.d/cron restart >/dev/null 2>&1
+exit 0

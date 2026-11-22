@@ -1,0 +1,4 @@
+#!/bin/sh
+# 启用 4G 模块监视服务
+[ -x /etc/init.d/air780e-monitor ] && /etc/init.d/air780e-monitor enable
+exit 0

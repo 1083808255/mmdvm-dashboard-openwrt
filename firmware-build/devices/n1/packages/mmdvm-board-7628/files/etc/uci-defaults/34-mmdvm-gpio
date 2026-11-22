@@ -1,0 +1,4 @@
+#!/bin/sh
+# GPIO0~3（模块 17~20 脚）预留：导出为输入
+[ -x /etc/init.d/gpio-init ] && /etc/init.d/gpio-init enable
+exit 0

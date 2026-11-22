@@ -1,0 +1,16 @@
+#!/bin/sh
+# MMDVMHost / DMRGateway 开机自启
+# 是否真正启动由它们的 init 脚本判断：呼号与 DMR ID 都还是默认值时会跳过，
+# 配置好参数后无需再手动 enable，重启即自动运行
+
+for s in mmdvmhost dmrgateway; do
+	[ -f "/etc/config/$s" ] || continue
+	[ -x "/etc/init.d/$s" ] || continue
+	# 未设置过 enabled 时默认开启；用户显式关闭过的不覆盖
+	if [ -z "$(uci -q get $s.main.enabled)" ]; then
+		uci set "$s.main.enabled=1"
+		uci commit "$s"
+	fi
+	/etc/init.d/$s enable >/dev/null 2>&1
+done
+exit 0

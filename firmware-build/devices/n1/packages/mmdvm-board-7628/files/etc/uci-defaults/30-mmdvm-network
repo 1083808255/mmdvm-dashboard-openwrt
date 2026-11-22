@@ -1,0 +1,59 @@
+#!/bin/sh
+# HLK-7628N 网络默认值：
+#   - 单网口全部作为 LAN，192.168.7.1/24
+#   - LAN 只提供 IPv4 DHCP（100~200，租期 12h），不提供 IPv6
+#   - WiFi STA(wwan) 作为 WAN：IPv4 DHCP + DHCPv6 自动获取
+[ -f /etc/config/network ] || exit 0
+
+# 上游 WiFi 作为 WAN
+uci set network.wwan='interface'
+uci set network.wwan.proto='dhcp'
+uci set network.wwan.device='phy0-sta0'
+uci -q delete network.wwan6
+uci set network.wwan6='interface'
+uci set network.wwan6.proto='dhcpv6'
+uci set network.wwan6.device='@wwan'
+uci set network.wwan6.reqaddress='try'
+uci set network.wwan6.reqprefix='auto'
+
+# LAN：固定地址、去掉所有 IPv6 相关配置；单网口方案不存在 WAN 口
+[ -n "$(uci -q get network.lan)" ] || uci set network.lan='interface'
+uci set network.lan.proto='static'
+uci set network.lan.ipaddr='192.168.7.1'
+uci set network.lan.netmask='255.255.255.0'
+uci -q delete network.lan.ip6assign
+uci -q delete network.lan.ip6hint
+uci -q delete network.lan.ip6ifaceid
+uci -q delete network.lan.ip6class
+uci -q delete network.globals.ula_prefix
+uci -q delete network.wan
+uci -q delete network.wan6
+uci commit network
+
+# DHCP：池 192.168.7.100~200，租期 12h；LAN 关闭 RA / DHCPv6 / NDP
+[ -n "$(uci -q get dhcp.lan)" ] || uci set dhcp.lan='dhcp'
+uci set dhcp.lan.interface='lan'
+uci set dhcp.lan.start='100'
+uci set dhcp.lan.limit='101'
+uci set dhcp.lan.leasetime='12h'
+uci set dhcp.lan.ignore='0'
+uci set dhcp.lan.dhcpv6='disabled'
+uci set dhcp.lan.ra='disabled'
+uci set dhcp.lan.ndp='disabled'
+uci commit dhcp
+
+# 防火墙：wwan / wwan6 划入 wan 区，启用 NAT
+. /lib/functions.sh
+_wan_zone() {
+	local name
+	config_get name "$1" name
+	[ "$name" = "wan" ] || return 0
+	uci set firewall."$1".network='wwan wwan6'
+	uci set firewall."$1".masq='1'
+	uci set firewall."$1".mtu_fix='1'
+}
+config_load firewall
+config_foreach _wan_zone zone
+uci commit firewall
+
+exit 0

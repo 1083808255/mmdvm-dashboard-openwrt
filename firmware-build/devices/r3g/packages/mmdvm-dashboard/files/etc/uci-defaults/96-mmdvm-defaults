@@ -1,0 +1,56 @@
+#!/bin/sh
+# 全目标板统一默认值：主机名、时区、WiFi 默认开启
+HOSTNM='MMDVM-OpenWrt'
+
+uci set system.@system[0].hostname="$HOSTNM"
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+uci commit system
+
+# 无线：没有配置文件时先生成（自动探测硬件）
+[ -f /etc/config/wireless ] || wifi config >/dev/null 2>&1
+[ -f /etc/config/wireless ] || exit 0
+
+# 优先 2.4G 射频
+radio=""; first=""
+for r in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-device$/\1/p"); do
+	[ -z "$first" ] && first="$r"
+	if [ "$(uci -q get wireless.$r.band)" = "2g" ]; then radio="$r"; break; fi
+done
+[ -n "$radio" ] || radio="$first"
+[ -n "$radio" ] || exit 0
+
+# 出厂默认 AP（SSID 为空/LEDE/OpenWrt）改名并打开；自定义 SSID 的不动
+have_ap=""
+for i in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-iface$/\1/p"); do
+	[ "$(uci -q get wireless.$i.mode)" = "ap" ] || continue
+	have_ap=1
+	ssid=$(uci -q get wireless.$i.ssid)
+	case "$ssid" in
+	''|LEDE|OpenWrt)
+		uci set wireless.$i.ssid="$HOSTNM"
+		uci set wireless.$i.encryption='none'
+		uci set wireless.$i.disabled='0'
+		dev=$(uci -q get wireless.$i.device)
+		[ -n "$dev" ] && uci set wireless.$dev.disabled='0'
+		;;
+	esac
+done
+
+# 一个 AP 都没有：在 2.4G 射频上新建开放 AP
+if [ -z "$have_ap" ]; then
+	uci set wireless.$radio.disabled='0'
+	uci set wireless.$radio.channel='auto'
+	[ -z "$(uci -q get wireless.$radio.htmode)" ] && uci set wireless.$radio.htmode='HT20'
+	[ -z "$(uci -q get wireless.$radio.country)" ] && uci set wireless.$radio.country='CN'
+	uci set wireless.mmdvm_ap='wifi-iface'
+	uci set wireless.mmdvm_ap.device="$radio"
+	uci set wireless.mmdvm_ap.mode='ap'
+	uci set wireless.mmdvm_ap.ssid="$HOSTNM"
+	uci set wireless.mmdvm_ap.encryption='none'
+	uci set wireless.mmdvm_ap.network='lan'
+	uci set wireless.mmdvm_ap.disabled='0'
+fi
+
+uci commit wireless
+exit 0

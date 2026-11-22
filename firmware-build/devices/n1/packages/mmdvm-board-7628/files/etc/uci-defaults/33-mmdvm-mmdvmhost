@@ -1,0 +1,14 @@
+#!/bin/sh
+# MMDVMHost：调制解调器走 /dev/ttyS1（UART1），OLED 在 i2c-0
+[ -f /etc/mmdvm/MMDVM.ini ] || exit 0
+
+sed -i 's|^UARTPort=.*|UARTPort=/dev/ttyS1|' /etc/mmdvm/MMDVM.ini
+sed -i 's|^UARTSpeed=.*|UARTSpeed=115200|' /etc/mmdvm/MMDVM.ini
+
+if [ -f /etc/config/mmdvmhost ]; then
+	uci set mmdvmhost.main.i2c_bus='0'
+	uci set mmdvmhost.main.oled_i2c_addr='0x3C'
+	uci commit mmdvmhost
+fi
+
+exit 0
