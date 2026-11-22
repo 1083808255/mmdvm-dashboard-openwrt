@@ -4930,14 +4930,12 @@ window.addEventListener('resize', ()=>{
   clearTimeout(window._cfgGridT);
   window._cfgGridT = setTimeout(layoutCfgGrids, 120);
 });
-/* 网络1的 TG 改写随「网络2是否启用」自动切换：
-   仅网络1 → 全通配（1,1,1,1,9999998 / 2,1,2,1,9999998）
-   网络1+2 → 默认分流规则（46000/91/460000）
-   只接管当前正好是全通配、默认规则或空白的段，用户自定义规则不覆盖 */
+/* TG 改写随「网络2是否启用」自动切换：
+   仅网络1 → 网络1 用全通配（1,1,1,1,9999998 / 2,1,2,1,9999998）
+   网络1+2 → 网络1 用 46000/91/460000 默认规则，网络2 用 86000/860/860000 默认规则
+   只接管当前正好是全通配、对应默认规则或空白的段，用户自定义规则不覆盖 */
 function gwApplyRewriteMode(cache, domVals){
   if(cfgCurrent !== 'DMRGateway.ini') return;
-  const s1 = cache['DMR Network 1'];
-  if(!s1) return;
   let en2 = false;
   const dv = domVals['DMR Network 2\u0000Enabled'];
   if(dv != null) en2 = /^(1|true|yes|on)$/i.test(String(dv).trim());
@@ -4946,17 +4944,24 @@ function gwApplyRewriteMode(cache, domVals){
     const t = s2 && s2.tokens.find(x=>x.type === 'kv' && x.key === 'Enabled');
     en2 = t ? /^(1|true|yes|on)$/i.test(String(t.value).trim()) : false;
   }
-  const idxs = s1.tokens.map((t,i)=>({t,i})).filter(x=>x.t.type === 'kv' && /^TGRewrite\d+$/.test(x.t.key));
-  const idOf = x => 'DMR Network 1\u0000' + x.i;
+  const PASS = ['1,1,1,1,9999998', '2,1,2,1,9999998'];
+  const DEF1 = GW_TG_DEFAULTS['DMR Network 1'];
+  const DEF2 = GW_TG_DEFAULTS['DMR Network 2'];
+  gwSetRewriteRows(cache, domVals, 'DMR Network 1', en2 ? DEF1 : PASS, [PASS, DEF1]);
+  if(en2) gwSetRewriteRows(cache, domVals, 'DMR Network 2', DEF2, [PASS, DEF2]);
+}
+/* 把指定网络的 TGRewrite 行整体设为 want；当前是 managedSets 之一或空白时才接管 */
+function gwSetRewriteRows(cache, domVals, secName, want, managedSets){
+  const s = cache[secName];
+  if(!s) return;
+  const idxs = s.tokens.map((t,i)=>({t,i})).filter(x=>x.t.type === 'kv' && /^TGRewrite\d+$/.test(x.t.key));
+  const idOf = x => secName + '\u0000' + x.i;
   const cur = idxs.map(x=>{
     const v = domVals[idOf(x)];
     return String((v != null ? v : x.t.value) ?? '').trim();
   });
-  const PASS = ['1,1,1,1,9999998', '2,1,2,1,9999998'];
-  const DEF = GW_TG_DEFAULTS['DMR Network 1'];
   const eq = (a,b)=> a.length === b.length && a.every((v,i)=> v === b[i]);
-  if(!(eq(cur, PASS) || eq(cur, DEF) || cur.every(v=> v === ''))) return;
-  const want = en2 ? DEF : PASS;
+  if(!(cur.every(v=> v === '') || managedSets.some(set=> eq(cur, set)))) return;
   idxs.forEach((x,k)=>{
     if(k < want.length){
       x.t.value = want[k];
@@ -4969,9 +4974,9 @@ function gwApplyRewriteMode(cache, domVals){
   let nextNum = 0;
   idxs.forEach(x=>{ nextNum = Math.max(nextNum, +x.t.key.replace('TGRewrite','') + 1); });
   for(let k=idxs.length; k<want.length; k++){
-    const idx = s1.tokens.length;
-    s1.tokens.push({ type:'kv', key:'TGRewrite' + (nextNum++), value:want[k], _raw:'', _hasEq:true });
-    domVals['DMR Network 1\u0000' + idx] = want[k];
+    const idx = s.tokens.length;
+    s.tokens.push({ type:'kv', key:'TGRewrite' + (nextNum++), value:want[k], _raw:'', _hasEq:true });
+    domVals[secName + '\u0000' + idx] = want[k];
   }
 }
 function rebuildContent(keepEmpty){
