@@ -4252,8 +4252,24 @@ function gwViewTokens(name, tokens){
   });
   return out;
 }
+/* 兼容手写或旧版配置里的重复 TGRewrite=/PCRewrite=：按出现顺序转成 TGRewrite0/1…，页面才能逐条显示和编辑 */
+function gwNormalizeRewrite(secs){
+  if(cfgCurrent !== 'DMRGateway.ini') return;
+  secs.forEach(s=>{
+    if(!/^DMR Network\s+\d+$/.test(s.name)) return;
+    ['TGRewrite','PCRewrite'].forEach(base=>{
+      const re = new RegExp('^' + base + '(\\d+)$');
+      let next = 0;
+      s.tokens.forEach(t=>{
+        if(t.type === 'kv'){ const m = t.key.match(re); if(m) next = Math.max(next, +m[1] + 1); }
+      });
+      s.tokens.forEach(t=>{ if(t.type === 'kv' && t.key === base) t.key = base + (next++); });
+    });
+  });
+}
 function renderSections(content){
   const secs = parseSections(content);
+  gwNormalizeRewrite(secs);
   gwInjectIds(secs);
   window._cfgSecCache = {};
   /* DMRGateway 的常规/日志/语音/信息/远程控制/动态组控制/GPSD/APRS 段不在页面展示，仅保留在文件中原样写回 */
