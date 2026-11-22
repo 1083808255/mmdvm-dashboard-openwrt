@@ -5,6 +5,17 @@ STOP=10
 USE_PROCD=1
 
 start_service() {
+	# 实时语音未启用时不启动：写有 livecfg.json 时以其为准；没有配置时 7628 单核默认关闭，其它机型默认开启
+	local en=""
+	if [ -f /etc/mmdvm/livecfg.json ]; then
+		grep -q '"enabled"[[:space:]]*:[[:space:]]*true' /etc/mmdvm/livecfg.json && en=1
+	else
+		case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+			*hlk-7628n*) en="" ;;
+			*) en=1 ;;
+		esac
+	fi
+	[ -n "$en" ] || return 0
 	procd_open_instance
 	procd_set_param command /usr/sbin/dmrstreamd 62040 lo
 	procd_set_param respawn 3600 5 5
