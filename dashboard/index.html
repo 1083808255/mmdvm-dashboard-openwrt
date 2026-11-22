@@ -100,10 +100,18 @@ header{
 
 /* 电脑版行内密码框（手机版隐藏） */
 .pc-auth{display:none}
-.pc-auth input{height:34px;width:150px;padding:0 10px;border:1px solid var(--border);border-radius:9px;
+.pc-auth-field{position:relative;display:flex;align-items:center}
+.pc-auth input{height:34px;width:176px;padding:0 36px 0 10px;border:1px solid var(--border);border-radius:9px;
   background:var(--card);color:var(--text);font-size:14px;font-family:inherit;outline:none;transition:.15s}
 .pc-auth input:focus{border-color:var(--accent)}
 .pc-auth.err input{border-color:var(--red);animation:authShake .32s ease}
+/* 密码框内的登录箭头按钮 */
+.pc-auth-go{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:27px;height:26px;
+  display:flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:7px;
+  background:rgba(52,211,153,.16);color:var(--accent);cursor:pointer;transition:background .15s,transform .15s}
+.pc-auth-go svg{width:14px;height:14px;stroke:currentColor}
+.pc-auth-go:hover{background:rgba(52,211,153,.3)}
+.pc-auth-go:active{transform:translateY(-50%) scale(.94)}
 .pc-auth-err{color:var(--red);font-size:12px;white-space:nowrap}
 .pc-auth-hint{color:var(--muted);font-size:12px;white-space:nowrap}
 
@@ -174,6 +182,10 @@ main{max-width:calc(100% - var(--sidebar-w));margin:0 auto;padding:calc(var(--he
 @media (min-width:861px){main{max-width:100% }}
 .view{display:none;max-width:1180px;margin:0 auto;animation:fade .2s ease}
 .view.on{display:block}
+#bootMask{display:flex;align-items:center;justify-content:center;min-height:38vh}
+body.routed #bootMask{display:none}
+.boot-spin{width:26px;height:26px;border:3px solid #ddd;border-top-color:#4b8bf5;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .page-head{margin-bottom:18px}
 .page-head h1{font-size:22px;font-weight:700}
@@ -1422,8 +1434,13 @@ th{font-size:12px}
     <span class="menuBtn-label">登录</span>
   </button>
   <div class="pc-auth" id="pcAuth">
-    <input id="pcAuthPw" type="password" placeholder="输入密码解锁菜单" autocomplete="current-password">
-    <span class="pc-auth-hint" id="pcAuthHint">与路由器管理密码一致，回车确认</span>
+    <div class="pc-auth-field">
+      <input id="pcAuthPw" type="password" placeholder="输入密码解锁菜单" autocomplete="current-password">
+      <button type="button" class="pc-auth-go" id="pcAuthGo" title="登录" aria-label="登录">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"/><path d="M12.5 6.5 18 12l-5.5 5.5"/></svg>
+      </button>
+    </div>
+    <span class="pc-auth-hint" id="pcAuthHint">与路由器管理密码一致，回车或点箭头确认</span>
     <span class="pc-auth-err" id="pcAuthErr"></span>
   </div>
     <a href="javascript:;" class="topnav-logout" id="topnavLogout">
@@ -1439,7 +1456,7 @@ th{font-size:12px}
     </div>
     <div>
       <div class="t"><span>MMDVM</span><span>Dashboard</span></div>
-      <div class="s" id="deviceIp">192.168.8.9 · x86 OpenWrt</div>
+      <div class="s" id="deviceIp">OpenWrt</div>
     </div>
   </div>
   <nav class="topnav" id="topnav">
@@ -1458,6 +1475,7 @@ th{font-size:12px}
       <div class="submenu">
         <a href="#/cal" data-view="cal">校准</a>
         <a href="#/tg" data-view="tg">BM通话组</a>
+        <a href="#/livetool" data-view="livetool">实时语音</a>
       </div>
     </div>
     <div class="nav-group">
@@ -1519,6 +1537,10 @@ th{font-size:12px}
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         BM通话组
       </a>
+      <a href="#/livetool" data-view="livetool">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3M8 21h8"/></svg>
+        实时语音
+      </a>
     </div>
     </div>
     <div class="nav-group">
@@ -1547,8 +1569,9 @@ th{font-size:12px}
 </aside>
 
 <main>
+  <div id="bootMask"><div class="boot-spin"></div></div>
   <!-- ============ 通联信息 ============ -->
-  <section class="view on" id="view-qso">
+  <section class="view" id="view-qso">
     <div class="page-head"><h1 style="font-size:16px">通联信息</h1></div>
 
     <div class="card live-card" id="live-card">
@@ -1569,7 +1592,7 @@ th{font-size:12px}
           <div class="slot-metrics" id="slot1-metrics">
             <span class="sm" id="slot1-berw"><b>误码率</b><span id="slot1-ber">—</span></span>
             <span class="sm"><b>时长</b><span id="slot1-dur">00:00</span></span>
-            <span class="sm" id="slot1-geow" style="display:none"><b>位置</b><span id="slot1-geo">—</span></span>
+            <span class="sm" id="slot1-geow" style="display:none"><span id="slot1-geo">—</span></span>
           </div>
         </div>
         <div class="slot" id="slot-2">
@@ -1588,7 +1611,7 @@ th{font-size:12px}
           <div class="slot-metrics" id="slot2-metrics">
             <span class="sm" id="slot2-berw"><b>误码率</b><span id="slot2-ber">—</span></span>
             <span class="sm"><b>时长</b><span id="slot2-dur">00:00</span></span>
-            <span class="sm" id="slot2-geow" style="display:none"><b>位置</b><span id="slot2-geo">—</span></span>
+            <span class="sm" id="slot2-geow" style="display:none"><span id="slot2-geo">—</span></span>
           </div>
         </div>
       </div>
@@ -1840,6 +1863,30 @@ th{font-size:12px}
         <button class="btn sm" id="svc-refresh">刷新状态</button>
       </div>
       <div class="svc-grid" id="svc-list"></div>
+    </div>
+  </section>
+
+  <!-- ============ 实时语音功能开关 ============ -->
+  <section class="view" id="view-livetool">
+    <div class="page-head"><h1 style="font-size:16px">实时语音</h1><p>DMR 语音实时播放功能开关</p></div>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+        <div style="min-width:0">
+          <div style="font-weight:700;font-size:15px">实时语音功能</div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:4px">开启后可在「通联信息」页收听 DMR 实时语音</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="liveEnable"><i></i></label>
+      </div>
+      <div id="liveState" style="font-size:12.5px;color:var(--muted);margin-top:10px"></div>
+    </div>
+    <div class="card" style="border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.06)">
+      <div style="font-weight:700;font-size:14px;color:#fbbf24;margin-bottom:8px">风险提示</div>
+      <div style="font-size:13px;line-height:1.75;color:var(--muted)">
+        1. 实时语音需要持续解码 AMBE 音频，会明显增加 CPU 占用<br>
+        2. 7628 为单核 580MHz，开启后 CPU 可能接近满载，导致网页卡顿、通联延迟<br>
+        3. 建议只在一个页面收听，多端同时收听会成倍增加负载<br>
+        4. 该功能仅用于收听，不影响对讲机的正常收发
+      </div>
     </div>
   </section>
 
@@ -2514,7 +2561,7 @@ function renderNetworks(nets){
 }
 
 /* ---------- 路由 ---------- */
-const renderers = { qso:renderQso, config:renderConfig, basic:renderBasic, services:renderServices, adv:renderAdv, cal:renderCal, tg:renderTg, radio:renderRadio, system:renderSystem };
+const renderers = { qso:renderQso, config:renderConfig, basic:renderBasic, services:renderServices, adv:renderAdv, cal:renderCal, tg:renderTg, radio:renderRadio, system:renderSystem, livetool:renderLiveTool };
 let lastRoute = '';
 /* 高级页进入确认后的一次性放行标记 */
 let advGate = false;
@@ -2546,7 +2593,7 @@ function route(){
   $$('#topnav .nav-group').forEach(g=>g.classList.remove('open'));
   const seg = (location.hash.replace(/^#\//,'') || 'qso').split('/');
   let view = seg[0];
-  if(!['qso','config','basic','services','adv','cal','tg','radio','system'].includes(view)) view = 'qso';
+  if(!['qso','config','basic','services','adv','cal','tg','radio','system','livetool'].includes(view)) view = 'qso';
   /* 菜单未解锁且需要密码时，只能停留在通联信息页，阻止直达其它视图（手机/电脑一致） */
   if(authRequired && !menuUnlocked && view !== 'qso'){
     location.hash = '#/qso';
@@ -2566,6 +2613,7 @@ function route(){
   cfgMode = (view==='config') ? (seg[1] || 'dmrgateway') : 'mmdvmhost';
   const key = view + ':' + (view==='config' ? cfgMode : '');
   closeSidebar();
+  document.body.classList.add('routed');
   if(lastRoute === key) return;
   lastRoute = key;
   $$('.view').forEach(v=>v.classList.remove('on'));
@@ -2695,7 +2743,7 @@ async function tryPcUnlock(){
   const box = $('#pcAuth'), pw = $('#pcAuthPw'), err = $('#pcAuthErr'), btn = $('#menuBtn');
   if(!box || !pw) return;
   const v = pw.value;
-  if(!v){ pw.focus(); return; }
+  if(!v){ err.textContent = '请输入密码'; pw.focus(); return; }
   err.textContent = '';
   const label = btn ? btn.querySelector('.menuBtn-label') : null;
   const oldText = label ? label.textContent : '';
@@ -2759,6 +2807,22 @@ if(pcAuthPw){
     const hint=$('#pcAuthHint'); if(hint) hint.style.display='';
   });
 }
+const pcAuthGo = $('#pcAuthGo');
+if(pcAuthGo){
+  /* 输入框内的箭头按钮：与回车等效 */
+  pcAuthGo.addEventListener('click', e=>{ e.preventDefault(); tryPcUnlock(); });
+}
+/* 密码框没输入内容时，点页面其它地方自动收起 */
+document.addEventListener('click', e=>{
+  const h = document.querySelector('header');
+  if(!h || !h.classList.contains('pc-auth-open')) return;
+  if(e.target.closest('#pcAuth') || e.target.closest('#menuBtn')) return;
+  const pw = $('#pcAuthPw');
+  if(pw && pw.value) return;   /* 已经输入了密码就不收起，避免误触丢失 */
+  h.classList.remove('pc-auth-open');
+  const er = $('#pcAuthErr'); if(er) er.textContent = '';
+  const hint = $('#pcAuthHint'); if(hint) hint.style.display = '';
+});
 
 /* ---------- 时钟（页面隐藏或时钟不可见时不写 DOM） ---------- */
 const clockEl = $('#clock');
@@ -2780,7 +2844,7 @@ setInterval(()=>{
 async function renderRadio(){
   const s = await api('/api/status');
   const m = s.mmdvm || {};
-  $('#deviceIp').textContent = s.ip + ' · x86 OpenWrt';
+  $('#deviceIp').textContent = 'OpenWrt';
 
   const fRx = fmtFreq(m.rxFreq||0), fTx = fmtFreq(m.txFreq||0);
   const running = !!m.running;
@@ -5220,11 +5284,16 @@ function renderSlot(n, s, mode){
     const gEl = $('#slot'+n+'-geo'), gwEl = $('#slot'+n+'-geow');
     if(gEl && gwEl){
       const g = (s.state === 'TX') ? null : s.gps;
-      /* 只有成功解析出地址才显示；查不到地址（境外坐标等）就整项隐藏 */
       const place = (g && g.addr) ? g.addr : '';
+      const tail = (g && g.dist!=null) ? ' · ' + g.dist + 'km' + (g.base==='radio' ? '(GPS)' : '') : '';
       if(place){
-        gEl.textContent = place + (g.dist!=null ? ' · ' + g.dist + 'km' + (g.base==='radio' ? '(GPS)' : '') : '');
+        gEl.textContent = place + tail;
         gEl.title = place + ' (' + (+g.lat).toFixed(3) + ',' + (+g.lon).toFixed(3) + ')';
+        gwEl.style.display = '';
+      } else if(g && g.lat!=null && g.lon!=null){
+        /* 地址查不到（境外/限流）时退化为坐标，避免整条 GPS 信息被隐藏 */
+        gEl.textContent = (+g.lat).toFixed(3) + ',' + (+g.lon).toFixed(3) + tail;
+        gEl.title = '未解析地址 (' + (+g.lat).toFixed(3) + ',' + (+g.lon).toFixed(3) + ')';
         gwEl.style.display = '';
       } else {
         gEl.textContent = '—';
@@ -6724,7 +6793,57 @@ function dmrAudioConnect(){
     dmrAudioRetry = setTimeout(dmrAudioConnect, 2000);
   };
 }
+/* ---------- 实时语音功能开关（/api/livecfg） ---------- */
+/* 实时语音开关只对 7628（单核低性能）提供；其它机型固定开启、不显示入口 */
+let liveCfg = { enabled:true, lowPower:false, loaded:false };
+async function loadLiveCfg(){
+  const j = await api('/api/livecfg');
+  if(j && typeof j.enabled !== 'undefined')
+    liveCfg = { enabled: j.lowPower ? !!j.enabled : true, lowPower: !!j.lowPower, loaded: true };
+  applyLiveUi();
+  return liveCfg;
+}
+function applyLiveUi(){
+  const card = $('#dmrAudioCard');
+  if(card) card.style.display = liveCfg.enabled ? '' : 'none';
+  /* 「工具 → 实时语音」菜单仅 7628 显示 */
+  document.querySelectorAll('[data-view="livetool"]').forEach(el=>{
+    el.style.display = liveCfg.lowPower ? '' : 'none';
+  });
+  if(!liveCfg.enabled && dmrAudioEnabled) dmrAudioDisable();
+}
+async function renderLiveTool(){
+  await loadLiveCfg();
+  /* 非 7628 机型不提供该开关，直接回首页（防止手动输入地址进入） */
+  if(!liveCfg.lowPower){ location.hash = '#/qso'; return; }
+  const cb = $('#liveEnable');
+  if(cb) cb.checked = liveCfg.enabled;
+  const st = $('#liveState');
+  if(st) st.textContent = liveCfg.enabled ? '当前状态：已开启' : '当前状态：已关闭';
+}
+function bindLiveCfg(){
+  const cb = $('#liveEnable');
+  if(!cb) return;
+  cb.addEventListener('change', async ()=>{
+    const en = !!cb.checked;
+    const st = $('#liveState');
+    if(st) st.textContent = '正在' + (en ? '开启' : '关闭') + '…';
+    try{
+      const r = await fetch('/api/livecfg', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled: en }) });
+      const j = await r.json();
+      liveCfg.enabled = !!j.enabled;
+      liveCfg.loaded = true;
+      applyLiveUi();
+      if(st) st.textContent = liveCfg.enabled ? '当前状态：已开启' : '当前状态：已关闭';
+      toast(liveCfg.enabled ? '实时语音已开启' : '实时语音已关闭');
+    }catch(e){
+      cb.checked = !en;
+      if(st) st.textContent = '设置失败，请重试';
+    }
+  });
+}
 function dmrAudioEnable(){
+  if(!liveCfg.enabled){ dmrAudioState('实时语音功能已关闭', 'warn'); return; }
   const AC = window.AudioContext || window.webkitAudioContext;
   if(!AC){ dmrAudioState('浏览器不支持 Web Audio', 'err'); return; }
   if(!dmrAudioCtx){
@@ -6846,11 +6965,15 @@ function bindDmrAudio(){
   dmrAudioSlot = savedSlot % 3;
   dmrAudioSyncSlotBtn();
   if(savedOn){
-    setTimeout(()=>{
-      if(dmrAudioEnabled) return;
-      dmrAudioEnable();
-      if(dmrAudioCtx && dmrAudioCtx.state !== 'running') dmrAudioState('点击页面继续收听', 'warn');
-    }, 150);
+    /* 先确认实时语音功能开关：7628 默认关闭时不再自动续播 */
+    loadLiveCfg().then(()=>{
+      if(!savedOn || !liveCfg.enabled) return;
+      setTimeout(()=>{
+        if(dmrAudioEnabled) return;
+        dmrAudioEnable();
+        if(dmrAudioCtx && dmrAudioCtx.state !== 'running') dmrAudioState('点击页面继续收听', 'warn');
+      }, 150);
+    });
   }
   updateDmrAudioCall();
 }
@@ -6861,6 +6984,9 @@ bindTg();
 bindOtaModal();
 bindFwModal();
 bindDmrAudio();
+bindLiveCfg();
+/* 页面加载即读取开关：关闭时（7628 默认）隐藏通联信息页的语音卡片 */
+loadLiveCfg();
 window.addEventListener('DOMContentLoaded', async ()=>{
   /* 先探测 LuCI 是否设置了密码，再渲染首屏，避免未解锁时闪现其它视图 */
   await Promise.race([ loadAuthStatus(), new Promise(r=>setTimeout(r, 1500)) ]);
