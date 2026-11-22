@@ -55,6 +55,7 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-ids $(1)/etc/init.d/mmdvm-ids
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-ch341 $(1)/etc/init.d/mmdvm-ch341
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/89-mmdvm-dashboard-bc $(1)/etc/uci-defaults/89-mmdvm-dashboard-bc
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/90-mmdvm-dashboard $(1)/etc/uci-defaults/90-mmdvm-dashboard
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/91-mmdvm-log-clean $(1)/etc/uci-defaults/91-mmdvm-log-clean
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/92-mmdvm-disable-unused $(1)/etc/uci-defaults/92-mmdvm-disable-unused

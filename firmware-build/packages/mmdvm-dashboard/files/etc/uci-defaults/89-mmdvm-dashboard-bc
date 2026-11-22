@@ -1,0 +1,14 @@
+#!/bin/sh
+# 首次启动把仪表盘 API 预编译为 ucode 字节码。
+# 原因：api.uc 约 130KB，MT7628 单核上每次请求都要重新编译（约 0.5 秒），
+# 预编译后单次只约 0.04 秒；源码保留为 api.uc.src 供以后重编。
+P=/www-dash/api/api.uc
+[ -f "$P" ] || exit 0
+[ -x /usr/bin/ucode ] || exit 0
+# 已经是字节码（文件头含 ucb 标记）则跳过
+if head -c 64 "$P" | grep -q ucb; then exit 0; fi
+cp -f "$P" /www-dash/api/api.uc.src 2>/dev/null
+ucode -c -s -o /www-dash/api/api.uc.bc /www-dash/api/api.uc.src 2>/dev/null || exit 0
+chmod 755 /www-dash/api/api.uc.bc
+mv -f /www-dash/api/api.uc.bc "$P"
+exit 0
