@@ -3034,12 +3034,19 @@ function uartCustomList(){
   catch(e){ return []; }
 }
 function setUartCustomList(a){ localStorage.setItem(UART_LS, JSON.stringify(a)); }
-/* 当前值是自定义项时，显示标题栏的删除按钮 */
+/* 当前值是自定义项时，显示标题栏的删除按钮；已被系统探测到的端口不算自定义 */
 function syncUartDelBtn(){
   const v = $('#basic-uartport').value.trim();
   const btn = $('#uart-del-btn');
   if(!btn) return;
-  btn.style.display = (v && uartCustomList().includes(v)) ? '' : 'none';
+  const custom = uartCustomList();
+  /* 旧版本把 /dev/ttyS1 这类探测端口误存进了自定义列表，这里顺手清掉 */
+  if(v && serialPorts().includes(v) && custom.includes(v)){
+    setUartCustomList(custom.filter(x=>x!==v));
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = (v && custom.includes(v)) ? '' : 'none';
 }
 function uartOptionVals(){
   return serialPorts();
@@ -3066,7 +3073,15 @@ function syncScreenDelBtn(){
   const v = $('#basic-screenport').value.trim();
   const btn = $('#screen-del-btn');
   if(!btn) return;
-  btn.style.display = (v && screenCustomList().includes(v)) ? '' : 'none';
+  const custom = screenCustomList();
+  /* 标准项（Modem / 已探测端口）即使残留在旧缓存里也不显示删除 */
+  const std = screenOptionVals().includes(v) || /^modem$/i.test(v) || UART_BASE.includes(v);
+  if(v && std && custom.includes(v)){
+    setScreenCustomList(custom.filter(x=>x!==v));
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = (v && custom.includes(v)) ? '' : 'none';
 }
 function screenOptionVals(){
   return SCREEN_BASE.concat(serialPorts());
@@ -3763,8 +3778,10 @@ function autoAddUartPort(inputEl){
   const v = inputEl.value.trim();
   if(!v) return;
   if(!/^\/[A-Za-z0-9._\/-]+$/.test(v)) return;
+  /* 下拉里选中的系统端口属于标准项，不写入自定义列表 */
+  if(serialPorts().includes(v) || UART_BASE.includes(v)){ syncUartDelBtn(); return; }
   const arr = uartCustomList();
-  if(!UART_BASE.includes(v) && !arr.includes(v)){
+  if(!arr.includes(v)){
     arr.push(v);
     setUartCustomList(arr);
     renderUartPortSelect($('#basic-uartport').value);
@@ -3776,8 +3793,10 @@ function autoAddScreenPort(inputEl){
   const v = inputEl.value.trim();
   if(!v) return;
   if(!/^\/[A-Za-z0-9._\/-]+$/.test(v)) return;
+  /* 下拉里选中的标准项（Modem / 已探测端口）不写入自定义列表 */
+  if(screenOptionVals().includes(v) || /^modem$/i.test(v) || UART_BASE.includes(v)){ syncScreenDelBtn(); return; }
   const arr = screenCustomList();
-  if(!UART_BASE.includes(v) && !arr.includes(v)){
+  if(!arr.includes(v)){
     arr.push(v);
     setScreenCustomList(arr);
     renderScreenPortSelect($('#basic-screenport').value);
