@@ -32,6 +32,13 @@ chmod 0644 "$WEB/app.html" "$WEB/index.html" "$WEB/VERSION"
 
 cp "$SRC/openwrt/api.uc" "$API/api.uc"
 chmod 0755 "$API/api.uc"
+# 预编译为 ucode 字节码：单核设备（如 MT7628）上每次请求可省约 0.5 秒。
+# 保留源码为 api.uc.src，ucode 升级后可重新编译；编译失败则继续用源码。
+cp -f "$API/api.uc" "$API/api.uc.src"
+if ucode -c -s -o "$API/api.uc.bc" "$API/api.uc.src" 2>/dev/null; then
+	chmod 0755 "$API/api.uc.bc"
+	mv -f "$API/api.uc.bc" "$API/api.uc"
+fi
 for s in $ENDPOINTS; do
 	ln -sf api.uc "$API/$s"
 done

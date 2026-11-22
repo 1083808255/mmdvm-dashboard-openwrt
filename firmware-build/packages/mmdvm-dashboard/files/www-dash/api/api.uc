@@ -2397,7 +2397,7 @@ function otaLinks(list) {
 function otaCompileApi() {
 	let p = "/www-dash/api/api.uc";
 	if (FS.stat(p) == null) return;
-	sh("ucode -c -s -o " + p + ".bc " + p + " >/dev/null 2>&1 && chmod 755 " + p + ".bc && mv -f " + p + ".bc " + p);
+	sh("cp -f " + p + " " + p + ".src; ucode -c -s -o " + p + ".bc " + p + ".src >/dev/null 2>&1 && chmod 755 " + p + ".bc && mv -f " + p + ".bc " + p);
 }
 function otaInstallFrom(dir, endpoints, version) {
 	let ok = otaInstallFile(dir + "/app.html", "/www-dash/app.html", "0644");
