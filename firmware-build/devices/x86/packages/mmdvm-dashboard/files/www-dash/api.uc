@@ -1028,7 +1028,8 @@ function scanSerialPorts() {
 	let res = [];
 	let list = FS.lsdir("/dev") ?? [];
 	for (let n in list) {
-		if (match(n, /^tty(USB|ACM|AMA|HS|MSM)[0-9]+$/)) push(res, "/dev/" + n);
+		/* ttyS* 是 SoC 自带串口（如 HLK-7628N 的调制解调器用 /dev/ttyS1） */
+		if (match(n, /^tty(USB|ACM|AMA|HS|MSM|S)[0-9]+$/)) push(res, "/dev/" + n);
 	}
 	sort(res);
 	return res;
@@ -1870,16 +1871,26 @@ function bmReq(method, path, payload) {
 	if (i >= 0) { code = int(trim(substr(raw, i + 1))); body = substr(raw, 0, i); }
 	return { code: code, body: body };
 }
+/* BrandMeister 公开接口要跨公网查询，慢速设备上单次要 3 秒左右；
+   60 秒内同一设备/同一鉴权状态直接复用结果 */
+let TG_MEMO_KEY = "";
+function tgOut(res) {
+	if (length(TG_MEMO_KEY)) { try { memoPut(TG_MEMO_KEY, res); } catch (e) {} }
+	out(res);
+}
 function cmdTgGet() {
 	let st = state();
 	let ids = st.dmrIds;
 	let e0 = (type(ids) == "array" && ids[0] != null) ? trim(ids[0].essid ?? "") : "";
 	let ov = trim(st.bmDeviceId ?? "");
 	let dev = bmDeviceId(), key = bmKey();
+	TG_MEMO_KEY = "tg:" + dev + ":" + (length(key) ? "1" : "0");
+	let hit = memoGet(TG_MEMO_KEY, 60);
+	if (hit != null) { out(hit); return; }
 	/* override：手动指定的 DMR ID（已补足 ESSID，便于页面按完整 ID 匹配选项；空表示自动） */
 	let res = { ok: true, configured: length(key) > 0, deviceId: dev,
 	            override: length(ov) ? bmWithEssid(ov, e0) : "", talkgroups: [], dynamic: [] };
-	if (!length(dev)) { out(res); return; }
+	if (!length(dev)) { tgOut(res); return; }
 	/* 配置了 Key 时用 profile 一次拿到静态组 + 动态组；未配置时用公开接口只取静态组 */
 	if (length(key)) {
 		let pr = bmReq("GET", "/device/" + dev + "/profile", null);
@@ -1898,11 +1909,11 @@ function cmdTgGet() {
 				put(p.staticSubscriptions, res.talkgroups);
 				put(p.dynamicSubscriptions, res.dynamic);
 			}
-			out(res);
+			tgOut(res);
 			return;
 		}
-		if (pr.code == 401 || pr.code == 403) { res.ok = false; res.error = "API Key 无效或无权访问该设备"; out(res); return; }
-		if (pr.code == 0) { res.ok = false; res.error = "无法连接 BrandMeister（请检查网络）"; out(res); return; }
+		if (pr.code == 401 || pr.code == 403) { res.ok = false; res.error = "API Key 无效或无权访问该设备"; tgOut(res); return; }
+		if (pr.code == 0) { res.ok = false; res.error = "无法连接 BrandMeister（请检查网络）"; tgOut(res); return; }
 		/* 其他异常回落到公开接口，至少能看静态组 */
 	}
 	let r = bmReq("GET", "/device/" + dev + "/talkgroup", null);
@@ -1919,7 +1930,7 @@ function cmdTgGet() {
 			}
 		}
 	}
-	out(res);
+	tgOut(res);
 }
 function cmdTgPost() {
 	let d = body() ?? {};
@@ -2381,6 +2392,13 @@ function otaLinks(list) {
 		sh("ln -sf api.uc /www-dash/api/" + n);
 	}
 }
+/* 把 API 源码预编译为字节码：单核设备（MT7628）上每次请求可省约 0.5 秒。
+   编译失败时保留源码，不影响功能 */
+function otaCompileApi() {
+	let p = "/www-dash/api/api.uc";
+	if (FS.stat(p) == null) return;
+	sh("cp -f " + p + " " + p + ".src; ucode -c -s -o " + p + ".bc " + p + ".src >/dev/null 2>&1 && chmod 755 " + p + ".bc && mv -f " + p + ".bc " + p);
+}
 function otaInstallFrom(dir, endpoints, version) {
 	let ok = otaInstallFile(dir + "/app.html", "/www-dash/app.html", "0644");
 	if (!otaInstallFile(dir + "/index.html", "/www-dash/index.html", "0644")) ok = false;
@@ -2388,6 +2406,7 @@ function otaInstallFrom(dir, endpoints, version) {
 	if (length(version)) FS.writefile("/www-dash/VERSION", version + "\n");
 	else otaInstallFile(dir + "/VERSION", "/www-dash/VERSION", "0644");
 	otaLinks(endpoints);
+	otaCompileApi();
 	return ok;
 }
 function otaBackup() {
