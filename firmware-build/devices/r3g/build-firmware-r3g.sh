@@ -5,7 +5,7 @@
 #
 # 用法：
 #   ./build-firmware-r3g.sh
-#   BASE_SRC=~/openwrt-23.05.6 JOBS=6 ./build-firmware-r3g.sh
+#   BASE_SRC=~/openwrt-23.05.6 JOBS=8 ./build-firmware-r3g.sh
 #
 # 说明：
 #   - 首次运行会用 BASE_SRC 复制出独立源码树（不含 build_dir/staging_dir/bin），
@@ -16,7 +16,7 @@ set -eu
 BASE_SRC=${BASE_SRC:-$HOME/openwrt-23.05.6}
 WORKDIR=${WORKDIR:-$HOME/openwrt-23.05.6-r3g}
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-JOBS=${JOBS:-$(nproc)}
+JOBS=${JOBS:-8}
 STAMP=$(date +%Y%m%d-%H%M)
 OUTDIR=${OUTDIR:-$HOME/firmware-out/r3g-$STAMP}
 TARGET_BIN=bin/targets/ramips/mt7621
@@ -39,11 +39,27 @@ if [ ! -d "$WORKDIR" ]; then
     ln -sfn "$BASE_SRC/dl" "$WORKDIR/dl"
 fi
 
+cd "$WORKDIR"
+echo "==> 更新 feeds"
+[ -f feeds.conf ] || cp feeds.conf.default feeds.conf
+./scripts/feeds update -a >/dev/null 2>&1 || die "feeds 更新失败"
+./scripts/feeds install -a >/dev/null 2>&1 || die "feeds 安装失败"
+
 echo "==> 同步固件包"
-for p in mmdvmhost dmrgateway mmdvm-dashboard dmrstream; do
+for p in mmdvmhost dmrgateway dmrstream; do
     rm -rf "$WORKDIR/package/$p"
     cp -a "$SCRIPT_DIR/packages/$p" "$WORKDIR/package/$p"
 done
+# 仪表盘为全机型共用单一源码，机型差异用 dashboard-override/ 叠加
+FW_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+if [ ! -d "$FW_ROOT/packages/mmdvm-dashboard" ]; then
+	FW_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+fi
+rm -rf "$WORKDIR/package/mmdvm-dashboard"
+cp -a "$FW_ROOT/packages/mmdvm-dashboard" "$WORKDIR/package/mmdvm-dashboard"
+if [ -d "$SCRIPT_DIR/dashboard-override" ]; then
+	cp -a "$SCRIPT_DIR/dashboard-override/." "$WORKDIR/package/mmdvm-dashboard/"
+fi
 rm -rf "$WORKDIR/package/kernel/i2c-ch341"
 mkdir -p "$WORKDIR/package/kernel"
 cp -a "$SCRIPT_DIR/packages/i2c-ch341" "$WORKDIR/package/kernel/i2c-ch341"
@@ -54,6 +70,18 @@ FWV=$(tr -d ' \t\r\n' < "$SCRIPT_DIR/VERSION" 2>/dev/null || true)
 [ -n "$FWV" ] || { echo "ERROR: 缺少仪表盘 VERSION" >&2; exit 1; }
 mkdir -p "$WORKDIR/files/etc/mmdvm"
 printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
+
+# 整机 OTA（sysupgrade）保留用户配置：仪表盘设置（含 BM API Key）、
+# 实时语音与 OTA 源配置、两台服务的 ini；可重建的缓存与固件资源不保留
+mkdir -p "$WORKDIR/files/etc"
+cat > "$WORKDIR/files/etc/sysupgrade.conf" <<'SYSKEEP'
+## 整机 OTA 升级时保留的用户配置
+/etc/mmdvm/dashboard.json
+/etc/mmdvm/livecfg.json
+/etc/mmdvm/dashboard-ota.json
+/etc/mmdvm/MMDVM.ini
+/etc/mmdvm/DMRGateway.ini
+SYSKEEP
 
 echo "==> 修正 R3G 双内核槽升级（内核同时写入 kernel 与 kernel_stock）"
 PLAT="$WORKDIR/target/linux/ramips/mt7621/base-files/lib/upgrade/platform.sh"

@@ -25,6 +25,10 @@ openwrt/luci-redirect.html
 
 # 编译产物（固件镜像等，体积大，不入库）
 firmware/
+firmware-build/devices/*/artifacts/
+
+# IDE/工具缓存
+.workbuddy/
 
 # 本地调试产物与临时脚本
 .askpass*.cmd

@@ -2956,9 +2956,17 @@ if (name == "ports") {
 	if (method == "POST") cmdTgPost();
 	else cmdTgGet();
 } else if (name == "livecfg") {
-	/* 实时语音开关只对 7628（单核性能不足）提供；其它机型固定开启 */
+	/* 实时语音开关只对 7628（单核性能不足）提供；其它机型固定开启。
+	   机型识别依次看 board_name / model / board.json / device-tree compatible，
+	   避免 /tmp/sysinfo 尚未生成或内容异常时误判为非 7628 而隐藏开关入口 */
 	let board = trim(FS.readfile("/tmp/sysinfo/board_name") ?? "");
-	let is7628 = (index(board, "hlk-7628n") >= 0);
+	let is7628 = false;
+	for (let bp in [ "/tmp/sysinfo/board_name", "/tmp/sysinfo/model",
+	                 "/etc/board.json", "/proc/device-tree/compatible" ]) {
+		let bd = null;
+		try { bd = FS.readfile(bp); } catch (e) { bd = null; }
+		if (bd != null && index(sprintf("%s", bd), "7628") >= 0) { is7628 = true; break; }
+	}
 	if (!is7628) {
 		out({ ok: true, enabled: true, board: board, lowPower: false });
 	} else if (method == "POST") {

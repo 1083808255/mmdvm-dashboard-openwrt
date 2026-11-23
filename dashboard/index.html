@@ -1048,6 +1048,10 @@ th{font-size:12px}
   #view-basic .grid > .field{min-width:0}
   #view-basic .grid > .basic-hint{grid-column:1/-1}
   #view-basic .field .inp{min-width:0;max-width:100%}
+  /* 通话 GPS 缓存下拉：手机版宽度加 80px */
+  #view-basic #basic-gpsttl{width:calc(100% + 80px);max-width:none}
+  /* 通话 GPS 缓存标题：手机版不换行 */
+  #view-basic .field-gpsttl > label{white-space:nowrap}
   /* 呼号、DMR ID、RX/TX 频率输入框缩短 2/5（保留 3/5），DMR ID 与呼号同尺寸 */
   #basic-callsign,#basic-rxfreq,#basic-txfreq{width:60%}
   #basic-selfonly{width:50%}
@@ -1456,7 +1460,7 @@ th{font-size:12px}
     </div>
     <div>
       <div class="t"><span>MMDVM</span><span>Dashboard</span></div>
-      <div class="s" id="deviceIp">OpenWrt</div>
+      <div class="s" id="deviceIp">—</div>
     </div>
   </div>
   <nav class="topnav" id="topnav">
@@ -2143,7 +2147,7 @@ th{font-size:12px}
    ================================================================ */
 const MOCK = {
   status: {
-    hostname: "MMDVM", ip: "192.168.8.9", online: true,
+    hostname: "MMDVM", ip: "192.168.8.9", model: "x86_64", online: true,
     mmdvm: {
       running: true, mode: "DMR", state: "Idle", callsign: "BH8GLN",
       dmrId: "4612447", rxFreq: 434500000, txFreq: 439500000, power: 1,
@@ -2845,7 +2849,6 @@ setInterval(()=>{
 async function renderRadio(){
   const s = await api('/api/status');
   const m = s.mmdvm || {};
-  $('#deviceIp').textContent = 'OpenWrt';
 
   const fRx = fmtFreq(m.rxFreq||0), fTx = fmtFreq(m.txFreq||0);
   const running = !!m.running;
@@ -6910,6 +6913,9 @@ async function loadLiveCfg(){
   const j = await api('/api/livecfg');
   if(j && typeof j.enabled !== 'undefined')
     liveCfg = { enabled: j.lowPower ? !!j.enabled : true, lowPower: !!j.lowPower, loaded: true };
+  else
+    /* 接口异常时保留菜单入口，避免 7628 的开关被误隐藏 */
+    liveCfg = { enabled:true, lowPower:true, loaded:false };
   applyLiveUi();
   return liveCfg;
 }
@@ -7097,6 +7103,16 @@ bindDmrAudio();
 bindLiveCfg();
 /* 页面加载即读取开关：关闭时（7628 默认）隐藏通联信息页的语音卡片 */
 loadLiveCfg();
+/* MMDVM 标识下方副标题：显示设备型号（来自 /api/system 的 model） */
+async function loadDeviceModel(){
+  try{
+    const s = await api('/api/system');
+    const model = String((s && s.model) || '').trim();
+    if(model && model !== '—') $('#deviceIp').textContent = model;
+  }catch(e){}
+}
+loadDeviceModel();
+setInterval(()=>{ if(!document.hidden) loadDeviceModel(); }, 60000);
 window.addEventListener('DOMContentLoaded', async ()=>{
   /* 先探测 LuCI 是否设置了密码，再渲染首屏，避免未解锁时闪现其它视图 */
   await Promise.race([ loadAuthStatus(), new Promise(r=>setTimeout(r, 1500)) ]);

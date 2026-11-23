@@ -3,7 +3,7 @@
 #
 # 用法：
 #   ./build-firmware.sh
-#   WORKDIR=~/openwrt-23.05.6 JOBS=6 ./build-firmware.sh
+#   WORKDIR=~/openwrt-23.05.6 JOBS=8 ./build-firmware.sh
 #
 # 本目录保存了整套固件编译方案：
 #   config.seed               固件 .config（整套包选择与内核选项）
@@ -22,7 +22,7 @@ set -eu
 
 WORKDIR=${WORKDIR:-$HOME/openwrt-23.05.6}
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-JOBS=${JOBS:-$(nproc)}
+JOBS=${JOBS:-8}
 STAMP=$(date +%Y%m%d-%H%M)
 OUTDIR=${OUTDIR:-$HOME/firmware-out/$STAMP}
 
@@ -31,14 +31,33 @@ die() {
     exit 1
 }
 
+OWRT_URL=${OWRT_URL:-https://github.com/openwrt/openwrt.git}
+OWRT_COMMIT=${OWRT_COMMIT:-761ee326d7e0c9be4569ec1428816c008a202757}
+if [ ! -d "$WORKDIR" ]; then
+    echo "==> 首次使用，克隆 openwrt（固定 $OWRT_COMMIT）"
+    git init -q "$WORKDIR"
+    git -C "$WORKDIR" remote add origin "$OWRT_URL"
+    git -C "$WORKDIR" fetch --depth 1 origin "$OWRT_COMMIT" || die "克隆 openwrt 失败"
+    git -C "$WORKDIR" checkout -q FETCH_HEAD || die "checkout 失败"
+fi
 [ -d "$WORKDIR" ] || die "源码树不存在：$WORKDIR"
 [ -d "$SCRIPT_DIR/packages" ] || die "缺少 packages 目录：$SCRIPT_DIR/packages"
 
 echo "==> 同步固件包"
-for p in mmdvmhost dmrgateway mmdvm-dashboard; do
+for p in mmdvmhost dmrgateway; do
     rm -rf "$WORKDIR/package/$p"
     cp -a "$SCRIPT_DIR/packages/$p" "$WORKDIR/package/$p"
 done
+# 仪表盘为全机型共用单一源码，机型差异用 dashboard-override/ 叠加
+FW_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+if [ ! -d "$FW_ROOT/packages/mmdvm-dashboard" ]; then
+	FW_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+fi
+rm -rf "$WORKDIR/package/mmdvm-dashboard"
+cp -a "$FW_ROOT/packages/mmdvm-dashboard" "$WORKDIR/package/mmdvm-dashboard"
+if [ -d "$SCRIPT_DIR/dashboard-override" ]; then
+	cp -a "$SCRIPT_DIR/dashboard-override/." "$WORKDIR/package/mmdvm-dashboard/"
+fi
 rm -rf "$WORKDIR/package/kernel/i2c-ch341"
 mkdir -p "$WORKDIR/package/kernel"
 cp -a "$SCRIPT_DIR/packages/i2c-ch341" "$WORKDIR/package/kernel/i2c-ch341"
@@ -50,6 +69,18 @@ FWV=$(tr -d ' \t\r\n' < "$SCRIPT_DIR/VERSION" 2>/dev/null || true)
 mkdir -p "$WORKDIR/files/etc/mmdvm"
 printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
 
+# 整机 OTA（sysupgrade）保留用户配置：仪表盘设置（含 BM API Key）、
+# 实时语音与 OTA 源配置、两台服务的 ini；可重建的缓存与固件资源不保留
+mkdir -p "$WORKDIR/files/etc"
+cat > "$WORKDIR/files/etc/sysupgrade.conf" <<'SYSKEEP'
+## 整机 OTA 升级时保留的用户配置
+/etc/mmdvm/dashboard.json
+/etc/mmdvm/livecfg.json
+/etc/mmdvm/dashboard-ota.json
+/etc/mmdvm/MMDVM.ini
+/etc/mmdvm/DMRGateway.ini
+SYSKEEP
+
 cd "$WORKDIR"
 echo "==> 准备配置"
 if [ "${RESET_CONFIG:-0}" = "1" ] || [ ! -f .config ]; then
@@ -58,6 +89,9 @@ if [ "${RESET_CONFIG:-0}" = "1" ] || [ ! -f .config ]; then
     echo "    已使用方案中的 config.seed"
 fi
 [ -f feeds.conf ] || cp "$SCRIPT_DIR/feeds.conf.default" feeds.conf
+echo "==> 更新 feeds"
+./scripts/feeds update -a >/dev/null 2>&1 || die "feeds 更新失败"
+./scripts/feeds install -a >/dev/null 2>&1 || die "feeds 安装失败"
 
 # 可选：覆盖镜像分区大小（MB），用于磁盘较小的设备
 if [ -n "${KERNEL_PARTSIZE:-}" ]; then

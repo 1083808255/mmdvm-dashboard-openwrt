@@ -1,8 +1,0 @@
-#!/bin/sh
-# 默认 zram 压缩内存盘 64MB（小内存设备如 MT7628 使用；已设置时不覆盖）
-if [ -z "$(uci -q get system.@system[0].zram_size_mb)" ]; then
-	uci set system.@system[0].zram_size_mb='64'
-	uci commit system
-fi
-[ -x /etc/init.d/zram ] && /etc/init.d/zram restart >/dev/null 2>&1
-exit 0

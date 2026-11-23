@@ -1,7 +1,0 @@
-#!/bin/sh
-# 清理 MMDVM 日志：仅保留最近 2 天的 *.log
-# /var/log 在 OpenWrt 上位于内存盘，小内存设备（如 MT7628）需要定期清理
-LOG_DIR="${MMDVM_LOG_DIR:-/var/log/mmdvm}"
-[ -d "$LOG_DIR" ] || exit 0
-find "$LOG_DIR" -type f -name '*.log' -mtime +2 -exec rm -f {} \; 2>/dev/null
-exit 0

@@ -1,9 +1,0 @@
-#!/bin/sh
-# 默认关闭未使用的 YSF / P25 / NXDN 网关服务（MMDVM.ini 中对应 Enable=0）
-# 需要用到时手动启用：/etc/init.d/ysfgateway enable && /etc/init.d/ysfgateway start
-for s in ysfgateway p25gateway nxdngateway; do
-	[ -x "/etc/init.d/$s" ] || continue
-	/etc/init.d/$s stop >/dev/null 2>&1
-	/etc/init.d/$s disable >/dev/null 2>&1
-done
-exit 0

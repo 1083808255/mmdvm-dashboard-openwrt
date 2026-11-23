@@ -4,7 +4,7 @@
 #
 # 用法：
 #   ./build-firmware-ax5-std.sh
-#   WORKDIR=~/lede-ipq60 JOBS=6 ./build-firmware-ax5-std.sh
+#   WORKDIR=~/lede-ipq60 JOBS=8 ./build-firmware-ax5-std.sh
 #
 # 说明：
 #   - 目标 qualcommax/ipq60xx，机型 xiaomi_rm1800（RM1800 / 普通版 AX5）
@@ -14,7 +14,7 @@ set -eu
 
 WORKDIR=${WORKDIR:-$HOME/lede-ipq60}
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
-JOBS=${JOBS:-$(nproc)}
+JOBS=${JOBS:-8}
 STAMP=$(date +%Y%m%d-%H%M)
 OUTDIR=${OUTDIR:-$HOME/firmware-out/ax5-std-$STAMP}
 
@@ -27,10 +27,20 @@ die() {
 [ -d "$SCRIPT_DIR/packages" ] || die "缺少 packages 目录：$SCRIPT_DIR/packages"
 
 echo "==> 同步固件包"
-for p in mmdvmhost dmrgateway mmdvm-dashboard; do
+for p in mmdvmhost dmrgateway; do
     rm -rf "$WORKDIR/package/$p"
     cp -a "$SCRIPT_DIR/packages/$p" "$WORKDIR/package/$p"
 done
+# 仪表盘为全机型共用单一源码，机型差异用 dashboard-override/ 叠加
+FW_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
+if [ ! -d "$FW_ROOT/packages/mmdvm-dashboard" ]; then
+	FW_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+fi
+rm -rf "$WORKDIR/package/mmdvm-dashboard"
+cp -a "$FW_ROOT/packages/mmdvm-dashboard" "$WORKDIR/package/mmdvm-dashboard"
+if [ -d "$SCRIPT_DIR/dashboard-override" ]; then
+	cp -a "$SCRIPT_DIR/dashboard-override/." "$WORKDIR/package/mmdvm-dashboard/"
+fi
 rm -rf "$WORKDIR/package/kernel/i2c-ch341"
 mkdir -p "$WORKDIR/package/kernel"
 cp -a "$SCRIPT_DIR/packages/i2c-ch341" "$WORKDIR/package/kernel/i2c-ch341"
@@ -39,6 +49,18 @@ echo "==> 写入固件版本号"
 FWV=$(tr -d '\r\n' < "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "V0.610")
 mkdir -p "$WORKDIR/files/etc/mmdvm"
 printf '%s\n' "$FWV" > "$WORKDIR/files/etc/mmdvm/fw.version"
+
+# 整机 OTA（sysupgrade）保留用户配置：仪表盘设置（含 BM API Key）、
+# 实时语音与 OTA 源配置、两台服务的 ini；可重建的缓存与固件资源不保留
+mkdir -p "$WORKDIR/files/etc"
+cat > "$WORKDIR/files/etc/sysupgrade.conf" <<'SYSKEEP'
+## 整机 OTA 升级时保留的用户配置
+/etc/mmdvm/dashboard.json
+/etc/mmdvm/livecfg.json
+/etc/mmdvm/dashboard-ota.json
+/etc/mmdvm/MMDVM.ini
+/etc/mmdvm/DMRGateway.ini
+SYSKEEP
 
 echo "==> 覆盖设备树（NAND + USB3 + BLSP I2C，关闭 console）"
 mkdir -p "$WORKDIR/target/linux/qualcommax/dts"

@@ -1,8 +1,0 @@
-#!/bin/sh
-# 安装日志清理任务：每天 04:07 删除 2 天前的 MMDVM 日志
-CRON=/etc/crontabs/root
-LINE='7 4 * * * /usr/bin/mmdvm-log-clean'
-mkdir -p /etc/crontabs
-grep -qF "$LINE" "$CRON" 2>/dev/null || echo "$LINE" >> "$CRON"
-/etc/init.d/cron restart >/dev/null 2>&1
-exit 0
