@@ -10,6 +10,7 @@
 #   feeds.conf.default        feeds 源与固定 commit
 #   packages/mmdvmhost        MMDVMHost + OLED/HD44780 I2C 屏驱动（x86 适配）
 #   packages/dmrgateway       DMRGateway
+#   packages/dmrstream        DMR 实时语音推流服务（dmrstreamd，WebSocket 62040）
 #   packages/mmdvm-dashboard  仪表盘
 #   packages/i2c-ch341        CH341A USB-I2C 控制器驱动
 #
@@ -44,7 +45,7 @@ fi
 [ -d "$SCRIPT_DIR/packages" ] || die "缺少 packages 目录：$SCRIPT_DIR/packages"
 
 echo "==> 同步固件包"
-for p in mmdvmhost dmrgateway; do
+for p in mmdvmhost dmrgateway dmrstream; do
     rm -rf "$WORKDIR/package/$p"
     cp -a "$SCRIPT_DIR/packages/$p" "$WORKDIR/package/$p"
 done
@@ -113,6 +114,7 @@ for opt in \
     CONFIG_PACKAGE_zram-swap=y \
     CONFIG_PACKAGE_mmdvmhost=y \
     CONFIG_PACKAGE_dmrgateway=y \
+    CONFIG_PACKAGE_dmrstream=y \
     CONFIG_PACKAGE_mmdvm-dashboard=y \
     CONFIG_LUCI_LANG_zh_Hans=y \
     CONFIG_PACKAGE_unzip=y \
