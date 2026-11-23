@@ -7103,16 +7103,24 @@ bindDmrAudio();
 bindLiveCfg();
 /* 页面加载即读取开关：关闭时（7628 默认）隐藏通联信息页的语音卡片 */
 loadLiveCfg();
-/* MMDVM 标识下方副标题：显示设备型号（来自 /api/system 的 model） */
+/* MMDVM 标识下方副标题：显示设备型号。
+   型号开机后不变，首次从轻量接口 /api/system?static=1 读取后写入 localStorage，
+   之后直接用缓存，不再轮询，节省设备端开销。 */
+const DEVSTATIC_LS = 'dash_devstatic';
+function getDevStatic(){ try{ return JSON.parse(localStorage.getItem(DEVSTATIC_LS)||'null'); }catch(e){ return null; } }
+function setDevStatic(o){ try{ localStorage.setItem(DEVSTATIC_LS, JSON.stringify(o)); }catch(e){} }
 async function loadDeviceModel(){
-  try{
-    const s = await api('/api/system');
-    const model = String((s && s.model) || '').trim();
-    if(model && model !== '—') $('#deviceIp').textContent = model;
-  }catch(e){}
+  let st = getDevStatic();
+  if(!st){
+    try{
+      st = await api('/api/system?static=1');
+      if(st && st.model) setDevStatic(st);
+    }catch(e){ return; }
+  }
+  const model = String((st && st.model) || '').trim();
+  if(model && model !== '—'){ const el=$('#deviceIp'); if(el) el.textContent = model; }
 }
 loadDeviceModel();
-setInterval(()=>{ if(!document.hidden) loadDeviceModel(); }, 60000);
 window.addEventListener('DOMContentLoaded', async ()=>{
   /* 先探测 LuCI 是否设置了密码，再渲染首屏，避免未解锁时闪现其它视图 */
   await Promise.race([ loadAuthStatus(), new Promise(r=>setTimeout(r, 1500)) ]);
