@@ -33,7 +33,7 @@ endef
 define Build/Compile
 endef
 
-DASH_ENDPOINTS:=auth basic calibration configs fw lastheard lhclear live livecfg log luci ota page ports services status system tg xlxhosts
+DASH_ENDPOINTS:=auth basic calibration configs fw lastheard lhclear live livecfg log luci ota page ports services status system tg wifi xlxhosts
 
 define Package/mmdvm-dashboard/install
 	$(INSTALL_DIR) $(1)/www-dash/api
@@ -50,12 +50,15 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-log-clean $(1)/usr/bin/mmdvm-log-clean
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-luci $(1)/usr/bin/mmdvm-luci
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-dashboard-bc-guard $(1)/usr/bin/mmdvm-dashboard-bc-guard
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-wifi-select $(1)/usr/bin/mmdvm-wifi-select
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-radiowo $(1)/etc/init.d/mmdvm-radiowo
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-bg4esi $(1)/etc/init.d/mmdvm-bg4esi
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-ids $(1)/etc/init.d/mmdvm-ids
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-ch341 $(1)/etc/init.d/mmdvm-ch341
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-wifi-guard $(1)/etc/init.d/mmdvm-wifi-guard
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/85-mmdvm-wifi-base $(1)/etc/uci-defaults/85-mmdvm-wifi-base
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/89-mmdvm-dashboard-bc $(1)/etc/uci-defaults/89-mmdvm-dashboard-bc
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/90-mmdvm-dashboard $(1)/etc/uci-defaults/90-mmdvm-dashboard
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/91-mmdvm-log-clean $(1)/etc/uci-defaults/91-mmdvm-log-clean

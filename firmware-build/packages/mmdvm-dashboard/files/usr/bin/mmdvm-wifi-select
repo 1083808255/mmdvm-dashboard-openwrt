@@ -1,0 +1,59 @@
+#!/bin/sh
+# AX5 多 STA 择优：从已保存 profile 中选信号最强且可扫描到的 WiFi 连接
+# 由 /etc/init.d/mmdvm-wifi-guard 周期调用
+# 扫描缓存 /tmp/mmdvm-wifi-scan.tsv 每行：rank(3000-signal)<TAB>band<TAB>ssid
+[ -f /etc/config/mmdvmwifi ] || exit 0
+scan=/tmp/mmdvm-wifi-scan.tsv
+[ -f "$scan" ] || exit 0
+
+# rank=3000-signal，rank 越小信号越强；-75dBm 对应 rank<=3075
+# 按信号从强到弱遍历，取第一个“已保存”的候选，避免被更强的未保存网络挡住
+candidates=$(sort -k1,1n "$scan" 2>/dev/null | awk -F'\t' '$1 <= 3075 { print }')
+[ -n "$candidates" ] || exit 0
+
+# 当前已连接的 SSID
+cur=$(uci -q get wireless.mmdvm_sta.ssid)
+
+best=""; key=""; band=""; found=0
+while IFS="$(printf '\t')" read -r _rank _scanband ssid; do
+	[ -n "$ssid" ] || continue
+	# 当前已连接且信号仍达标时保持，避免在两个接近的 SSID 间来回切换
+	[ "$cur" = "$ssid" ] && { found=2; break; }
+	# 从 mmdvmwifi 的 profile 中找该 SSID 的密码与频段；开放网络 key 为空也允许
+	for p in $(uci show mmdvmwifi 2>/dev/null | sed -n 's/^mmdvmwifi\.\([^.=]*\)=wifi-profile$/\1/p'); do
+		[ "$(uci -q get "mmdvmwifi.$p.ssid")" = "$ssid" ] || continue
+		[ "$(uci -q get "mmdvmwifi.$p.band")" = "$_scanband" ] || continue
+		key=$(uci -q get "mmdvmwifi.$p.key")
+		band=$(uci -q get "mmdvmwifi.$p.band")
+		best="$ssid"
+		found=1
+		break
+	done
+	[ "$found" -eq 1 ] && break
+done <<EOF
+$candidates
+EOF
+[ "$found" -eq 1 ] || exit 0
+[ "$found" -eq 2 ] && exit 0
+
+r2=""; r5=""
+for r in $(uci show wireless 2>/dev/null | sed -n 's/^wireless\.\([^.=]*\)=wifi-device$/\1/p'); do
+	b=$(uci -q get "wireless.$r.band")
+	[ "$b" = "2g" ] && r2="$r"
+	[ "$b" = "5g" ] && r5="$r"
+done
+dev="$r2"; [ "$band" = "5g" ] && [ -n "$r5" ] && dev="$r5"
+[ -n "$dev" ] || exit 0
+
+uci set wireless.mmdvm_sta.device="$dev"
+uci set wireless.mmdvm_sta.ssid="$best"
+uci set wireless.mmdvm_sta.key="$key"
+if [ -n "$key" ]; then
+	uci set wireless.mmdvm_sta.encryption=psk2
+else
+	uci set wireless.mmdvm_sta.encryption=none
+fi
+uci set wireless.mmdvm_sta.disabled=0
+uci commit wireless >/dev/null 2>&1
+wifi reload >/dev/null 2>&1
+exit 0

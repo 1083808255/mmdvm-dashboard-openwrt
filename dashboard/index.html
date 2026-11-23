@@ -1482,6 +1482,13 @@ th{font-size:12px}
         <a href="#/livetool" data-view="livetool">实时语音</a>
       </div>
     </div>
+    <div class="nav-group" id="netcfgNav">
+      <a href="#/netcfg" data-view="netcfg" class="has-sub">网络配置</a>
+      <div class="submenu">
+        <a href="#/netcfg/ap" data-view="netcfg" data-mode="ap">无线热点</a>
+        <a href="#/netcfg/sta" data-view="netcfg" data-mode="sta">WiFi连接</a>
+      </div>
+    </div>
     <div class="nav-group">
       <a href="#/radio" data-view="info" class="has-sub">信息</a>
       <div class="submenu">
@@ -1546,6 +1553,22 @@ th{font-size:12px}
         实时语音
       </a>
     </div>
+    </div>
+    <div class="nav-group" id="netcfgNavM">
+      <a href="#/netcfg" data-view="netcfg" class="has-sub">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+        网络配置
+      </a>
+      <div class="submenu">
+        <a href="#/netcfg/ap" data-view="netcfg" data-mode="ap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          无线热点
+        </a>
+        <a href="#/netcfg/sta" data-view="netcfg" data-mode="sta">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+          WiFi连接
+        </a>
+      </div>
     </div>
     <div class="nav-group">
     <a href="#/radio" data-view="info" class="has-sub">
@@ -1648,6 +1671,75 @@ th{font-size:12px}
         <span class="badge tag" style="font-size:12px">最近 50 条</span>
       </div>
       <div class="lh-list" id="lh-logbox"></div>
+    </div>
+  </section>
+
+  <!-- ============ 网络配置（设备差异化：仅 AX5） ============ -->
+  <section class="view" id="view-netcfg">
+    <div class="page-head" style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div><h1>网络配置</h1><p>无线热点与 WiFi 连接</p></div>
+      <div id="netcfg-upstream" class="badge tag" style="font-size:12px">上游检测中…</div>
+    </div>
+    <!-- 子页签 -->
+    <div class="subtabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <a href="#/netcfg/ap" id="nettab-ap" data-mode="ap" class="btn" style="text-decoration:none">无线热点</a>
+      <a href="#/netcfg/sta" id="nettab-sta" data-mode="sta" class="btn" style="text-decoration:none">WiFi连接</a>
+    </div>
+
+    <!-- 无线热点 -->
+    <div id="netpanel-ap">
+      <div class="card" style="margin-bottom:14px">
+        <h2 class="basic-sec-title">无线热点</h2>
+        <div class="grid">
+          <div class="field"><label>启用热点</label><label style="display:flex;gap:6px;align-items:center;height:38px"><input type="checkbox" id="nc-ap-enabled" checked> 开启</label></div>
+          <div class="field"><label>工作频段</label>
+            <div style="display:flex;gap:16px;align-items:center;height:38px">
+              <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="nc-ap-band" value="2g" checked> 2.4G</label>
+              <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="nc-ap-band" value="5g"> 5G</label>
+            </div>
+          </div>
+          <div class="field"><label>网络名称（SSID）</label><input id="nc-ap-ssid" class="inp" type="text" value="MMDVM-OpenWrt" maxlength="32"></div>
+          <div class="field"><label>密码（留空为开放网络）</label>
+            <div class="pw-wrap"><input id="nc-ap-key" class="inp" type="password" maxlength="63" placeholder="留空则不加密"><span class="pw-eye">显示</span></div>
+          </div>
+          <div class="field"><label>频宽</label>
+            <select id="nc-ap-width" class="inp">
+              <option value="20MHz">20 MHz</option>
+              <option value="40MHz" selected>40 MHz</option>
+              <option value="80MHz">80 MHz（仅 5G）</option>
+            </select>
+          </div>
+        </div>
+        <p class="muted" style="font-size:12px;margin:10px 0 0">信道自动、区域中国（CN）。保存后热点会短暂重启；无上游网络时热点会强制开启以保证可管理。</p>
+        <div style="margin-top:12px"><button class="btn primary" id="nc-ap-save">保存热点设置</button></div>
+      </div>
+    </div>
+
+    <!-- WiFi 连接 -->
+    <div id="netpanel-sta" style="display:none">
+      <div class="card" style="margin-bottom:14px">
+        <h2 class="basic-sec-title">WiFi 连接 <button class="btn" id="nc-sta-scan" style="float:right">重新扫描</button></h2>
+        <p class="muted" style="font-size:12px">选择一个网络，输入密码保存后自动连接；信号最强的已保存网络会优先连接。</p>
+        <div class="table-wrap"><table class="sys-table" id="nc-sta-list"><tbody><tr><td>正在扫描…</td></tr></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2 class="basic-sec-title">已保存的网络</h2>
+        <div class="table-wrap"><table class="sys-table" id="nc-saved-list"><tbody><tr><td>加载中…</td></tr></tbody></table></div>
+      </div>
+    </div>
+    <!-- 内联连接表单（点击列表中的网络后展开） -->
+    <div class="card" id="ncJoinCard" style="margin-bottom:14px;display:none">
+      <h2 class="basic-sec-title">连接 WiFi：<span id="ncJoinSsid"></span></h2>
+      <div class="grid">
+        <div class="field"><label>密码（留空为开放网络）</label>
+          <div class="pw-wrap"><input id="ncJoinKey" class="inp" type="password" maxlength="63" placeholder="输入该网络的密码"><span class="pw-eye">显示</span></div>
+        </div>
+        <div class="field"><label>频段</label><input id="ncJoinBand" class="inp" type="text" readonly></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn primary" id="ncJoinSave">保存并连接</button>
+        <button class="btn" id="ncJoinCancel">取消</button>
+      </div>
     </div>
   </section>
 
@@ -2380,7 +2472,7 @@ function mockFor(path){
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 function fmtFreq(hz){ return (hz/1000000).toFixed(3); }
-function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg, err, ms){
   const t = $('#toast'); $('#toastMsg').textContent = msg;
   t.classList.toggle('err', !!err); t.classList.add('show');
@@ -2565,18 +2657,22 @@ function renderNetworks(nets){
 }
 
 /* ---------- 路由 ---------- */
-const renderers = { qso:renderQso, config:renderConfig, basic:renderBasic, services:renderServices, adv:renderAdv, cal:renderCal, tg:renderTg, radio:renderRadio, system:renderSystem, livetool:renderLiveTool };
+const renderers = { qso:renderQso, config:renderConfig, basic:renderBasic, services:renderServices, adv:renderAdv, cal:renderCal, tg:renderTg, radio:renderRadio, system:renderSystem, livetool:renderLiveTool, netcfg:renderNetCfg };
 let lastRoute = '';
 /* 高级页进入确认后的一次性放行标记 */
 let advGate = false;
 let cfgMode = 'mmdvmhost';
+let netMode = 'ap';
+let netSupported = false;   /* 设备能力：仅 AX5 支持网络配置 */
 function applyNavActive(sel, view, persistOpen){
   const nav = $(sel); if(!nav) return;
   $$(sel+' a').forEach(a=>{
-    const active = a.dataset.mode ? (view==='config' && a.dataset.mode===cfgMode) : (a.dataset.view===view);
+    const active = a.dataset.mode
+      ? ((view==='config' && a.dataset.mode===cfgMode) || (view==='netcfg' && a.dataset.mode===netMode))
+      : (a.dataset.view===view);
     a.classList.toggle('active', active);
   });
-  const groups = [['config', view==='config'||view==='basic'||view==='services'||view==='adv'], ['tools', view==='cal'||view==='tg'], ['info', view==='radio'||view==='system']];
+  const groups = [['config', view==='config'||view==='basic'||view==='services'||view==='adv'], ['tools', view==='cal'||view==='tg'], ['netcfg', view==='netcfg'], ['info', view==='radio'||view==='system']];
   groups.forEach(([dv, on])=>{
     const p = $(sel+' a.has-sub[data-view="'+dv+'"]');
     if(p){
@@ -2597,7 +2693,9 @@ function route(){
   $$('#topnav .nav-group').forEach(g=>g.classList.remove('open'));
   const seg = (location.hash.replace(/^#\//,'') || 'qso').split('/');
   let view = seg[0];
-  if(!['qso','config','basic','services','adv','cal','tg','radio','system','livetool'].includes(view)) view = 'qso';
+  if(!['qso','config','basic','services','adv','cal','tg','radio','system','livetool','netcfg'].includes(view)) view = 'qso';
+  /* 网络配置为设备差异化功能：不支持的设备隐藏菜单并阻止直达 */
+  if(view === 'netcfg' && !netSupported){ location.hash = '#/qso'; return; }
   /* 菜单未解锁且需要密码时，只能停留在通联信息页，阻止直达其它视图（手机/电脑一致） */
   if(authRequired && !menuUnlocked && view !== 'qso'){
     location.hash = '#/qso';
@@ -2615,7 +2713,8 @@ function route(){
   if(view !== 'adv') advGate = false;
   /* 主机配置页已从菜单移除，直接进入「配置」时默认打开 DMR 网关配置 */
   cfgMode = (view==='config') ? (seg[1] || 'dmrgateway') : 'mmdvmhost';
-  const key = view + ':' + (view==='config' ? cfgMode : '');
+  netMode = (view==='netcfg') ? ((seg[1]==='sta') ? 'sta' : 'ap') : 'ap';
+  const key = view + ':' + (view==='config' ? cfgMode : view==='netcfg' ? netMode : '');
   closeSidebar();
   document.body.classList.add('routed');
   if(lastRoute === key) return;
@@ -2844,6 +2943,155 @@ setInterval(()=>{
 /* ================================================================
    视图渲染
    ================================================================ */
+
+/* ---- 网络配置（设备差异化：仅 AX5；与仪表盘同主题） ---- */
+let netWifiInit = false;
+let netScanning = false;
+async function netWifiGet(){ return await api('/api/wifi?act=get') || {}; }
+async function netWifiPost(body){
+  try{
+    if(!netSupported && body.act !== 'get' && body.act !== 'status') throw new Error('当前设备不支持网络配置');
+    const r = await fetch('/api/wifi', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const j = await r.json().catch(()=>({ok:false, error:'HTTP '+r.status}));
+    if(!r.ok || j.ok === false) throw new Error(j.error || ('HTTP '+r.status));
+    return j;
+  }catch(e){ toast('操作失败：'+(e.message||e), true); throw e; }
+}
+async function initNetWifiCap(){
+  try{
+    const j = await netWifiGet();
+    netSupported = !!(j.capability && j.capability.supported);
+    if(netSupported) window._netCap = j.capability;
+  }catch(e){ netSupported = false; }
+  const show = netSupported ? '' : 'none';
+  ['#netcfgNav','#netcfgNavM'].forEach(sel=>{ const el=$(sel); if(el) el.style.display = show; });
+  if(!netSupported && location.hash.startsWith('#/netcfg')) location.hash = '#/qso';
+  return netSupported;
+}
+function ncSetBandOptions(cap){
+  const sel = $('#nc-ap-width'); if(!sel || !cap || !cap.widths) return;
+  const bands = Array.isArray(cap.bands) ? cap.bands : ['2g','5g'];
+  Array.from(document.querySelectorAll('input[name="nc-ap-band"]')).forEach(function(r){
+    const ok = bands.includes(r.value); r.disabled = !ok;
+    if(!ok && r.checked){ const alt = document.querySelector('input[name="nc-ap-band"]:not(:disabled)'); if(alt) alt.checked = true; }
+  });
+  const chosen = (document.querySelector('input[name="nc-ap-band"]:checked')?.value) || '2g';
+  const allow = Array.isArray(cap.widths[chosen]) ? cap.widths[chosen] : (cap.widths['2g'] || []);
+  Array.from(sel.options).forEach(o=>{ o.disabled = !allow.includes(o.value); });
+  if(sel.selectedOptions[0] && sel.selectedOptions[0].disabled){ const first = allow[0]; if(first) sel.value = first; }
+}
+function ncRenderUpstream(st){
+  const el = $('#netcfg-upstream'); if(!el) return;
+  const ok = !!(st && st.upstream);
+  el.textContent = ok ? '上游网络：已连接' : '上游网络：未连接（热点保障开启）';
+  el.style.color = ok ? 'var(--green)' : 'var(--amber)';
+}
+function ncRenderAp(cap, st){
+  st = st || {};
+  const enabled = !!st.apOn;
+  const bands = Array.isArray(cap && cap.bands) ? cap.bands : ['2g','5g'];
+  const band = (st.apBand === '5g' && bands.includes('5g')) ? '5g' : '2g';
+  const cb = $('#nc-ap-enabled'); if(cb) cb.checked = enabled;
+  const rb = document.querySelector('input[name="nc-ap-band"][value="'+band+'"]'); if(rb) rb.checked = true;
+  const ssid = $('#nc-ap-ssid'); if(ssid) ssid.value = st.apSsid || 'MMDVM-OpenWrt';
+  const w = $('#nc-ap-width'); if(w && st.apWidth) w.value = st.apWidth;
+  ncSetBandOptions(cap);
+  ncRenderUpstream(st);
+}
+function ncRenderSaved(list){
+  const el = $('#nc-saved-list tbody'); if(!el) return;
+  if(!list || !list.length){ el.innerHTML = '<tr><td>暂无已保存的网络</td></tr>'; return; }
+  el.innerHTML = list.map(p=>'<tr><td>'+esc(p.ssid)+'</td><td>'+(p.band==='5g'?'5G':'2.4G')+'</td><td>'+(p.hasKey?'有密码':'开放')+'</td><td><button class="btn nc-forget" data-ssid="'+esc(p.ssid)+'" style="padding:3px 10px">忘记</button></td></tr>').join('');
+}
+function ncRenderScan(networks, st){
+  const el = $('#nc-sta-list tbody'); if(!el) return;
+  if(!networks || !networks.length){ el.innerHTML = '<tr><td>未发现网络，请稍后重试</td></tr>'; return; }
+  const cur = (st && st.staSsid) || '';
+  el.innerHTML = networks.map(n=>{
+    const sig = Number(n.signal) || 0;
+    const bars = sig >= -50 ? 4 : sig >= -65 ? 3 : sig >= -75 ? 2 : 1;
+    const band = (n.band === '5g') ? '<span class="badge tag" style="font-size:11px">5G</span>' : '<span class="badge tag" style="font-size:11px">2.4G</span>';
+    return '<tr class="nc-net" data-ssid="'+esc(n.ssid)+'" data-band="'+esc(n.band||'2g')+'" style="cursor:pointer">'
+      + '<td>'+esc(n.ssid)+(n.ssid===cur?' <span style="color:var(--green)">当前</span>':'')+'</td>'
+      + '<td>'+band+'</td><td>'+sig+' dBm '+'▮'.repeat(bars)+'</td>'
+      + '<td>'+(n.secured?'加密':'开放')+'</td></tr>';
+  }).join('');
+}
+function ncShowJoin(ssid, band){
+  $('#ncJoinCard').style.display = '';
+  $('#ncJoinSsid').textContent = ssid;
+  $('#ncJoinSsid').dataset.ssid = ssid;
+  $('#ncJoinBand').value = (band === '5g') ? '5G' : '2.4G';
+  $('#ncJoinKey').value = '';
+  $('#ncJoinKey').focus();
+}
+async function ncRefreshStatus(){
+  const j = await netWifiGet();
+  if(!j.capability || !j.capability.supported){ netSupported = false; initNetWifiCap(); return; }
+  window._netCap = j.capability;
+  ncRenderAp(j.capability, j.status);
+  ncRenderSaved(j.status && j.status.profiles);
+  if(j.status && j.status.forced && !j.status.upstream){
+    toast('当前无上游网络，热点已强制开启', false, 4000);
+  }
+  return j;
+}
+async function ncDoScan(){
+  if(netScanning) return;
+  netScanning = true;
+  const btn = $('#nc-sta-scan'); if(btn) btn.disabled = true;
+  const tbody = $('#nc-sta-list tbody'); if(tbody) tbody.innerHTML = '<tr><td>正在扫描，请稍候…</td></tr>';
+  try{
+    const j = await netWifiPost({ act:'scan' });
+    const st = (await netWifiGet()).status || null;
+    ncRenderScan(j.networks || [], st);
+    toast('扫描完成，共 '+(j.networks||[]).length+' 个网络');
+  }catch(e){ if(tbody) tbody.innerHTML = '<tr><td>扫描失败</td></tr>'; }
+  finally{ netScanning = false; if(btn) btn.disabled = false; }
+}
+async function renderNetCfg(){
+  if(!netWifiInit){ await initNetWifiCap(); netWifiInit = true; }
+  if(!netSupported){ toast('当前设备不支持网络配置', true); return; }
+  const j = await ncRefreshStatus();
+  if(!j) return;
+  const staPanel = $('#netpanel-sta'), apPanel = $('#netpanel-ap');
+  if(staPanel) staPanel.style.display = netMode === 'sta' ? '' : 'none';
+  if(apPanel) apPanel.style.display = netMode === 'ap' ? '' : 'none';
+  $('#ncJoinCard').style.display = 'none';
+  if(netMode === 'sta' && !$('#nc-sta-list tbody').textContent.includes('正在扫描')) await ncDoScan();
+}
+document.addEventListener('click', async e=>{
+  const eye = e.target.closest && e.target.closest('#view-netcfg .pw-eye');
+  if(eye){ const inp = eye.parentElement.querySelector('input'); if(!inp) return;
+    const show = inp.type === 'password'; inp.type = show ? 'text' : 'password'; eye.textContent = show ? '隐藏' : '显示'; return; }
+  const net = e.target.closest && e.target.closest('#nc-sta-list .nc-net');
+  if(net){ ncShowJoin(net.dataset.ssid, net.dataset.band); return; }
+  const forget = e.target.closest && e.target.closest('#nc-saved-list .nc-forget');
+  if(forget){
+    const ssid = forget.dataset.ssid;
+    if(await uiConfirm('确定忘记已保存的网络「'+ssid+'」？')){
+      try{ const j = await netWifiPost({ act:'forget_sta', ssid }); toast(j.message||'已忘记该网络'); await ncRefreshStatus(); }catch(err){}
+    }
+    return;
+  }
+  if(e.target.closest && e.target.closest('#ncJoinCancel')){ $('#ncJoinCard').style.display = 'none'; return; }
+});
+Array.from(document.querySelectorAll('input[name="nc-ap-band"]')).forEach(r=>r.addEventListener('change',()=>{
+  if(r.checked) ncSetBandOptions(window._netCap || {});
+}));
+$('#nc-ap-save')?.addEventListener('click', async ()=>{
+  const band = (document.querySelector('input[name="nc-ap-band"]:checked:not(:disabled)')?.value) || '2g';
+  const body = { act:'save_ap', band, htmode:$('#nc-ap-width').value, ssid:$('#nc-ap-ssid').value.trim(), key:$('#nc-ap-key').value, enabled:$('#nc-ap-enabled').checked };
+  if(!body.ssid){ toast('网络名称不能为空', true); return; }
+  try{ const j = await netWifiPost(body); toast(j.message||'热点配置已保存'); await ncRefreshStatus(); }catch(e){}
+});
+$('#nc-sta-scan')?.addEventListener('click', ()=>ncDoScan());
+$('#ncJoinSave')?.addEventListener('click', async ()=>{
+  const ssid = ($('#ncJoinSsid').dataset.ssid || $('#ncJoinSsid').textContent || '').trim();
+  if(!ssid){ toast('请先选择一个网络', true); return; }
+  const body = { act:'save_sta', ssid, key:$('#ncJoinKey').value, band:$('#ncJoinBand').value === '5G' ? '5g' : '2g' };
+  try{ const j = await netWifiPost(body); toast(j.message||'WiFi 已保存，正在连接'); $('#ncJoinCard').style.display = 'none'; await ncRefreshStatus(); }catch(e){}
+});
 
 /* ---- 电台信息 ---- */
 async function renderRadio(){
@@ -5513,9 +5761,9 @@ function stopCalMon(){
   if(sw) sw.checked = false;
   setCalBadge('已停止', 'off');
 }
-const UI_VER = '20261119z59';
+const UI_VER = '20261124z662';
 /* 界面显示的版本号：V0.<构建序号>，小数位最多 4 位；稳定前主版本保持 0 */
-function dashVer(){ const m = /z(\d+)$/.exec(UI_VER); return m ? `V0.${m[1]}` : `V0.0`; }
+function dashVer(){ return 'V0.662'; }
 /* forceMs：指定固定刷新周期（自动校准用 3000ms），省略则跟随下拉框 */
 function startCalMon(forceMs){
   stopCalTimer();
@@ -7122,8 +7370,11 @@ async function loadDeviceModel(){
 }
 loadDeviceModel();
 window.addEventListener('DOMContentLoaded', async ()=>{
-  /* 先探测 LuCI 是否设置了密码，再渲染首屏，避免未解锁时闪现其它视图 */
-  await Promise.race([ loadAuthStatus(), new Promise(r=>setTimeout(r, 1500)) ]);
+  /* 先探测设备能力（AX5 才显示网络配置）与 LuCI 密码状态，再渲染首屏 */
+  await Promise.allSettled([
+    initNetWifiCap(),
+    Promise.race([ loadAuthStatus(), new Promise(r=>setTimeout(r, 1500)) ])
+  ]);
   applyNavLockUI();
   route();
 });

@@ -219,7 +219,6 @@ function uciOpt(pkg, sec, opt) {
 	}
 	return "";
 }
-
 /* ---------- 服务定义（与设备实际安装一致） ---------- */
 const SVCS = [
 	{ key: "mmdvmhost",   name: "MMDVMHost",   bin: "/usr/bin/MMDVMHost",   proc: "MMDVMHost",   ini: "MMDVM.ini" },
@@ -2399,7 +2398,7 @@ const OTA_CACHE = "/tmp/dashboard-ota-cache.json";
 const OTA_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/dashboard.json";
 /* 备用清单：Gitee 不可达时回退到 GitHub API */
 const OTA_DEFAULT_ALT = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
-const DASH_ENDPOINTS = ["auth","basic","calibration","configs","fw","lastheard","lhclear","live","livecfg","log","luci","ota","page","ports","services","status","system","tg","xlxhosts"];
+const DASH_ENDPOINTS = ["auth","basic","calibration","configs","fw","lastheard","lhclear","live","livecfg","log","luci","ota","page","ports","services","status","system","tg","wifi","xlxhosts"];
 
 function sq(s) {
 	let t = sprintf("%s", s), o = "";
@@ -2904,8 +2903,335 @@ function verifyRootPassword(pass) {
 	return index(o, "ubus_rpc_session") >= 0;
 }
 
+/* ---------- AX5 网络配置（无线热点 + WiFi 连接，设备差异化） ----------
+   仅 redmi,ax5-jdcloud 提供；其它机型 capability.supported=false，写操作拒绝。
+   所有外部输入经 sq() 转义后再进 shell。数据存 /etc/config/mmdvmwifi：
+     main.ap_band / main.ap_enabled；每个 wifi-profile 存 ssid/key/band。 */
+const WIFI_SCAN_CACHE = "/tmp/mmdvm-wifi-scan.json";
+const WIFI_SCAN_TSV   = "/tmp/mmdvm-wifi-scan.tsv";
+const WIFI_SCAN_TTL   = 30;
+
+function wifiIsAx5() {
+	for (let bp in [ "/tmp/sysinfo/board_name", "/tmp/sysinfo/model",
+	                 "/etc/board.json", "/proc/device-tree/compatible" ]) {
+		let bd = null;
+		try { bd = FS.readfile(bp); } catch (e) { bd = null; }
+		if (bd != null && index(lc(sprintf("%s", bd)), "ax5") >= 0) return true;
+	}
+	return false;
+}
+function wifiCap() {
+	let has5 = length(uciOpt("wireless", "mmdvm_ap_5g", "device")) > 0;
+	let bands = has5 ? [ "2g", "5g" ] : [ "2g" ];
+	let widths = { "2g": [ "20MHz", "40MHz" ] };
+	if (has5) widths["5g"] = [ "20MHz", "40MHz", "80MHz" ];
+	return {
+		supported: wifiIsAx5(),
+		bands: bands,
+		widths: widths,
+		country: "CN"
+	};
+}
+/* 列出 /etc/config/<pkg> 中指定类型的 section 名 */
+function uciSections(pkg, type) {
+	let data = FS.readfile("/etc/config/" + pkg);
+	let r = [];
+	if (data == null) return r;
+	for (let l in split(data, "\n")) {
+		let s = trim(l);
+		if (substr(s, 0, 7) != "config ") continue;
+		let rest = trim(substr(s, 7));
+		let sp = split(rest, " ");
+		if (length(sp) >= 1 && sp[0] == type) {
+			let nm = (length(sp) >= 2) ? trim(sp[1]) : "";
+			if (length(nm) >= 2 && (substr(nm, 0, 1) == "'" || substr(nm, 0, 1) == "\"")) nm = substr(nm, 1, length(nm) - 2);
+			push(r, nm);
+		}
+	}
+	return r;
+}
+function wifiProfiles() {
+	let r = [];
+	for (let s in uciSections("mmdvmwifi", "wifi-profile")) {
+		let ssid = uciOpt("mmdvmwifi", s, "ssid");
+		if (!length(ssid)) continue;
+		push(r, {
+			id: s, ssid: ssid, band: uciOpt("mmdvmwifi", s, "band") || "2g",
+			hasKey: length(uciOpt("mmdvmwifi", s, "key")) > 0
+		});
+	}
+	return r;
+}
+function wifiUpstream() {
+	let rt = sh("ip route 2>/dev/null | grep '^default ' || true");
+	if (!length(trim(rt))) return false;
+	if (index(rt, "dev wwan") >= 0 && length(trim(sh("ip -4 addr show dev wwan 2>/dev/null | grep 'inet ' || true")))) return true;
+	let devs = sh("ip route 2>/dev/null | grep '^default ' | sed -n 's/.*dev \\([^ ]*\\).*/\\1/p' || true");
+	for (let d in words(devs)) {
+		if (d == "wwan") continue;
+		if (trim(sh("cat /sys/class/net/" + sq(d) + "/carrier 2>/dev/null || true")) == "1") return true;
+	}
+	return false;
+}
+function wifiState() {
+	let apBand = uciOpt("mmdvmwifi", "main", "ap_band") || "2g";
+	let apOn = (uciOpt("mmdvmwifi", "main", "ap_enabled") || "1") != "0";
+	let staSsid = uciOpt("wireless", "mmdvm_sta", "ssid");
+	let staDis = uciOpt("wireless", "mmdvm_sta", "disabled");
+	let signal = ""; let cache = FS.readfile(WIFI_SCAN_TSV); if (length(staSsid) && cache != null) { for (let l in split(cache, "\n")) { let f = split(l, "\t"); if (length(f) >= 3 && f[2] == staSsid) { signal = sprintf("%d dBm", 3000 - int(f[0])); break; } } }
+	let apRadio = uciOpt("wireless", (apBand == "5g") ? "mmdvm_ap_5g" : "mmdvm_ap_2g", "device");
+	let apHt = length(apRadio) ? uciOpt("wireless", apRadio, "htmode") : "";
+	let widthMap = { "HT20": "20MHz", "HE20": "20MHz", "HT40": "40MHz", "HE40": "40MHz", "HE80": "80MHz" };
+	return {
+		apBand: apBand, apOn: apOn, apSsid: uciOpt("wireless", (apBand == "5g") ? "mmdvm_ap_5g" : "mmdvm_ap_2g", "ssid"),
+		apWidth: widthMap[apHt] ?? ((apBand == "5g") ? "80MHz" : "40MHz"),
+		staSsid: staSsid, staConnected: length(staSsid) && staDis != "1",
+		staSignal: signal,
+		upstream: wifiUpstream(),
+		forced: (FS.readfile("/tmp/mmdvm-ap-force") != null),
+		rollbackPending: (FS.readfile("/tmp/mmdvm-wifi-pending") != null),
+		staBand: uciOpt("wireless", "mmdvm_sta", "device") || "",
+		profiles: wifiProfiles()
+	};
+}
+function wifiBackup() {
+	/* 观察窗口内已有备份时不要覆盖，否则回滚点会被失败配置污染 */
+	if (FS.readfile("/tmp/mmdvm-wifi-pending") != null) return;
+	sh("cp -f /etc/config/wireless /etc/config/wireless.mmdvm-prev 2>/dev/null || true");
+}
+/* 按 band 找实际 radio 段名；AX5 不同版本固件可能是 radio0/radio1 或其它命名 */
+function wifiRadio(band) {
+	/* 优先用托管 AP 的 device 字段，确保 STA 与对应频段的 AP 使用同一 radio */
+	let sec = (band == "5g") ? "mmdvm_ap_5g" : "mmdvm_ap_2g";
+	let dev = trim(uciOpt("wireless", sec, "device"));
+	if (length(dev)) return dev;
+	let r = [];
+	let secs = sh("uci show wireless 2>/dev/null | sed -n 's/^wireless\\.\\([^.=]*\\)=wifi-device$/\\1/p' || true");
+	for (let l in split(secs, "\n")) {
+		let s = trim(l);
+		if (length(s)) push(r, s);
+	}
+	for (let s in r) if (uciOpt("wireless", s, "band") == band) return s;
+	if (band == "2g") return r[0] ?? "radio0";
+	return r[1] ?? r[0] ?? "radio1";
+}
+function wifiPending(clear) {
+	if (clear) sh("rm -f /tmp/mmdvm-wifi-pending");
+	else sh("touch /tmp/mmdvm-wifi-pending");
+}
+/* 只有拿到上游才证明本次配置生效；否则保留 pending，120 秒后由 guard 回滚并强制开热点 */
+function wifiConfirmSaved() {
+	if (wifiUpstream()) wifiPending(true);
+}
+function wifiReload() {
+	sh("wifi reload >/dev/null 2>&1 || true");
+}
+/* 扫描结果解析：同时写 JSON 与 TSV 缓存，TSV 供 mmdvm-wifi-select 使用 */
+function wifiDoScan() {
+	/* 实时列出 iw 的物理 radio（phyN）并扫描，避免把 UCI 段名 radio0/1 当设备名 */
+	let ifs = sh("iw dev 2>/dev/null | awk '/Interface/{print $2}' || true");
+	let phys = "";
+	for (let ifn in words(ifs)) {
+		let p = trim(sh("iw dev " + sq(ifn) + " info 2>/dev/null | sed -n 's/.*phy#\\([0-9]*\\).*/phy\\1/p' | awk 'NR==1{print;exit}' || true"));
+		if (length(p) && index(" " + phys + " ", " " + p + " ") < 0) phys += (length(phys) ? "\n" : "") + p;
+	}
+	if (!length(phys)) phys = sh("iw phy 2>/dev/null | awk '/^Wiphy /{print $2}' || true");
+	if (!length(phys)) phys = "phy0";
+	let scan = "";
+	for (let ph in words(phys)) scan += sh("iw phy " + sq(ph) + " scan 2>/dev/null");
+	let nets = [];
+	let cur = null;
+	for (let line in split(scan, "\n")) {
+		let l = trim(line);
+		if (substr(l, 0, 4) == "BSS ") {
+			if (cur != null && length(cur.ssid)) push(nets, cur);
+			let bssid = trim(substr(l, 4));
+			if (index(bssid, "(") >= 0) bssid = trim(substr(bssid, 0, index(bssid, "(")));
+			/* 同 BSSID 可能同时出现在两个 radio 的扫描结果，保留各频段最强记录 */
+			cur = { ssid: "", bssid: bssid, band: "", signal: -100, secured: false };
+			continue;
+		}
+		if (cur == null) continue;
+		let i = index(l, "freq:");
+		if (i >= 0) {
+			let f = int(trim(substr(l, i + 5)));
+			cur.band = (f >= 2412 && f <= 2484) ? "2g" : ((f >= 5160 && f <= 5895) ? "5g" : "");
+		}
+		i = index(l, "signal:");
+		if (i >= 0) cur.signal = int(trim(substr(l, i + 7)));
+		i = index(l, "SSID:");
+		if (i >= 0) cur.ssid = trim(substr(l, i + 5));
+		if (index(l, "RSN:") >= 0 || index(l, "WPA:") >= 0) cur.secured = true;
+	}
+	if (cur != null && length(cur.ssid)) push(nets, cur);
+	/* 同 SSID 同频段保留最强 BSS；2.4G 与 5G 同名网络分别保留，便于列表标识频段 */
+	let best = {};
+	for (let n in nets) {
+		if (!length(n.ssid) || !length(n.band)) continue;
+		let k = n.band + "\x1f" + n.ssid;
+		if (best[k] == null || n.signal > best[k].signal) best[k] = n;
+	}
+	let uniq = [];
+	for (let k in best) push(uniq, best[k]);
+	/* 5G 优先、同频段按信号排序（用字符串 key 可排序，再按 key 取回对象） */
+	let order = [];
+	for (let n in uniq) push(order, sprintf("%s|%05d|%s|%s", (n.band == "5g") ? "0" : "1", 3000 - n.signal, n.ssid, n.bssid));
+	sort(order);
+	let sorted = [];
+	for (let k in order) {
+		let parts = split(order[k], "|");
+		for (let n in uniq) if (n.ssid == parts[2] && n.bssid == parts[3]) { push(sorted, n); break; }
+	}
+	writeCache(WIFI_SCAN_CACHE, { t: time(), networks: sorted });
+	/* TSV 供择优脚本使用；rank=3000-signal，越小信号越强 */
+	let tsvAll = "";
+	for (let n in sorted) tsvAll += sprintf("%04d\t%s\t%s\n", 3000 - n.signal, n.band, n.ssid);
+	try { FS.writefile(WIFI_SCAN_TSV, tsvAll); } catch (e) {}
+	return sorted;
+}
+function wifiScanCached() {
+	let d = FS.readfile(WIFI_SCAN_CACHE);
+	if (d != null) {
+		let v = null;
+		try { v = json(d); } catch (e) { v = null; }
+		if (type(v) == "object" && v != null && (v.t ?? 0) <= time() && time() - (v.t ?? 0) <= WIFI_SCAN_TTL) {
+			/* 缓存命中时也要刷新 TSV，供 STA 择优脚本使用 */
+			let rows = "";
+			for (let n in (v.networks ?? [])) rows += sprintf("%04d\t%s\t%s\n", 3000 - n.signal, n.band, n.ssid);
+			try { FS.writefile(WIFI_SCAN_TSV, rows); } catch (e) {}
+			return v.networks ?? [];
+		}
+	}
+	return wifiDoScan();
+}
+function cmdWifiGet() {
+	out({ ok: true, capability: wifiCap(), status: wifiState() });
+}
+function cmdWifiPost() {
+	let d = body() ?? {};
+	let act = d.act ?? "";
+	if (!wifiIsAx5()) {
+		if (act == "get" || act == "status") { out({ ok: true, capability: wifiCap(), status: wifiState() }); return; }
+		fail("该设备不支持网络配置"); return;
+	}
+	if (act == "scan") {
+		out({ ok: true, networks: wifiScanCached() }); return;
+	}
+	if (act == "save_ap") {
+		let band = (d.band == "5g") ? "5g" : "2g";
+		let w = sprintf("%s", d.htmode ?? "");
+		let wmap = { "20MHz": "20", "40MHz": "40", "80MHz": "80" };
+		let wn = wmap[w] ?? ((band == "5g") ? "80" : "40");
+		/* 2.4G 用 HT20/HT40，5G 用 HE20/HE40/HE80（AX5 ath11k） */
+		let htmode = (band == "5g") ? ("HE" + wn) : ((wn == "20") ? "HT20" : "HT40");
+		let ssid = sprintf("%s", d.ssid ?? "MMDVM-OpenWrt");
+		if (!length(ssid)) ssid = "MMDVM-OpenWrt";
+		let key = sprintf("%s", d.key ?? "");
+		/* SSID/密码中不允许引号、反斜杠、分号，避免拼进 shell 命令时注入 */
+		if (index(ssid, "'") >= 0 || index(ssid, "\"") >= 0 || index(ssid, "\\") >= 0 || index(ssid, ";") >= 0
+			|| index(key, "'") >= 0 || index(key, "\"") >= 0 || index(key, "\\") >= 0 || index(key, ";") >= 0) {
+			fail("名称或密码含有不支持的字符"); return;
+		}
+		let enabled = (d.enabled == true || d.enabled == 1 || d.enabled == "1");
+		/* 无上游时禁止保存关闭热点，避免设备失联；2 分钟保底由 guard 兜底 */
+		if (!enabled && !wifiUpstream()) { fail("当前无上游网络，热点不能关闭"); return; }
+		wifiBackup();
+		let cmd = "uci set mmdvmwifi.main.ap_band=" + sq(band) + "; ";
+		cmd += "uci set mmdvmwifi.main.ap_enabled=" + sq(enabled ? "1" : "0") + "; ";
+		cmd += "uci set wireless." + sq(wifiRadio("2g")) + ".htmode=" + sq((band == "2g") ? htmode : "HT40") + "; ";
+		if (wifiRadio("5g") != wifiRadio("2g")) cmd += "uci set wireless." + sq(wifiRadio("5g")) + ".htmode=" + sq((band == "5g") ? htmode : "HE80") + "; ";
+		cmd += "uci commit mmdvmwifi; ";
+		cmd += "uci set wireless.mmdvm_ap_2g.ssid=" + sq(ssid) + "; ";
+		cmd += "uci set wireless.mmdvm_ap_2g.encryption=" + sq(length(key) ? "psk2" : "none") + "; ";
+		if (length(key)) cmd += "uci set wireless.mmdvm_ap_2g.key=" + sq(key) + "; ";
+		else cmd += "uci -q delete wireless.mmdvm_ap_2g.key; ";
+		cmd += "uci set wireless.mmdvm_ap_2g.disabled=" + sq(enabled && band == "2g" ? "0" : "1") + "; ";
+		if (length(uciOpt("wireless", "mmdvm_ap_5g", "device"))) {
+			cmd += "uci set wireless.mmdvm_ap_5g.ssid=" + sq(ssid) + "; ";
+			cmd += "uci set wireless.mmdvm_ap_5g.encryption=" + sq(length(key) ? "psk2" : "none") + "; ";
+			if (length(key)) cmd += "uci set wireless.mmdvm_ap_5g.key=" + sq(key) + "; ";
+			else cmd += "uci -q delete wireless.mmdvm_ap_5g.key; ";
+			cmd += "uci set wireless.mmdvm_ap_5g.disabled=" + sq(enabled && band == "5g" ? "0" : "1") + "; ";
+		} else {
+			cmd += "uci -q delete wireless.mmdvm_ap_5g; ";
+		}
+		cmd += "uci commit wireless && wifi reload >/dev/null 2>&1 || true";
+		sh(cmd);
+		/* 热点配置本身立即生效；若 STA 仍在观察窗口，不能因改热点而取消 120 秒回滚 */
+		out({ ok: true, message: "热点配置已保存", status: wifiState() }); return;
+	}
+	if (act == "save_sta") {
+		let ssid = sprintf("%s", d.ssid ?? "");
+		let ssidPipe = index(ssid, "|");
+		if (ssidPipe >= 0) ssid = trim(substr(ssid, 0, ssidPipe));
+		let key = sprintf("%s", d.key ?? "");
+		let band = (d.band == "5g") ? "5g" : "2g";
+		if (!length(ssid)) { fail("WiFi 名称不能为空"); return; }
+		if (index(ssid, "'") >= 0 || index(ssid, "\"") >= 0 || index(ssid, "\\") >= 0 || index(ssid, ";") >= 0
+			|| index(key, "'") >= 0 || index(key, "\"") >= 0 || index(key, "\\") >= 0 || index(key, ";") >= 0) {
+			fail("名称或密码含有不支持的字符"); return;
+		}
+		wifiBackup();
+		/* 已有同名 profile 先删掉再重建，避免重复 */
+		let dupSec = "";
+		for (let s in uciSections("mmdvmwifi", "wifi-profile")) {
+			if (uciOpt("mmdvmwifi", s, "ssid") == ssid) { dupSec = s; break; }
+		}
+		if (length(dupSec)) { sh("uci -q delete 'mmdvmwifi." + dupSec + "' 2>/dev/null || true"); }
+		let cmd = "uci add mmdvmwifi wifi-profile >/dev/null; ";
+		cmd += "uci set mmdvmwifi.@wifi-profile[-1].ssid=" + sq(ssid) + "; ";
+		cmd += "uci set mmdvmwifi.@wifi-profile[-1].key=" + sq(key) + "; ";
+		cmd += "uci set mmdvmwifi.@wifi-profile[-1].band=" + sq(band) + "; uci commit mmdvmwifi; ";
+		cmd += "uci set wireless.mmdvm_ap_2g.device=" + sq(wifiRadio("2g")) + "; ";
+		if (length(uciOpt("wireless", "mmdvm_ap_5g", "device"))) cmd += "uci set wireless.mmdvm_ap_5g.device=" + sq(wifiRadio("5g")) + "; ";
+		else cmd += "uci -q delete wireless.mmdvm_ap_5g; ";
+		cmd += "uci set wireless.mmdvm_sta.device=" + sq(wifiRadio(band)) + "; ";
+		cmd += "uci set wireless.mmdvm_sta.ssid=" + sq(ssid) + "; ";
+		cmd += "uci -q delete wireless.mmdvm_sta.key; ";
+		if (length(key)) cmd += "uci set wireless.mmdvm_sta.key=" + sq(key) + "; ";
+		cmd += "uci set wireless.mmdvm_sta.encryption=" + sq(length(key) ? "psk2" : "none") + "; ";
+		cmd += "uci set wireless.mmdvm_sta.disabled=0; uci commit wireless && wifi reload >/dev/null 2>&1 || true";
+		sh(cmd);
+		/* 已有上游说明新 STA 立即可用，无需观察；否则由 guard 等待上游或回滚 */
+		wifiPending();
+		wifiConfirmSaved();
+		out({ ok: true, message: "WiFi 已保存，正在连接", status: wifiState() }); return;
+	}
+	if (act == "forget_sta") {
+		let ssid = sprintf("%s", d.ssid ?? "");
+		if (index(ssid, "'") >= 0 || index(ssid, "\"") >= 0 || index(ssid, ";") >= 0) { fail("网络名称不合法"); return; }
+		let removed = false;
+		for (let s in uciSections("mmdvmwifi", "wifi-profile")) {
+			if (uciOpt("mmdvmwifi", s, "ssid") == ssid) { sh("uci -q delete 'mmdvmwifi." + s + "'"); removed = true; }
+		}
+		if (removed) { sh("uci commit mmdvmwifi || true"); }
+		if (uciOpt("wireless", "mmdvm_sta", "ssid") == ssid) {
+			sh("uci -q delete wireless.mmdvm_sta.ssid; uci -q delete wireless.mmdvm_sta.key; uci set wireless.mmdvm_sta.disabled=1; uci commit wireless; wifi reload >/dev/null 2>&1 || true");
+		}
+		out({ ok: true, message: "已忘记该网络", status: wifiState() }); return;
+	}
+	if (act == "toggle_ap") {
+		let enabled = (d.enabled == true || d.enabled == 1 || d.enabled == "1");
+		let upstream = wifiUpstream();
+		if (!enabled && !upstream) {
+			out({ ok: true, apOn: true, message: "当前无上游网络，热点保持开启", status: wifiState() }); return;
+		}
+		let band = (uciOpt("mmdvmwifi", "main", "ap_band") == "5g") ? "5g" : "2g";
+		let cmd = "uci set mmdvmwifi.main.ap_enabled=" + sq(enabled ? "1" : "0") + "; "
+			+ "uci set wireless.mmdvm_ap_2g.disabled=" + sq(enabled && band == "2g" ? "0" : "1") + "; ";
+		if (length(uciOpt("wireless", "mmdvm_ap_5g", "device"))) cmd += "uci set wireless.mmdvm_ap_5g.disabled=" + sq(enabled && band == "5g" ? "0" : "1") + "; ";
+		else cmd += "uci -q delete wireless.mmdvm_ap_5g; ";
+		cmd += "uci commit mmdvmwifi; uci commit wireless; wifi reload >/dev/null 2>&1 || true";
+		sh(cmd);
+		out({ ok: true, apOn: enabled, message: enabled ? "热点已开启" : "热点已关闭", status: wifiState() }); return;
+	}
+	fail("未知操作");
+}
+
+if (name == "wifi") {
+	if (method == "POST") cmdWifiPost(); else cmdWifiGet();
 /* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等） */
-if (name == "ports") {
+} else if (name == "ports") {
 	out({ ok: true, serialPorts: scanSerialPorts(), i2cBuses: scanI2cBuses() });
 } else if (name == "luci") {
 	cmdLuci();

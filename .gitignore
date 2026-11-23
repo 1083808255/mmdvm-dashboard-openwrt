@@ -29,6 +29,7 @@ firmware-build/devices/*/artifacts/
 
 # IDE/工具缓存
 .workbuddy/
+.trae/
 
 # 本地调试产物与临时脚本
 .askpass*.cmd
