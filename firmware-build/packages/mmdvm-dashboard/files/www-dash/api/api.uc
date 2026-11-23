@@ -1486,9 +1486,46 @@ function lteInfo() {
 	return v;
 }
 
+/* 静态系统信息缓存：型号/固件/内核/主机名等开机后不变，首次探测后写入 /tmp 复用，
+   避免仪表盘每次加载都 fork 多个 shell（df/uname/source openwrt_release/uci） */
+const SYS_STATIC_CACHE = "/tmp/dashboard_sysstatic.json";
+function sysStaticInfo() {
+	let c = null;
+	try { c = json(FS.readfile(SYS_STATIC_CACHE) ?? ""); } catch (e) { c = null; }
+	if (type(c) == "object" && c != null && c.model != null) return c;
+	/* 首次探测：固件/内核各 fork 一次 shell，之后永久走缓存直到设备重启清 /tmp */
+	let fw = trim(sh(". /etc/openwrt_release 2>/dev/null; echo $DISTRIB_DESCRIPTION"));
+	let ker = trim(sh("uname -r"));
+	let c2 = {
+		hostname: hostname(),
+		model: trim(FS.readfile("/tmp/sysinfo/model") ?? "—"),
+		firmware: fw,
+		kernel: ker,
+		memTotal: 0,
+		memPhys: physMemMbCached()
+	};
+	/* 内存总量精确读一次 MemTotal */
+	let mem = FS.readfile("/proc/meminfo") ?? "";
+	for (let l in split(mem, "\n")) {
+		if (substr(l, 0, 9) == "MemTotal:") { c2.memTotal = rnd(int(trim(substr(l, index(l, ":") + 1))) / 1024); break; }
+	}
+	try { FS.writefile(SYS_STATIC_CACHE, sprintf("%J", c2)); } catch (e) {}
+	return c2;
+}
+
 function cmdSystem() {
+	let q = qs();
+	/* ?static=1：只返回开机后长期不变的字段，供标识副标题/诊断文件名复用，零高频 shell */
+	if (q.static == "1") {
+		let st = sysStaticInfo();
+		out({
+			hostname: st.hostname, model: st.model, firmware: st.firmware,
+			kernel: st.kernel, memTotal: st.memTotal, memPhys: st.memPhys
+		});
+		return;
+	}
 	/* ?lite=1：系统页每 3 秒只刷新 CPU/内存/根分区，跳过型号、固件、4G 等高成本字段 */
-	let lite = (qs().lite == "1");
+	let lite = (q.lite == "1");
 	let mem = FS.readfile("/proc/meminfo") ?? "";
 	let total = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
 	for (let l in split(mem, "\n")) {
