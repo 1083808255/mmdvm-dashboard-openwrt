@@ -3026,19 +3026,37 @@ function wifiConfirmSaved() {
 function wifiReload() {
 	sh("wifi reload >/dev/null 2>&1 || true");
 }
+/* iw 把非 ASCII SSID 输出成 \xNN 转义序列，还原成原始 UTF-8 字节供前端显示 */
+function wifiHexVal(c) {
+	let d = lc(c);
+	if (d >= "0" && d <= "9") return int(d);
+	let o = index("abcdef", d);
+	return o < 0 ? -1 : o + 10;
+}
+function wifiDecodeSsid(s) {
+	let out = "", i = 0;
+	while (i < length(s)) {
+		if (substr(s, i, 2) == "\\x" && i + 3 < length(s)) {
+			let hi = wifiHexVal(substr(s, i + 2, 1));
+			let lo = wifiHexVal(substr(s, i + 3, 1));
+			if (hi >= 0 && lo >= 0) {
+				out += sprintf("%c", hi * 16 + lo);
+				i += 4;
+				continue;
+			}
+		}
+		out += substr(s, i, 1);
+		i++;
+	}
+	return out;
+}
 /* 扫描结果解析：同时写 JSON 与 TSV 缓存，TSV 供 mmdvm-wifi-select 使用 */
 function wifiDoScan() {
-	/* 实时列出 iw 的物理 radio（phyN）并扫描，避免把 UCI 段名 radio0/1 当设备名 */
-	let ifs = sh("iw dev 2>/dev/null | awk '/Interface/{print $2}' || true");
-	let phys = "";
-	for (let ifn in words(ifs)) {
-		let p = trim(sh("iw dev " + sq(ifn) + " info 2>/dev/null | sed -n 's/.*phy#\\([0-9]*\\).*/phy\\1/p' | awk 'NR==1{print;exit}' || true"));
-		if (length(p) && index(" " + phys + " ", " " + p + " ") < 0) phys += (length(phys) ? "\n" : "") + p;
-	}
-	if (!length(phys)) phys = sh("iw phy 2>/dev/null | awk '/^Wiphy /{print $2}' || true");
-	if (!length(phys)) phys = "phy0";
+	/* ath11k 等驱动不支持 iw phy scan，改用实际 netdev 接口（wlanN）扫描；
+	   遍历所有接口可同时覆盖 2.4G/5G，避免把 UCI 段名 radio0/1 当设备名 */
+	let ifs = sh("iw dev 2>/dev/null | awk '/Interface/{printf \"%s \", $2}' || true");
 	let scan = "";
-	for (let ph in words(phys)) scan += sh("iw phy " + sq(ph) + " scan 2>/dev/null");
+	for (let ifn in words(ifs)) scan += sh("iw dev " + sq(ifn) + " scan 2>/dev/null");
 	let nets = [];
 	let cur = null;
 	for (let line in split(scan, "\n")) {
@@ -3060,7 +3078,11 @@ function wifiDoScan() {
 		i = index(l, "signal:");
 		if (i >= 0) cur.signal = int(trim(substr(l, i + 7)));
 		i = index(l, "SSID:");
-		if (i >= 0) cur.ssid = trim(substr(l, i + 5));
+		if (i >= 0) {
+			let ss = trim(substr(l, i + 5));
+			/* 隐藏网络的 SSID 常被转义成全 \\x00 串，不当作可选网络 */
+			if (index(ss, "\\x00") < 0) cur.ssid = wifiDecodeSsid(ss);
+		}
 		if (index(l, "RSN:") >= 0 || index(l, "WPA:") >= 0) cur.secured = true;
 	}
 	if (cur != null && length(cur.ssid)) push(nets, cur);
@@ -3079,7 +3101,7 @@ function wifiDoScan() {
 	sort(order);
 	let sorted = [];
 	for (let k in order) {
-		let parts = split(order[k], "|");
+		let parts = split(k, "|");
 		for (let n in uniq) if (n.ssid == parts[2] && n.bssid == parts[3]) { push(sorted, n); break; }
 	}
 	writeCache(WIFI_SCAN_CACHE, { t: time(), networks: sorted });
@@ -3178,10 +3200,21 @@ function cmdWifiPost() {
 			if (uciOpt("mmdvmwifi", s, "ssid") == ssid) { dupSec = s; break; }
 		}
 		if (length(dupSec)) { sh("uci -q delete 'mmdvmwifi." + dupSec + "' 2>/dev/null || true"); }
-		let cmd = "uci add mmdvmwifi wifi-profile >/dev/null; ";
-		cmd += "uci set mmdvmwifi.@wifi-profile[-1].ssid=" + sq(ssid) + "; ";
-		cmd += "uci set mmdvmwifi.@wifi-profile[-1].key=" + sq(key) + "; ";
-		cmd += "uci set mmdvmwifi.@wifi-profile[-1].band=" + sq(band) + "; uci commit mmdvmwifi; ";
+		/* 用具名段保存 profile：匿名段(@wifi-profile[N])读回时段名为空，会让
+		   wifiProfiles()/forget_sta 把所有网络错认成同一个，破坏多 WiFi 择优与忘记功能 */
+		let used = uciSections("mmdvmwifi", "wifi-profile");
+		let maxN = -1;
+		for (let s in used) {
+			if (substr(s, 0, 2) == "wp") {
+				let n = int(substr(s, 2));
+				if (n > maxN) maxN = n;
+			}
+		}
+		let newSec = "wp" + (maxN + 1);
+		let cmd = "uci set mmdvmwifi." + newSec + "=wifi-profile; ";
+		cmd += "uci set mmdvmwifi." + newSec + ".ssid=" + sq(ssid) + "; ";
+		cmd += "uci set mmdvmwifi." + newSec + ".key=" + sq(key) + "; ";
+		cmd += "uci set mmdvmwifi." + newSec + ".band=" + sq(band) + "; uci commit mmdvmwifi; ";
 		cmd += "uci set wireless.mmdvm_ap_2g.device=" + sq(wifiRadio("2g")) + "; ";
 		if (length(uciOpt("wireless", "mmdvm_ap_5g", "device"))) cmd += "uci set wireless.mmdvm_ap_5g.device=" + sq(wifiRadio("5g")) + "; ";
 		else cmd += "uci -q delete wireless.mmdvm_ap_5g; ";
