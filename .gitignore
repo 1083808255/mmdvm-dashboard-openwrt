@@ -1,6 +1,8 @@
 # 开发工具与私钥（请勿上传）
 .tools/
 tools/
+!firmware-build/devices/*/packages/dmrstream/src/vendor/mbelib-neo/
+!firmware-build/devices/*/packages/dmrstream/src/vendor/mbelib-neo/tools/
 .screenshots/
 .trae-html-share-packages/
 
