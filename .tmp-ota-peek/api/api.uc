@@ -1,0 +1,3884 @@
+#!/usr/bin/ucode
+/* MMDVM Dashboard API —— uhttpd CGI 入口，URL: /api/<endpoint> */
+let FS = require("fs");
+
+const INI_DIR = "/etc/mmdvm/";
+const STATE   = "/etc/mmdvm/dashboard.json";
+/* 实时语音功能开关：{"enabled":true|false}，缺失时按机型取默认值 */
+const LIVECFG = "/etc/mmdvm/livecfg.json";
+const QSO_CACHE = "/tmp/dashboard_qso.cache";
+const LH_CACHE  = "/tmp/dashboard_lh.cache";
+/* 最近通联持久化（overlay 分区，重启不丢）：按 DMR ID 聚合 */
+const LH_STORE    = "/root/dashboard-lh.json";
+const LH_MAX_IDS  = 200;   /* 最多保留的 ID 数，超出淘汰最久未通联的 */
+const LH_MAX_HIST = 30;    /* 每个 ID 保留的历史条数 */
+const LH_GPS_TTL  = 1800;  /* 通联 GPS 图标最长保留 30 分钟 */
+const STATUS_CACHE = "/tmp/dashboard_status.cache";
+const LIVE_CACHE   = "/tmp/dashboard_live.cache";
+const PING_CACHE   = "/tmp/dashboard_ping.json";
+const CPU_CACHE    = "/tmp/dashboard_cpu.json";
+const PHYS_CACHE   = "/tmp/dashboard_physmem.cache";
+const CONN_CACHE   = "/tmp/dashboard_conn.cache";
+const NET_STATE_CACHE = "/tmp/dashboard_netstate.json";
+const GWSCAN_CACHE = "/tmp/dashboard_gwscan.json";
+const GPS_CACHE    = "/tmp/dashboard_gps.json";
+const GEO_CACHE    = "/tmp/dashboard_geo.json";
+/* 逆地理结果缓存：成功的存 7 天，失败的只存 5 分钟 */
+const GEO_TTL      = 604800;
+/* 短缓存有效期（秒）：仅用于 status / live 这类高频接口，需小于前端轮询周期 */
+const SHORT_TTL = 1;
+
+/* ---------- 基础工具 ---------- */
+function sh(cmd) {
+	let p = FS.popen(cmd);
+	if (!p) return "";
+	let o = p.read("all");
+	p.close();
+	return o ?? "";
+}
+function rnd(x) { return int(x + 0.5); }
+function words(s) {
+	let r = [];
+	for (let w in split(trim(s), " ")) if (length(w)) push(r, w);
+	return r;
+}
+function out(obj) {
+	print("Content-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\n\r\n");
+	print(sprintf("%J", obj));
+}
+function fail(msg) { out({ ok: false, error: msg }); }
+function ep() {
+	let s = getenv("SCRIPT_NAME") ?? "";
+	let a = split(s, "/");
+	return a[length(a) - 1];
+}
+function pathinfo() { return trim(getenv("PATH_INFO") ?? ""); }
+function qs() {
+	let o = {};
+	let q = getenv("QUERY_STRING") ?? "";
+	for (let kv in split(q, "&")) {
+		if (!length(kv)) continue;
+		let i = index(kv, "=");
+		if (i < 0) { o[kv] = ""; continue; }
+		o[substr(kv, 0, i)] = substr(kv, i + 1);
+	}
+	return o;
+}
+function body() {
+	let b = FS.stdin.read("all") ?? "";
+	if (!length(trim(b))) return null;
+	/* 请求体不是合法 JSON 时返回 null，避免 ucode 抛错导致 502 */
+	let v = null;
+	try { v = json(b); } catch (e) { v = null; }
+	return (type(v) == "object") ? v : null;
+}
+function ini(file) {
+	let data = FS.readfile(file);
+	if (data == null) return {};
+	let res = {}, cur = null;
+	for (let line in split(data, "\n")) {
+		let l = trim(line);
+		if (!length(l) || substr(l, 0, 1) == ";" || substr(l, 0, 1) == "#") continue;
+		if (substr(l, 0, 1) == "[" && substr(l, length(l) - 1) == "]") {
+			cur = substr(l, 1, length(l) - 2);
+			res[cur] = {};
+		} else if (cur != null) {
+			let i = index(l, "=");
+			if (i > 0) res[cur][trim(substr(l, 0, i))] = trim(substr(l, i + 1));
+		}
+	}
+	return res;
+}
+function state() {
+	let data = FS.readfile(STATE);
+	if (data == null) return {};
+	let v = json(data);
+	return (type(v) == "object") ? v : {};
+}
+function saveState(o) { FS.writefile(STATE, sprintf("%J", o) + "\n"); }
+
+/* 文件签名：路径+大小+修改时间，用于判断日志/数据库是否变化 */
+function fileSig(file) {
+	if (!length(file)) return "";
+	let s = FS.stat(file);
+	return (s == null) ? (file + "|0|0") : (file + "|" + s.size + "|" + s.mtime);
+}
+/* 先写临时文件再改名，避免并发请求读到半截 JSON */
+function writeCache(path, obj) {
+	let tmp = path + ".tmp";
+	FS.writefile(tmp, sprintf("%J", obj));
+	FS.rename(tmp, path);
+}
+/* 短缓存：来源日志签名变化立即失效（优先判断，保证新通话不被 TTL 拖住），
+   日志未变化时才按 ttl 复用，命中时不再 fork / 解析日志 */
+function shortGet(path, ttl, file) {
+	let d = FS.readfile(path);
+	if (d == null || substr(trim(d), 0, 1) != "{") return null;
+	let v = json(d);
+	if (type(v) != "object" || v == null || v.body == null) return null;
+	if (length(file) && (v.file != file || v.sig != fileSig(file))) return null;
+	if (time() - (v.t ?? 0) > ttl) return null;
+	return v.body;
+}
+function shortPut(path, body, file) {
+	let tmp = path + ".tmp";
+	FS.writefile(tmp, sprintf("%J", {
+		t: time(),
+		file: file ?? "",
+		sig: length(file) ? fileSig(file) : "",
+		body: body
+	}));
+	FS.rename(tmp, path);
+}
+/* 宽松缓存：只要缓存存在且年龄不超过 maxAge 就返回，忽略来源文件签名。
+   通话中日志每秒都在变，会让 shortGet 的签名校验永久失效，单核每次请求都全量重算，
+   单次逼近前端 8 秒超时后进程不退出、轮询继续发，进而堆积雪崩。给状态/列表类端点
+   一个「最短复用窗口」：几秒内的旧数据远好于把设备卡死机。 */
+function staleGet(path, maxAge) {
+	let d = FS.readfile(path);
+	if (d == null || substr(trim(d), 0, 1) != "{") return null;
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	if (type(v) != "object" || v == null || v.body == null) return null;
+	if (time() - (v.t ?? 0) > maxAge) return null;
+	return v.body;
+}
+/* 单飞锁：同名端点已有实例在跑（锁未过期）时返回 true，调用方应直接退回缓存，
+   绝不再启动第二个重算进程——这是防止「某次慢请求超时后进程不退出、轮询继续发、
+   单核进程越积越多」雪崩的最后一道闸。锁用时间戳，进程崩溃后最多 stale 秒自动释放。 */
+function inFlight(name, stale) {
+	let f = "/tmp/dashboard_" + name + ".flt";
+	let d = FS.readfile(f);
+	if (d != null && (time() - int(d)) < stale) return true;
+	FS.writefile(f, sprintf("%d", time()));
+	return false;
+}
+/* 呼号/地址查询结果短缓存：同一批呼号的 grep / awk 结果 60 秒内不再重复 fork。
+   这类数据一天内基本不变，实时性只影响新出现的呼号，60 秒足够 */
+const MEMO = "/tmp/dashboard_memo.json";
+function keyOf(prefix, a, b) {
+	let s = prefix;
+	if (a != null) for (let x in a) s += x + ",";
+	if (b != null) { s += "|"; for (let x in b) s += x + ","; }
+	return s;
+}
+function memoGet(k, ttl) {
+	let d = FS.readfile(MEMO);
+	if (d == null) return null;
+	let m = json(d);
+	if (type(m) != "object" || m == null) return null;
+	let e = m[k];
+	if (e == null || type(e) != "object") return null;
+	if (time() - (e.t ?? 0) > ttl) return null;
+	return e.v;
+}
+function memoPut(k, v) {
+	let d = FS.readfile(MEMO);
+	let m = (d != null) ? json(d) : null;
+	if (type(m) != "object" || m == null) m = {};
+	let now = time(), out = {}, n = 0;
+	for (let x in m) {
+		let e = m[x];
+		if (type(e) == "object" && e != null && now - (e.t ?? 0) <= 300 && n < 40) { out[x] = e; n++; }
+	}
+	out[k] = { t: now, v: v };
+	writeCache(MEMO, out);
+}
+function hostname() {
+	/* 优先读内核 hostname，避免每次状态请求都 fork uci（uci 本身是脚本，开销较大） */
+	let h = trim(FS.readfile("/proc/sys/kernel/hostname") ?? "");
+	if (!length(h)) h = trim(sh("uci get system.@system[0].hostname 2>/dev/null"));
+	return h;
+}
+/* 直接读取 /etc/config/<pkg> 命名段里的选项，避免高频请求反复 fork uci */
+function uciOpt(pkg, sec, opt) {
+	let data = FS.readfile("/etc/config/" + pkg);
+	if (data == null) return "";
+	let cur = "";
+	for (let l in split(data, "\n")) {
+		let s = trim(l);
+		if (substr(s, 0, 7) == "config ") {
+			let rest = trim(substr(s, 7));
+			let i = index(rest, " ");
+			if (i < 0) { cur = ""; continue; }
+			let nm = trim(substr(rest, i + 1));
+			if (length(nm) >= 2 && (substr(nm, 0, 1) == "'" || substr(nm, 0, 1) == "\""))
+				nm = substr(nm, 1, length(nm) - 2);
+			cur = nm;
+			continue;
+		}
+		if (cur != sec || substr(s, 0, 7) != "option ") continue;
+		let rest = trim(substr(s, 7));
+		let i = index(rest, " ");
+		if (i < 0) continue;
+		if (trim(substr(rest, 0, i)) != opt) continue;
+		let v = trim(substr(rest, i + 1));
+		if (length(v) >= 2 && (substr(v, 0, 1) == "'" || substr(v, 0, 1) == "\""))
+			v = substr(v, 1, length(v) - 2);
+		return v;
+	}
+	return "";
+}
+/* ---------- 服务定义（与设备实际安装一致） ---------- */
+const SVCS = [
+	{ key: "mmdvmhost",   name: "MMDVMHost",   bin: "/usr/bin/MMDVMHost",   proc: "MMDVMHost",   ini: "MMDVM.ini" },
+	{ key: "dmrgateway",  name: "DMRGateway",  bin: "/usr/bin/DMRGateway",  proc: "DMRGateway",  ini: "DMRGateway.ini" }
+];
+function svcFind(key) {
+	for (let s in SVCS) if (s.key == key) return s;
+	return null;
+}
+function svcInfo(s) {
+	return {
+		key: s.key, name: s.name, bin: s.bin,
+		config: INI_DIR + s.ini,
+		running: length(trim(sh("pidof " + s.proc + " 2>/dev/null"))) > 0,
+		enabled: length(trim(sh("ls /etc/rc.d/S*" + s.key + " 2>/dev/null"))) > 0
+	};
+}
+const LOGPATH_CACHE = "/tmp/dashboard_logpath.json";
+/* 取最新的 n 份日志（新→旧）：文件名按日期递增，直接用 glob 排序，避免 fork ls */
+function newestLogs(prefix, n) {
+	let list = FS.glob("/var/log/mmdvm/" + prefix + "-*.log") ?? [];
+	sort(list);
+	let res = [];
+	for (let i = length(list) - 1; i >= 0 && length(res) < n; i--) push(res, list[i]);
+	return res;
+}
+/* 日志路径：ls -t 每次请求都要 fork，2 秒内复用同一结果。
+   日志按天滚动，最多让新文件晚 2 秒被发现，不影响实时显示 */
+function logFileFor(prefix) {
+	let now = time(), c = null;
+	try { c = json(FS.readfile(LOGPATH_CACHE) ?? ""); } catch (e) { c = null; }
+	if (type(c) != "object" || c == null) c = {};
+	let e = c[prefix];
+	if (type(e) == "object" && e != null && now - (e.t ?? 0) <= 2 && length(e.f ?? "") && FS.stat(e.f) != null)
+		return e.f;
+	let f = newestLogs(prefix, 1)[0] ?? "";
+	c[prefix] = { t: now, f: f };
+	try { FS.writefile(LOGPATH_CACHE, sprintf("%J", c)); } catch (e2) {}
+	return f;
+}
+/* 直连模式下 MMDVMHost 与 master 的连接状态。
+   日志可能上百 KB/小时，登录事件常在文件前部，按增量读取：
+   只解析上次记录偏移之后新增的内容，避免每次重复扫描整份日志 */
+/* 屏幕端口所在的 ini 段随屏幕类型变化：[Nextion] / [OLED] / [TFT Serial]；
+   HD44780 用 Pins 定义、None 不需要端口，均返回 null */
+function dispSectionFor(t) {
+	let s = trim(t ?? "");
+	if (s == "Nextion") return "Nextion";
+	if (s == "OLED" || s == "OLED Type3" || s == "OLED Type6") return "OLED";
+	if (s == "TFT Serial") return "TFT Serial";
+	return null;
+}
+function directConnected(file) {
+	if (!length(file)) return false;
+	let st = FS.stat(file);
+	if (st == null) return false;
+	let sig = file + "|" + st.size + "|" + st.mtime;
+	let c = null;
+	try { c = json(FS.readfile(CONN_CACHE) ?? ""); } catch (e) { c = null; }
+	let same = (c != null && c.file == file);
+	if (same && c.sig == sig) return !!c.connected;
+	let conn = same ? !!c.connected : false;
+	let from = 0;
+	if (same && type(c.off) == "int" && c.off > 0 && c.off <= st.size) from = c.off;
+	/* 回退 200 字节，避免把上次末尾的半行当成新行解析 */
+	if (from > 200) from -= 200;
+	let chunk = (from > 0) ? sh("tail -c +" + (from + 1) + " " + file) : (FS.readfile(file) ?? "");
+	for (let l in split(chunk, "\n")) {
+		if (index(l, "Logged into the master successfully") >= 0) conn = true;
+		else if (index(l, "Connection to the master has timed out") >= 0) conn = false;
+		else if (index(l, "Closing DMR Network") >= 0) conn = false;
+		else if (index(l, "Opening DMR Network") >= 0) conn = false;
+	}
+	let off = from + length(chunk);
+	try { FS.writefile(CONN_CACHE, sprintf("%J", { file: file, sig: sig, off: off, connected: conn })); } catch (e) {}
+	return conn;
+}
+
+/* ---------- 日志解析 ---------- */
+function between(s, a, b) {
+	let i = index(s, a);
+	if (i < 0) return null;
+	s = substr(s, i + length(a));
+	if (b == null) return s;
+	let j = index(s, b);
+	return (j < 0) ? null : substr(s, 0, j);
+}
+function slotOf(line) {
+	let v = between(line, "Slot ", ",");
+	return (v == null) ? null : trim(v);
+}
+function tsOf(line) {
+	let i = index(line, "20");
+	if (i < 0) return "";
+	let t = substr(line, i, 19);
+	return (length(t) == 19 && substr(t, 4, 1) == "-") ? t : "";
+}
+function hhmmss(t) { return length(t) >= 19 ? substr(t, 11, 8) : ""; }
+/* 日志时间为 UTC，busybox date 不支持 -d，这里直接按 UTC 计算 epoch */
+function epochOf(t) {
+	if (length(t) < 19) return 0;
+	let y = +substr(t, 0, 4), mo = +substr(t, 5, 2), d = +substr(t, 8, 2);
+	let h = +substr(t, 11, 2), mi = +substr(t, 14, 2), se = +substr(t, 17, 2);
+	if (!y || !mo || !d) return 0;
+	let yy = (mo <= 2) ? y - 1 : y;
+	let era = int(yy / 400);
+	let yoe = yy - era * 400;
+	let mp = (mo > 2) ? mo - 3 : mo + 9;
+	let doy = int((153 * mp + 2) / 5) + d - 1;
+	let doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy;
+	return (era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + se;
+}
+/* ---------- 内嵌 GPS / 逆地理 ---------- */
+/* MMDVMHost 会把对端语音头里的内嵌 GPS 打成两行：
+   “DMR Slot N, Embedded GPS Info” 紧跟 “GPS position [lat, lon]”
+   按槽位记录最后一次坐标，增量读取日志避免整份重扫 */
+function gpsBySlot(file) {
+	if (!length(file)) return {};
+	let st = FS.stat(file);
+	if (st == null) return {};
+	let sig = file + "|" + st.size + "|" + st.mtime + "|v7";
+	let c = null;
+	try { c = json(FS.readfile(GPS_CACHE) ?? ""); } catch (e) { c = null; }
+	let same = (c != null && c.file == file && type(c.slots) == "object");
+	if (same && c.sig == sig) return c.slots;
+	let slots = same ? c.slots : {};
+	/* 语音头时间/方向按时隙分别记录，双时隙交替通话时互不覆盖 */
+	let hdrT = (same && type(c.hdrT) == "object" && c.hdrT != null) ? c.hdrT : {};
+	let dirT = (same && type(c.dirT) == "object" && c.dirT != null) ? c.dirT : {};
+	/* “GPS position” 行不带时隙：只认它前面 “Embedded GPS Info” 行给出的时隙，
+	   不再沿用最近一次语音头的时隙（两人抢着通话时会把坐标串到另一个时隙） */
+	let gpsSlot = same ? (c.gpsSlot ?? null) : null;
+	let gpsCt = same ? (c.gpsCt ?? 0) : 0;
+	let gpsDir = same ? (c.gpsDir ?? null) : null;
+	/* 同一段内嵌 GPS 会在一个通话里反复上报：按原始报文记住首次归属，
+	   后续重复出现时沿用，避免被同时开始的另一路（如本机 RF）抢走 */
+	let gpsHex = same ? (c.gpsHex ?? null) : null;
+	let hexOwn = (same && type(c.hexOwn) == "object" && c.hexOwn != null) ? c.hexOwn : {};
+	let from = 0;
+	if (same && type(c.off) == "int" && c.off > 0 && c.off <= st.size) from = c.off;
+	if (from > 4096) from -= 4096;
+	let chunk = (from > 0) ? sh("tail -c +" + (from + 1) + " " + file) : (FS.readfile(file) ?? "");
+	for (let l in split(chunk, "\n")) {
+		let sl = slotOf(l);
+		/* 语音头方向：received RF = 本机手台上行，received network = 远端下行 */
+		if (index(l, "received RF") >= 0) {
+			if (sl != null) { hdrT[sl] = epochOf(tsOf(l)); dirT[sl] = "rf"; }
+			continue;
+		}
+		if (index(l, "received network") >= 0) {
+			if (sl != null) { hdrT[sl] = epochOf(tsOf(l)); dirT[sl] = "net"; }
+			continue;
+		}
+		if (index(l, "Embedded GPS Info") >= 0) {
+			if (sl != null) {
+				gpsSlot = sl;
+				gpsCt = hdrT[sl] ?? 0;
+				gpsDir = dirT[sl] ?? null;
+				gpsHex = null;
+			}
+			continue;
+		}
+		if (gpsSlot != null && index(l, "0000:") >= 0) {
+			/* 十六进制原始报文，用来识别“同一个 GPS 报文”的重复上报 */
+			let hi = index(l, "0000:");
+			let hex = trim(split(trim(substr(l, hi + 5)), "*")[0]);
+			if (length(hex)) gpsHex = hex;
+			continue;
+		}
+		let gi = index(l, "GPS position [");
+		if (gi < 0 || gpsSlot == null) continue;
+		let rest = substr(l, gi + 14);
+		let ci = index(rest, ",");
+		if (ci <= 0) continue;
+		let la = trim(substr(rest, 0, ci));
+		let tail = substr(rest, ci + 1);
+		let ei = index(tail, "]");
+		let lo = (ei > 0) ? trim(substr(tail, 0, ei)) : "";
+		if (!length(la) || !length(lo)) continue;
+		let tse = epochOf(tsOf(l));
+		let src = gpsDir, ct = gpsCt;
+		let own = hexOwn[gpsSlot];
+		if (gpsHex != null && own != null && own.hex == gpsHex && tse > 0 && own.ts > 0 && tse - own.ts <= 120
+			&& own.src != null && gpsDir != null && own.src != gpsDir) {
+			/* 同一报文重复出现但方向变了：说明中间插进了另一路通话（如本机 RF），沿用首次归属；
+			   方向相同则是同一方继续上报（可能已是新通话），用当前语音头时间，避免坐标被旧时间挡住不显示 */
+			src = own.src;
+			ct = own.ct;
+		}
+		slots[gpsSlot] = { lat: +la, lon: +lo, ts: tse, src: src, ct: ct };
+		/* RF（本机手台）坐标单独保留一份，避免随后网络的 GPS 覆盖导致本机基准丢失 */
+		if (src == "rf") slots["rf:" + gpsSlot] = { lat: +la, lon: +lo, ts: tse, src: "rf", ct: ct };
+		if (gpsHex != null) hexOwn[gpsSlot] = { hex: gpsHex, ts: tse, src: src, ct: ct };
+		gpsSlot = null; gpsCt = 0; gpsDir = null; gpsHex = null;
+	}
+	try { FS.writefile(GPS_CACHE, sprintf("%J", { file: file, sig: sig, off: from + length(chunk), hdrT: hdrT, dirT: dirT, gpsSlot: gpsSlot, gpsCt: gpsCt, gpsDir: gpsDir, gpsHex: gpsHex, hexOwn: hexOwn, slots: slots })); } catch (e) {}
+	return slots;
+}
+/* 通话 GPS 缓存时长（分钟，10~1440，默认 60）：存于 [Info] GPS_CacheMinutes，MMDVMHost 会忽略该键 */
+function gpsCacheMinutes() {
+	let inf = (ini(INI_DIR + "MMDVM.ini")["Info"] ?? {});
+	let mins = +trim(inf.GPS_CacheMinutes ?? "");
+	if (!(mins >= 10 && mins <= 1440)) {
+		let hrs = +trim(inf.GPS_CacheHours ?? "");
+		mins = (hrs >= 1 && hrs <= 48) ? hrs * 60 : 60;
+	}
+	return mins;
+}
+/* 本机基准位置：缓存时长内收到过本机手台（RF 方向）内嵌 GPS 就用它，否则返回 null（由调用方回退到配置值） */
+function localGps(file) {
+	let slots = gpsBySlot(file);
+	let now = time(), best = null;
+	let ttl = gpsCacheMinutes() * 60;
+	for (let k in slots) {
+		let g = slots[k];
+		if (type(g) != "object" || g == null || g.src != "rf") continue;
+		if (!g.lat || !g.lon) continue;
+		let ts = (type(g.ts) == "int") ? g.ts : 0;
+		if (ts <= 0 || now - ts > ttl) continue;
+		if (best == null || ts > (best.ts ?? 0)) best = g;
+	}
+	return best;
+}
+/* 逆地理缓存键：0.01° 网格 */
+function geoKey(lat, lon) { return sprintf("%.2f,%.2f", +lat, +lon); }
+/* 只读缓存，不发网络请求 —— 实时接口靠它保持毫秒级响应 */
+function addrCached(lat, lon) {
+	let key = geoKey(lat, lon), c = {};
+	try { c = json(FS.readfile(GEO_CACHE) ?? "") ?? {}; } catch (e) { c = {}; }
+	if (type(c) != "object" || c == null) return "";
+	let e = c[key];
+	if (e == null || !length(e.addr ?? "")) return "";
+	if (time() - (e.t ?? 0) >= GEO_TTL) return "";
+	return e.addr;
+}
+/* 后台进程查地址，不阻塞实时接口；同一网格 60 秒内只触发一次 */
+function addrPrefetch(lat, lon) {
+	let mk = "/tmp/dashboard_geo_" + replace(geoKey(lat, lon), ",", "_");
+	let st = FS.stat(mk);
+	if (st != null && time() - (st.mtime ?? 0) < 60) return;
+	try { FS.writefile(mk, ""); } catch (e) {}
+	sh("(SCRIPT_NAME=/api/geo QUERY_STRING='lat=" + (+lat) + "&lon=" + (+lon) + "' ucode /www-dash/api/api.uc >/dev/null 2>&1) &");
+}
+/* 逆地理：高德网页版接口无需 key，返回省/市/区县；按 0.01°（约 1km）网格缓存 */
+function addrOf(lat, lon) {
+	let key = sprintf("%.2f,%.2f", lat, lon);
+	let now = time(), c = {};
+	try { c = json(FS.readfile(GEO_CACHE) ?? "") ?? {}; } catch (e) { c = {}; }
+	if (type(c) != "object") c = {};
+	let e = c[key];
+	if (e != null && now - (e.t ?? 0) < ((length(e.addr ?? "") ? GEO_TTL : 300))) return e.addr ?? "";
+	let u = "https://ditu.amap.com/service/regeo?longitude=" + lon + "&latitude=" + lat + "&lang=zh_cn";
+	let o = sh("uclient-fetch -q -O - --timeout=4 '" + u + "' 2>/dev/null");
+	let addr = "";
+	try {
+		let j = json(o);
+		let d = (type(j) == "object") ? (j.data ?? null) : null;
+		if (type(d) == "object" && d != null) {
+			let pv = trim(d.province ?? ""), ct = trim(d.city ?? ""), dt = trim(d.district ?? "");
+			if (pv != "0") addr = pv;
+			if (length(ct) && ct != "0" && ct != pv) addr += ct;
+			if (length(dt) && dt != "0" && dt != ct) addr += dt;
+		}
+	} catch (ex) {}
+	c[key] = { t: now, addr: addr };
+	try { FS.writefile(GEO_CACHE, sprintf("%J", c)); } catch (ex2) {}
+	return addr;
+}
+/* 两点距离（km）：球面半正矢公式，sin/cos/asin 用泰勒展开、开方用牛顿迭代，
+   避免依赖本机 ucode 构建里缺失的数学函数 */
+function cosDeg(d) {
+	let r = d * 0.0174532925199433, r2 = r * r;
+	return 1 - r2 / 2 + r2 * r2 / 24 - r2 * r2 * r2 / 720;
+}
+function sinDeg(d) {
+	let r = d * 0.0174532925199433, r2 = r * r, r3 = r2 * r;
+	return r - r3 / 6 + r3 * r2 / 120 - r3 * r2 * r2 / 5040;
+}
+function asinX(x) {
+	let x3 = x * x * x;
+	return x + x3 / 6 + 3 * x3 * x * x / 40;
+}
+function fsqrt(x) {
+	if (x <= 0) return 0;
+	let g = x;
+	for (let i = 0; i < 24; i++) g = (g + x / g) / 2;
+	return g;
+}
+function distKm(la1, lo1, la2, lo2) {
+	let a = sinDeg((la2 - la1) / 2), b = sinDeg((lo2 - lo1) / 2);
+	let t = a * a + cosDeg(la1) * cosDeg(la2) * b * b;
+	if (t < 0) t = 0;
+	if (t > 1) t = 1;
+	return 2 * 6371.0 * asinX(fsqrt(t));
+}
+
+function parseQso(logfile) {
+	let file = logfile ?? logFileFor("MMDVM");
+	let recs = [], pend = {}, rt = {};
+	/* 逐突发误码累计器：errs/total 为比特级计数，frames 为突发数。
+	   跨轮询累计，前端用相邻两次的快照做差分，既不漏帧也不重复计数。
+	   jumps/jsum 为跳变统计：相邻突发错误比特数变化 ≥3 记一次，jsum 为跳变量总和 */
+	let cal = { errs: 0, total: 0, frames: 0, jumps: 0, jsum: 0, ts: "" };
+	/* 每个时隙上一突发的错误比特数；跨发射段重置，避免首尾相接被算成跳变 */
+	let calp = {};
+	/* 每个时隙最后一次在日志里出现活动的时间：网络下行通话没有音频统计行，
+	   用它判断呼叫是否仍在进行，避免只按音频统计超时导致漏显 */
+	let seen = {};
+	/* “Embedded GPS Info” 行带时隙，紧随的 “GPS position” 行不带，用它补上 */
+	let gpsSlot = null;
+	/* 归属用的语音头时间：在“Embedded GPS Info”出现时就固定下来，
+	   避免另一时隙/下一次通话的语音头把它改掉后坐标串到别的通联 */
+	let gpsHdr = null;
+	/* 同一 GPS 报文会在一个通话里反复上报：按报文记住首次归属的通话 */
+	let gpsHex = null;
+	/* 当前 GPS 所属通话的方向（rf/net），用于区分“重复上报”和“另一路通话插入” */
+	let gpsDirNow = null;
+	let hexOwn = {};
+	let hdrTs = {};
+	let hdrDir = {};
+	/* 每时隙最近一次完整呼号别名（Talker Alias "XXX" 行）：日志偶发 40+ 秒缺口会丢掉
+	   voice header / end of voice，此时它比过期的语音头时间更可靠，用于纠正 GPS 归属 */
+	let aliasCall = {};
+	let aliasTs = {};
+	/* GPS 暂存：语音头缺失时，GPS 到达时通话记录尚未生成，先按 alias 呼号暂存，
+	   等 end of voice 用真实呼号生成记录后再挂载，做到既不串台也不漏坐标 */
+	let pendGps = {};
+	if (!length(file)) return { recs: recs, pend: pend, rt: rt, cal: cal };
+	let st = FS.stat(file);
+	if (st == null) return { recs: recs, pend: pend, rt: rt, cal: cal };
+	let sig = file + "|" + st.size + "|" + st.mtime;
+	let c = null;
+	try {
+		let d = FS.readfile(QSO_CACHE);
+		if (d != null && substr(trim(d), 0, 1) == "{") c = json(d);
+	} catch (e) { c = null; }
+	/* 日志未变化时直接复用上次解析结果 */
+	if (type(c) == "object" && c != null && c.sig == sig && type(c.recs) == "array" && type(c.pend) == "object")
+		return { recs: c.recs, pend: c.pend, rt: (type(c.rt) == "object") ? c.rt : {},
+			cal: (type(c.cal) == "object" && c.cal != null) ? c.cal : cal,
+			seen: (type(c.seen) == "object" && c.seen != null) ? c.seen : {} };
+	/* 增量解析：只读上次偏移之后的新内容。
+	   整份日志每小时上百 KB，发射时每 60ms 一行音频统计，若固定只读末尾窗口，
+	   长通话的 voice header 会被挤出窗口，导致「正在发射」被误判为空闲 */
+	let from = 0;
+	if (type(c) == "object" && c != null && c.file == file && type(c.off) == "int") {
+		if (c.off > 0 && c.off <= st.size) {
+			from = c.off;
+			recs = (type(c.recs) == "array") ? c.recs : [];
+			pend = (type(c.pend) == "object" && c.pend != null) ? c.pend : {};
+			rt = (type(c.rt) == "object" && c.rt != null) ? c.rt : {};
+			if (type(c.cal) == "object" && c.cal != null) {
+				cal = c.cal;
+				if (cal.frames == null) cal.frames = 0;
+				if (cal.jumps == null) cal.jumps = 0;
+				if (cal.jsum == null) cal.jsum = 0;
+			}
+			calp = (type(c.calp) == "object" && c.calp != null) ? c.calp : {};
+			seen = (type(c.seen) == "object" && c.seen != null) ? c.seen : {};
+			gpsSlot = (type(c.gpsSlot) == "int") ? c.gpsSlot : null;
+			gpsHdr = (type(c.gpsHdr) == "string" && length(c.gpsHdr)) ? c.gpsHdr : null;
+			gpsHex = (type(c.gpsHex) == "string" && length(c.gpsHex)) ? c.gpsHex : null;
+			gpsDirNow = (type(c.gpsDirNow) == "string" && length(c.gpsDirNow)) ? c.gpsDirNow : null;
+			hexOwn = (type(c.hexOwn) == "object" && c.hexOwn != null) ? c.hexOwn : {};
+			hdrTs = (type(c.hdrTs) == "object" && c.hdrTs != null) ? c.hdrTs : {};
+			hdrDir = (type(c.hdrDir) == "object" && c.hdrDir != null) ? c.hdrDir : {};
+			aliasCall = (type(c.aliasCall) == "object" && c.aliasCall != null) ? c.aliasCall : {};
+			aliasTs = (type(c.aliasTs) == "object" && c.aliasTs != null) ? c.aliasTs : {};
+			pendGps = (type(c.pendGps) == "object" && c.pendGps != null) ? c.pendGps : {};
+		}
+	}
+	let data = "", base = from;
+	if (from > 0) {
+		data = sh("tail -c +" + (from + 1) + " " + file);
+	} else {
+		data = FS.readfile(file) ?? "";
+		/* 首次或换文件：只解析末尾一段，base 记录被丢弃的字节数，保证偏移可续 */
+		if (length(data) > 400000) {
+			base = length(data) - 400000;
+			data = substr(data, length(data) - 400000);
+		}
+	}
+	/* 只处理到最后一个完整行，剩下的半行留到下次 */
+	let nl = rindex(data, "\n");
+	let consumed = 0;
+	if (nl >= 0) {
+		consumed = nl + 1;
+		data = substr(data, 0, consumed);
+	} else {
+		data = "";
+	}
+	if (!length(data) && from <= 0) {
+		return { recs: recs, pend: pend, rt: rt, cal: cal };
+	}
+	for (let line in split(data, "\n")) {
+		let slot = slotOf(line);
+		/* 记录该时隙最后一次活动时间（voice header、talker alias、音频统计、数据突发都算） */
+		if (slot != null) seen[slot] = tsOf(line);
+		/* 语音头时间：用于把随后落盘的 GPS 行精确归属到发起该通话的那一条记录 */
+		if (slot != null && index(line, "voice header") >= 0) {
+			hdrTs[slot] = tsOf(line);
+			hdrDir[slot] = (index(line, "received RF") >= 0) ? "rf" : "net";
+		}
+		/* 完整呼号别名（M 级行，双引号包裹）：Talker Alias "BH6BAV " / "BH6BNW DMR ID: 4609095"。
+		   取第一个 token 作为呼号，供 GPS 归属在语音头缺失时做一致性纠正 */
+		let ai = index(line, 'Talker Alias "');
+		if (slot != null && ai >= 0) {
+			let rest = substr(line, ai + 13);
+			let ei = index(rest, '"');
+			if (ei > 0) {
+				let raw = trim(substr(rest, 0, ei));
+				if (length(raw)) {
+					let tok = trim(split(raw, " ")[0]);
+					if (length(tok) && match(tok, /^[A-Za-z0-9]+$/) != null) {
+						aliasCall[slot] = tok;
+						aliasTs[slot] = tsOf(line);
+					}
+				}
+			}
+		}
+		/* 内嵌 GPS：先出现带时隙的“Embedded GPS Info”，紧跟一行不带时隙的“GPS position [lat, lon]” */
+		if (index(line, "Embedded GPS Info") >= 0) {
+			if (slot != null) {
+				gpsSlot = slot;
+				gpsHdr = hdrTs[slot] ?? null;
+				gpsDirNow = hdrDir[slot] ?? null;
+				gpsHex = null;
+			}
+			continue;
+		}
+		if (gpsSlot != null && index(line, "0000:") >= 0) {
+			/* 十六进制原始报文，用于识别同一 GPS 报文的重复上报 */
+			let hi = index(line, "0000:");
+			let hx = trim(split(trim(substr(line, hi + 5)), "*")[0]);
+			if (length(hx)) gpsHex = hx;
+			continue;
+		}
+		let gi = index(line, "GPS position [");
+		if (gi >= 0) {
+			let sl = (gpsSlot != null) ? gpsSlot : slot;
+			let rest = substr(line, gi + 14);
+			let ci = index(rest, ",");
+			if (ci > 0 && sl != null) {
+				let la = trim(substr(rest, 0, ci));
+				let tail = substr(rest, ci + 1);
+				let ei = index(tail, "]");
+				let lo = (ei > 0) ? trim(substr(tail, 0, ei)) : "";
+				if (length(la) && length(lo) && sl != null) {
+					let g = { lat: +la, lon: +lo, ts: tsOf(line) };
+					let gts = epochOf(g.ts);
+					/* GPS 行常在通话结束后才落盘，落盘时间不能代表归属：
+					   优先挂到该时隙最近一条语音头对应的通话，避免串到下一个通联 */
+					let ht = (gpsHdr != null) ? gpsHdr : hdrTs[sl];
+					/* 同一 GPS 报文在通话中重复上报时，沿用首次归属的通话，
+					   避免被同一时隙刚开始的另一路通话（如本机 RF）抢走 */
+					let own = hexOwn[sl];
+					let reuse = false;
+					if (gpsHex != null && own != null && own.hex == gpsHex && gts > 0 && own.ts > 0 && gts - own.ts <= 120
+						&& own.dir != null && gpsDirNow != null && own.dir != gpsDirNow) {
+						ht = own.ht;
+						reuse = true;
+					}
+					let hit = null;
+					if (ht != null) {
+						if (pend[sl] != null && pend[sl].ts == ht) hit = pend[sl];
+						else for (let i = length(recs) - 1; i >= 0; i--) {
+							if (recs[i].slot == sl && recs[i].ts == ht) { hit = recs[i]; break; }
+						}
+					}
+					/* 一致性纠正：日志偶发缺口会丢掉 voice header，hit 的呼号与最近 Talker
+					   Alias 不一致时，说明语音头已过期，坐标实际属于 alias 指向的那路通话。
+					   改用 alias 呼号匹配，找不到则宁可不挂，避免串到别的通联 */
+					let ac = aliasCall[sl];
+					if (!reuse && hit != null && ac != null && length(ac)) {
+						let hc = (hit.callsign != null) ? hit.callsign : "";
+						if (hc != ac && index(hc, ac) != 0) {
+							hit = null;
+							if (pend[sl] != null && pend[sl].callsign != null) {
+								let pc = pend[sl].callsign;
+								if (pc == ac || index(pc, ac) == 0) hit = pend[sl];
+							}
+							if (hit == null) {
+								for (let i = length(recs) - 1; i >= 0; i--) {
+									let q = recs[i];
+									if (q.slot != sl) continue;
+									let qc = (q.callsign != null) ? q.callsign : "";
+									if (qc == ac || index(qc, ac) == 0) { hit = q; break; }
+								}
+							}
+						}
+					}
+					if (hit != null) {
+						hit.gps = g;
+					} else if (reuse) {
+						/* 找不到原通话时宁可不挂，也不要挂到别的通联上 */
+					} else if (ac != null && length(ac)) {
+						/* 有 alias 呼号但匹配不到对应通话（语音头缺失、记录尚未生成）：
+						   先按呼号暂存，等 end of voice 用真实呼号生成记录后再挂，既不串台也不漏 */
+						pendGps[sl] = { lat: g.lat, lon: g.lon, ts: g.ts, ac: ac, gts: gts };
+					} else if (pend[sl] != null && (!gts || gts >= epochOf(pend[sl].ts) - 2)) {
+						pend[sl].gps = g;
+					} else {
+						for (let i = length(recs) - 1; i >= 0; i--) {
+							let q = recs[i];
+							if (q.slot != sl) continue;
+							let qs = epochOf(q.ts);
+							if (!gts || !qs || (gts >= qs - 2 && gts <= qs + (+q.dur) + 5)) q.gps = g;
+							break;
+						}
+					}
+					if (gpsHex != null && ht != null) {
+						let prev = hexOwn[sl];
+						let keep = (reuse && prev != null);
+						hexOwn[sl] = { hex: gpsHex, ht: ht, ts: keep ? prev.ts : gts, dir: keep ? prev.dir : gpsDirNow };
+					}
+				}
+			}
+			gpsSlot = null;
+			gpsHdr = null;
+			gpsHex = null;
+			gpsDirNow = null;
+			continue;
+		}
+		if (slot == null) continue;
+		/* 发射中每个超帧的实时误码率：DMR Slot 1, audio sequence no. 2, errs: 22/141 (15.6%)
+		   每行是单突发（60ms）统计：errs 为本突发修复的错误比特数，total 恒为 141 比特 */
+		if (index(line, "audio sequence no.") >= 0) {
+			let pct = between(line, "(", "%)");
+			let es = between(line, "errs: ", "/");
+			let tt = between(line, "/", " (");
+			let sq = between(line, "audio sequence no. ", ",");
+			let ts = tsOf(line);
+			if (pct != null) rt[slot] = {
+				pct: +pct,
+				errs: (es != null) ? +es : 0,
+				total: (tt != null) ? +tt : 141,
+				seq: (sq != null) ? +sq : -1,
+				ts: ts
+			};
+			if (es != null && tt != null) {
+				let e = +es;
+				let pv = calp[slot];
+				if (pv != null) {
+					let d = e - pv;
+					if (d < 0) d = -d;
+					if (d >= 3) { cal.jumps += 1; cal.jsum += d; }
+				}
+				calp[slot] = e;
+				cal.errs += e;
+				cal.total += +tt;
+				cal.frames += 1;
+				cal.ts = ts;
+			}
+			continue;
+		}
+		if (index(line, "voice header from ") >= 0) {
+			let rest = substr(line, index(line, "voice header from ") + 18);
+			let call = trim(split(trim(rest), " ")[0]);
+			let target = "";
+			let ti = index(rest, " to ");
+			if (ti >= 0) target = trim(substr(rest, ti + 4));
+			pend[slot] = {
+				callsign: call, target: target,
+				isId: (match(call, /^[0-9]+$/) != null),
+				dir: (index(line, "received RF") >= 0) ? "TX" : "RX",
+				ts: tsOf(line)
+			};
+			delete calp[slot];   /* 新发射段：跳变从本段第一个突发重新起算 */
+			continue;
+		}
+		/* DMR 数据突发（APRS / 短信等）：没有 voice header，单独识别，否则通联记录里看不到 */
+		if (index(line, "data header from ") >= 0) {
+			let rest = substr(line, index(line, "data header from ") + 17);
+			let call = trim(split(trim(rest), " ")[0]);
+			let target = "";
+			let ti = index(rest, " to ");
+			if (ti >= 0) target = trim(substr(rest, ti + 4));
+			if (index(target, ",") >= 0) target = trim(substr(target, 0, index(target, ",")));
+			pend[slot] = {
+				callsign: call, target: target, data: true,
+				isId: (match(call, /^[0-9]+$/) != null),
+				dir: (index(line, "received RF") >= 0) ? "TX" : "RX",
+				ts: tsOf(line)
+			};
+			delete calp[slot];
+			continue;
+		}
+		if (index(line, "ended RF data transmission") >= 0 || index(line, "ended network data transmission") >= 0) {
+			let p = pend[slot];
+			if (p == null || !p.data) continue;
+			let ts = epochOf(p.ts), ets = epochOf(tsOf(line));
+			let dur = (ts && ets && ets >= ts) ? ets - ts : 0;
+			push(recs, {
+				callsign: p.callsign, isId: p.isId, target: p.target, dir: p.dir,
+				slot: slot, ts: p.ts, dur: dur, ber: 0, rssi: null,
+				gps: (p.gps != null) ? p.gps : null, data: true
+			});
+			delete pend[slot];
+			delete calp[slot];
+			continue;
+		}
+		if (index(line, "end of voice transmission") >= 0) {
+			let p = pend[slot];
+			if (p == null || p.data) continue;
+			/* 结束行形如：... to TG 91, 1.3 seconds, 4% packet loss, BER: 0.0% */
+			let dur = 0;
+			let si = index(line, " seconds");
+			if (si >= 0) {
+				let head = substr(line, 0, si);
+				let ci = rindex(head, ", ");
+				if (ci >= 0) dur = +substr(head, ci + 2) || 0;
+			}
+			let ber = between(line, "BER: ", "%");
+			let rssi = between(line, "RSSI: ", "/");
+			/* 日志偶发缺口会丢掉 voice header，pend 里的呼号可能是上一个通话残留的；
+			   结束行里带真实呼号（from XXX），不一致时以它为准，避免把通话记到别人头上 */
+			let ecall = between(line, "transmission from ", " to ");
+			if (ecall != null) {
+				let tok = trim(split(trim(ecall), " ")[0]);
+				if (length(tok) && match(tok, /^[A-Za-z0-9]+$/) != null) {
+					let pc = (p.callsign != null) ? p.callsign : "";
+					if (pc != tok && index(pc, tok) != 0) {
+						p.callsign = tok;
+						p.isId = (match(tok, /^[0-9]+$/) != null);
+					}
+				}
+			}
+			/* 语音头缺失时 GPS 曾按 alias 暂存：这里用结束行的真实呼号校验后挂载，避免漏坐标 */
+			let g2 = null;
+			let pg = pendGps[slot];
+			if (pg != null && type(pg) == "object") {
+				let pgc = (pg.ac != null) ? pg.ac : "";
+				let fc = (p.callsign != null) ? p.callsign : "";
+				if (length(pgc) && length(fc) && (fc == pgc || index(fc, pgc) == 0))
+					g2 = { lat: pg.lat, lon: pg.lon, ts: pg.ts };
+				delete pendGps[slot];
+			}
+			push(recs, {
+				callsign: p.callsign, isId: p.isId, target: p.target, dir: p.dir,
+				slot: slot, ts: p.ts,
+				dur: dur,
+				ber: (ber != null) ? +ber : 0,
+				rssi: (rssi != null) ? +rssi : null,
+				gps: (p.gps != null) ? p.gps : g2
+			});
+			delete pend[slot];
+			delete calp[slot];
+		} else if (index(line, "network watchdog has expired") >= 0) {
+			/* 网络侧通话可能没有 end of voice transmission，靠看门狗超时收尾。
+			   只清理网络收到的通话：本机 RF 发射期间若混入别的时隙残留看门狗行，会把正在发射的状态误清掉。
+			   超时行同样带时长与 BER，按结束行处理，避免这类通话从通联记录里丢失 */
+			let p = pend[slot];
+			if (p != null && p.dir == "RX" && !p.data) {
+				let dur = 0;
+				let si = index(line, " seconds");
+				if (si >= 0) {
+					let head = substr(line, 0, si);
+					let ci = rindex(head, ", ");
+					if (ci >= 0) dur = +substr(head, ci + 2) || 0;
+				}
+				let ber = between(line, "BER: ", "%");
+				push(recs, {
+					callsign: p.callsign, isId: p.isId, target: p.target, dir: p.dir,
+					slot: slot, ts: p.ts, dur: dur,
+					ber: (ber != null) ? +ber : 0, rssi: null,
+					gps: (p.gps != null) ? p.gps : null
+				});
+				delete pend[slot];
+				delete calp[slot];
+			}
+		}
+	}
+	/* 历史记录只保留最近 300 条，防止缓存无限增长 */
+	if (length(recs) > 300) {
+		let cut = [];
+		for (let i = length(recs) - 300; i < length(recs); i++) push(cut, recs[i]);
+		recs = cut;
+	}
+	if (length(sig)) writeCache(QSO_CACHE, { sig: sig, file: file, off: base + consumed, recs: recs, pend: pend, rt: rt, seen: seen, cal: cal, calp: calp, gpsSlot: gpsSlot, gpsHdr: gpsHdr, gpsHex: gpsHex, gpsDirNow: gpsDirNow, hexOwn: hexOwn, hdrTs: hdrTs, hdrDir: hdrDir, aliasCall: aliasCall, aliasTs: aliasTs, pendGps: pendGps });
+	return { recs: recs, pend: pend, rt: rt, seen: seen, cal: cal };
+}
+
+/* ---------- 呼号 <-> DMR ID ---------- */
+/* 增量缓存：已解析过的呼号直接命中，避免每次请求都 grep 2.9MB 的 DMRIds.dat */
+const IDNAME_CACHE = "/tmp/dashboard_idnames.json";
+function idFor(calls) {
+	let res = {};
+	if (!length(calls)) return res;
+	/* 呼号→ID 可能分布在三个库：MMDVMHost 原库、精简库、每日同步的完整库。
+	   日志里的呼号由 MMDVMHost 用精简库解析，原库往往很旧，因此全部参与检索 */
+	let files = [], sig = "v2";
+	for (let f in [INI_DIR + "DMRIds.dat", INI_DIR + "DMRIds.lite", ID_CACHE]) {
+		let st = FS.stat(f);
+		if (st == null) continue;
+		push(files, f);
+		sig += "|" + f + ":" + (st.size ?? 0) + ":" + (st.mtime ?? 0);
+	}
+	let d = FS.readfile(IDNAME_CACHE);
+	let c = (d != null) ? json(d) : null;
+	if (type(c) != "object" || c == null || (c.sig ?? "") != sig) c = { sig: sig, m: {} };
+	let m = c.m ?? {};
+	let miss = [];
+	for (let cs in calls) {
+		if (m[cs] != null) { if (length(m[cs])) res[cs] = m[cs]; }
+		else push(miss, cs);
+	}
+	if (length(miss) && length(files)) {
+		let pat = "/tmp/dashboard_calls";
+		let s = "";
+		for (let cs in miss) s += cs + "\n";
+		FS.writefile(pat, s);
+		/* DMRIds.dat / 精简库 / 完整库均为「ID<TAB>呼号」，个别版本为空格分隔，两种都兼容 */
+		let cmd = "grep -h -F -f " + pat + " " + join(" ", files) + " 2>/dev/null";
+		for (let l in split(sh(cmd), "\n")) {
+			let p = split(trim(l), "\t");
+			if (length(p) < 2) p = split(trim(l), " ");
+			if (length(p) >= 2) { res[p[1]] = p[0]; m[p[1]] = p[0]; }
+		}
+		/* 未命中也记下来，避免同一呼号反复扫描 */
+		for (let cs in miss) if (m[cs] == null) m[cs] = "";
+		c.m = m;
+		writeCache(IDNAME_CACHE, c);
+	}
+	return res;
+}
+/* ID→呼号：只读每日同步的文件（mmdvm-ids-sync 生成），运行时不再联网查询；
+   文件里没有的直接放弃，界面只显示 ID */
+const ID_CACHE = "/etc/mmdvm/dashboard_ids.cache";
+function resolveCalls(idlist) {
+	let res = {};
+	if (!length(idlist)) return res;
+	let mkey = keyOf("rid:", idlist, null);
+	let hit = memoGet(mkey, 300);
+	if (hit != null) return hit;
+	let want = {};
+	for (let id in idlist) want[id] = true;
+	let pat = "/tmp/dashboard_idq";
+	let s = "";
+	for (let id in idlist) s += id + "\n";
+	FS.writefile(pat, s);
+	/* 大文件按需 grep，避免每次请求把整份 ID 库读进内存 */
+	for (let l in split(sh("grep -F -f " + pat + " " + ID_CACHE + " 2>/dev/null"), "\n")) {
+		let p = split(trim(l), "\t");
+		if (length(p) >= 2 && want[p[0]] && p[1] != "-" && length(p[1])) res[p[0]] = p[1];
+	}
+	memoPut(mkey, res);
+	return res;
+}
+
+/* ---------- 中国呼号地址（radiowo 呼号库，86 开头 ID 使用） ---------- */
+const RW_CSV = "/etc/mmdvm/radiowo_user.csv";
+
+/* ---------- 中国呼号地址（BG4ESI 中文通讯录，46 开头 ID 使用） ---------- */
+const BG_CSV = "/etc/mmdvm/bg4esi.csv";
+function fmtAddr(state, city, remark) {
+	let a = trim(state ?? ""), b = trim(city ?? ""), c = trim(remark ?? "");
+	let s = a;
+	if (length(b) && b != "市辖区" && b != "县" && b != a) s += (length(s) ? " " : "") + b;
+	if (length(c) && c != a && c != b) s += (length(s) ? " " : "") + c;
+	return s;
+}
+/* 一次扫描指定 CSV 库，同时得到 ID→呼号、ID→地址、呼号→地址
+   stateCol/cityCol/remarkCol 为 1-based 列索引，不同数据源字段位置不同 */
+function csvLookup(csvPath, idlist, clist, stateCol, cityCol, remarkCol) {
+	let out = { call: {}, addrId: {}, addrCall: {}, call2id: {} };
+	if (!length(idlist) && !length(clist)) return out;
+	if (!length(trim(FS.readfile(csvPath) ?? ""))) return out;
+	let ckey = keyOf("cv:" + csvPath + ":", idlist, clist);
+	let chit = memoGet(ckey, 60);
+	if (chit != null) return chit;
+	let ip = "/tmp/dashboard_csvids", cp = "/tmp/dashboard_csvcalls";
+	let files = "";
+	if (length(idlist)) {
+		let s = "";
+		for (let c in idlist) s += c + "\n";
+		FS.writefile(ip, s);
+		files += ip + " ";
+	}
+	if (length(clist)) {
+		let s = "";
+		for (let c in clist) s += c + "\n";
+		FS.writefile(cp, s);
+		files += cp + " ";
+	}
+	let cmd = "awk -F, -v ip=" + ip + " -v cp=" + cp +
+	          " -v sc=" + stateCol + " -v cc=" + cityCol + " -v rc=" + remarkCol + " " +
+	          "'FILENAME==ip{ids[$0]=1;next} FILENAME==cp{calls[$0]=1;next} " +
+	          "{ rm=(rc>0)?$rc:\"\"; " +
+	          "  if (($1 in ids) && !($1 in seen)) { seen[$1]=1; printf \"C\\t%s\\t%s\\n\",$1,$2; printf \"D\\t%s\\t%s\\n\",$2,$1; printf \"A\\t%s\\t%s\\t%s\\t%s\\n\",$1,$sc,$cc,rm } " +
+	          "  if (($2 in calls) && !($2 in bseen)) { bseen[$2]=1; printf \"D\\t%s\\t%s\\n\",$2,$1; printf \"B\\t%s\\t%s\\t%s\\t%s\\n\",$2,$sc,$cc,rm } }' " +
+	          files + csvPath + " 2>/dev/null";
+	for (let l in split(sh(cmd), "\n")) {
+		let p = split(l, "\t");
+		for (let i = 0; i < length(p); i++) p[i] = trim(p[i]);
+		if (p[0] == "C" && length(p) >= 3) out.call[p[1]] = p[2];
+		else if (p[0] == "D" && length(p) >= 3) out.call2id[p[1]] = p[2];
+		else if (p[0] == "A" && length(p) >= 5) out.addrId[p[1]] = fmtAddr(p[2], p[3], p[4]);
+		else if (p[0] == "B" && length(p) >= 5) out.addrCall[p[1]] = fmtAddr(p[2], p[3], p[4]);
+	}
+	memoPut(ckey, out);
+	return out;
+}
+/* radiowo 格式: ID,CALLSIGN,NAME,CITY,STATE,COUNTRY,REMARKS → STATE=5,CITY=4,REMARKS=7 */
+function rwLookup(idlist, clist) { return csvLookup(RW_CSV, idlist, clist, 5, 4, 7); }
+/* BG4ESI(stripped.csv) 格式: ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY → STATE=6,CITY=5,无REMARKS */
+function bgLookup(idlist, clist) { return csvLookup(BG_CSV, idlist, clist, 6, 5, 0); }
+
+/* 46/86 开头的中国 DMR ID：46 用 BG4ESI，86 用 radiowo */
+function isCnId(id) {
+	let p = substr(id, 0, 2);
+	return (p == "46" || p == "86");
+}
+function is46Id(id) { return substr(id, 0, 2) == "46"; }
+function is86Id(id) { return substr(id, 0, 2) == "86"; }
+
+/* ---------- 端点实现 ---------- */
+/* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等）
+   直接读目录，避免每次状态刷新都 fork 两个 ls */
+function scanI2cBuses() {
+	let res = [];
+	let list = FS.lsdir("/dev") ?? [];
+	for (let n in list) {
+		let m = match(n, /^i2c-([0-9]+)$/);
+		if (m != null) push(res, +m[1]);
+	}
+	sort(res, (a, b) => a - b);
+	return res;
+}
+function scanSerialPorts() {
+	let res = [];
+	let list = FS.lsdir("/dev") ?? [];
+	for (let n in list) {
+		/* ttyS* 是 SoC 自带串口（如 HLK-7628N 的调制解调器用 /dev/ttyS1） */
+		if (match(n, /^tty(USB|ACM|AMA|HS|MSM|S)[0-9]+$/)) push(res, "/dev/" + n);
+	}
+	sort(res);
+	return res;
+}
+function cmdStatus() {
+	let lf = logFileFor("MMDVM");
+	/* ?ping=1：页面手动刷新时强制做一次 ping 测试，并跳过短缓存 */
+	let forcePing = (qs().ping == "1");
+	/* 短缓存：命中（1 秒内且日志未变）时直接返回。通话中日志每秒变化会让签名校验
+	   永久失效，再用宽松缓存兜底 5 秒，避免顶栏每 10 秒请求都全量解析上百 KB 日志，
+	   把单核拖到逼近前端超时；仍 miss 时若已有实例在跑就退回 20 秒内旧结果，防堆积 */
+	if (!forcePing) {
+		let cached = shortGet(STATUS_CACHE, SHORT_TTL, lf);
+		if (cached == null) cached = staleGet(STATUS_CACHE, 5);
+		if (cached != null) return cached;
+		if (inFlight("status", 8)) {
+			let s = staleGet(STATUS_CACHE, 20);
+			if (s != null) return s;
+		}
+	}
+	let m = ini(INI_DIR + "MMDVM.ini");
+	let g = m["General"] ?? {}, inf = m["Info"] ?? {}, mod = m["Modem"] ?? {};
+	let dmr = m["DMR"] ?? {};
+	let dmrN = m["DMR Network"] ?? {};
+	let disp = m["Display"] ?? {};
+	/* 屏幕端口按屏幕类型落在不同段（[Nextion] / [OLED] ...），旧版本误写在 [Display] 段的仍兼容读取 */
+	let dispSec = dispSectionFor(g.Display);
+	let dispPort = (dispSec == null) ? (disp.Port ?? "") : ((m[dispSec] ?? {}).Port ?? "");
+	/* HD44780 地址在 ini 的 [HD44780] I2CAddress；OLED 上游无地址键，存在 uci 的 oled_i2c_addr */
+	let dispAddr = "";
+	if (dispSec == "OLED") dispAddr = uciOpt("mmdvmhost", "main", "oled_i2c_addr");
+	else if (g.Display == "HD44780") dispAddr = (m["HD44780"] ?? {}).I2CAddress ?? "";
+	/* I2C 总线号存 uci；可选总线来自 /dev/i2c-* */
+	let i2cBus = uciOpt("mmdvmhost", "main", "i2c_bus");
+	let i2cBuses = scanI2cBuses();
+	/* 调制解调器的 I2C 总线：ini 里是 /dev/i2c-N，界面只显示 N */
+	let modemBus = replace(mod.I2CPort ?? "", /^.*i2c-/, "");
+	if (match(modemBus, /^[0-9]+$/) == null) modemBus = "";
+	/* 串口自动探测：USB/ACM/AMA/HS 四类 */
+	let serialPorts = scanSerialPorts();
+	let nw = ini(INI_DIR + "DMRGateway.ini") ?? {};
+	let st = state();
+	/* 直连服务器默认 BrandMeister 4602（未保存过时使用；自定义服务器未填名称时用地址显示） */
+	let srvAddr = trim(st.dmrServerAddress ?? "");
+	if (!length(srvAddr)) srvAddr = "4602.master.brandmeister.network";
+	let srvName = trim(st.dmrServerName ?? "");
+	if (!length(srvName)) srvName = length(trim(st.dmrServerAddress ?? "")) ? srvAddr : "BrandMeister 4602";
+	let srvPort = trim(st.dmrServerPort ?? "");
+	if (!length(srvPort)) srvPort = "62031";
+	let srvPass = trim(st.dmrServerPassword ?? "");
+	if (!length(srvPass)) srvPass = "passw0rd";
+	let dmrIds = [];
+	let saved = st.dmrIds;
+	if (type(saved) == "array") {
+		for (let i = 0; i < 5; i++) {
+			let it = saved[i] ?? {};
+			push(dmrIds, { id: trim(it.id ?? ""), essid: trim(it.essid ?? "") });
+		}
+	} else {
+		/* 旧数据迁移：从 MMDVM.ini / DMRGateway.ini 还原一次并持久化 */
+		let dmrEssids = st.dmrEssid ?? [];
+		for (let i = 1; i <= 5; i++) {
+			let sec = nw["DMR Network " + i] ?? {};
+			let raw = (i == 1) ? (length(dmr.Id ?? "") ? dmr.Id : (g.Id ?? "")) : (sec.Id ?? "");
+			let es = dmrEssids[i - 1] ?? "";
+			let base = raw;
+			if (length(es) == 2 && length(raw) > 2 && substr(raw, length(raw) - 2) == es) base = substr(raw, 0, length(raw) - 2);
+			else if (length(raw) == 9) { base = substr(raw, 0, 7); es = substr(raw, 7, 2); }
+			else es = "";
+			push(dmrIds, { id: base, essid: es });
+		}
+		st.dmrIds = dmrIds;
+		saveState(st);
+	}
+	/* 已启用的 DMR 网络及其连接状态
+	   网关模式：从 DMRGateway 日志推断各网络；
+	   直连模式：只显示 MMDVM.ini 当前连接的服务器，状态看 MMDVMHost 日志 */
+	let dmrType = lc(trim(dmrN.Type ?? "Gateway"));
+	/* 两个服务合并成一次 shell 调用，少 fork 一个 /bin/sh */
+	let runSt = sh("pidof MMDVMHost >/dev/null 2>&1 && echo MM; pidof DMRGateway >/dev/null 2>&1 && echo GW");
+	let mmdvmRunning = index(runSt, "MM") >= 0;
+	let gwRunning = index(runSt, "GW") >= 0;
+	let mlog = length(lf) ? (FS.readfile(lf) ?? "") : "";
+	if (length(mlog) > 120000) mlog = substr(mlog, length(mlog) - 120000);
+	/* MMDVMHost 是否真的就绪：最后一次 “Opening the MMDVM” 之后要能走到
+	   “Starting protocol handlers”；若只出现读固件失败，说明射频板没起来 */
+	let mmOk = mmdvmRunning;
+	if (mmOk && length(mlog)) {
+		let segs = split(mlog, "Opening the MMDVM");
+		let after = (length(segs) > 1) ? segs[length(segs) - 1] : "";
+		if (index(after, "Unable to read the firmware") >= 0 && index(after, "Starting protocol handlers") < 0) mmOk = false;
+	}
+	let nets = [], netAddr = {};
+	if (dmrType == "direct") {
+		let nm = srvName;
+		if (!length(nm)) nm = trim(dmrN.Name ?? "");
+		if (!length(nm)) nm = srvAddr;
+		if (!length(nm)) nm = "DMR";
+		push(nets, { name: nm, connected: false, ping: null });
+		let ra = trim(dmrN.RemoteAddress ?? "");
+		netAddr[nm] = length(ra) ? ra : srvAddr;
+		if (mmOk) nets[0].connected = directConnected(lf);
+	} else {
+		for (let i = 1; i <= 5; i++) {
+			let sec = nw["DMR Network " + i] ?? {};
+			if (trim(sec.Enabled ?? "") == "1") {
+				let nm = trim(sec.Name ?? "");
+				if (length(nm)) {
+					push(nets, { name: nm, connected: false, ping: null });
+					netAddr[nm] = trim(sec.Address ?? "");
+				}
+			}
+		}
+	}
+	if (dmrType != "direct") {
+		/* 网关日志按天切分，当天的文件可能没有某网络的登录记录。
+		   读取最近两份日志（旧→新）解析，最后一次事件生效；仍无记录的网络沿用上次已知状态。
+		   日志未变化时直接复用上次解析结果，避免每 10 秒重复扫描几百 KB */
+		let files = newestLogs("DMRGateway", 2);
+		let sig = "";
+		for (let f in files) {
+			let s = FS.stat(f);
+			sig += f + "|" + (s == null ? "-" : (s.size + "|" + s.mtime)) + ";";
+		}
+		let gwc = null;
+		try { gwc = json(FS.readfile(GWSCAN_CACHE) ?? ""); } catch (e) { gwc = null; }
+		if (type(gwc) == "object" && gwc != null && gwc.sig == sig && type(gwc.conn) == "object") {
+			for (let n in nets) {
+				if (type(gwc.conn[n.name]) == "bool") n.connected = gwc.conn[n.name];
+			}
+		} else {
+			let seen = {};
+			for (let i = length(files) - 1; i >= 0; i--) {
+				let data = FS.readfile(files[i]) ?? "";
+				if (length(data) > 200000) data = substr(data, length(data) - 200000);
+				for (let l in split(data, "\n")) {
+					for (let n in nets) {
+						if (index(l, " " + n.name + ", ") < 0) continue;
+						if (index(l, "Logged into the master successfully") >= 0) { n.connected = true; seen[n.name] = true; }
+						else if (index(l, "Connection to the master has timed out") >= 0) { n.connected = false; seen[n.name] = true; }
+						else if (index(l, "Closing DMR Network") >= 0) { n.connected = false; seen[n.name] = true; }
+						else if (index(l, "Opening DMR Network") >= 0) { n.connected = false; seen[n.name] = true; }
+					}
+				}
+			}
+			let prev = null;
+			try { prev = json(FS.readfile(NET_STATE_CACHE) ?? ""); } catch (e) { prev = null; }
+			if (type(prev) == "object" && prev != null) {
+				for (let n in nets) {
+					if (!seen[n.name] && type(prev[n.name]) == "bool") n.connected = prev[n.name];
+				}
+			}
+			let cur = {};
+			for (let n in nets) cur[n.name] = n.connected;
+			try { FS.writefile(NET_STATE_CACHE, sprintf("%J", cur)); } catch (e) {}
+			try { FS.writefile(GWSCAN_CACHE, sprintf("%J", { sig: sig, conn: cur })); } catch (e) {}
+		}
+	}
+	/* 网关模式下，MMDVMHost 未就绪或网关没在运行，日志里残留的登录记录不代表当前在线 */
+	if (dmrType != "direct" && (!mmOk || !gwRunning)) {
+		for (let n in nets) n.connected = false;
+	}
+	/* MMDVMHost 未运行（未配置或手动停止）时，页头只显示“未启用”，不再展示各网络状态 */
+	if (!mmdvmRunning) {
+		nets = [ { name: "未启用", connected: false, inactive: true, ping: null } ];
+		netAddr = {};
+	}
+	/* 各网络 ping 值：仅在已连接时测试；10 秒缓存（电脑版每 10 秒刷新一次） */
+	let pingNow = time(), pc = {}, pingChanged = false;
+	try { pc = json(FS.readfile(PING_CACHE) ?? "") ?? {}; } catch (e) { pc = {}; }
+	for (let n in nets) {
+		let addr = netAddr[n.name] ?? "";
+		if (!n.connected || !length(addr)) { n.ping = null; continue; }
+		let c = pc[n.name];
+		if (forcePing || !c || pingNow - (c.t ?? 0) > 10) {
+			let po = sh("ping -c 1 -W 1 " + addr + " 2>/dev/null");
+			let ms = between(po, "time=", " ms");
+			c = { t: pingNow, ms: (ms != null ? int(ms) : null) };
+			pc[n.name] = c;
+			pingChanged = true;
+		}
+		n.ping = c.ms;
+	}
+	/* 仅在有新 ping 结果时落盘，避免每次状态请求都重写 */
+	if (pingChanged) try { FS.writefile(PING_CACHE, sprintf("%J", pc)); } catch (e) {}
+	let modes = [];
+	if ((m["DMR"] ?? {}).Enable == "1") push(modes, "DMR");
+	if ((m["System Fusion"] ?? {}).Enable == "1") push(modes, "YSF");
+	if ((m["P25"] ?? {}).Enable == "1") push(modes, "P25");
+	if ((m["NXDN"] ?? {}).Enable == "1") push(modes, "NXDN");
+	if ((m["D-Star"] ?? {}).Enable == "1") push(modes, "DSTAR");
+	let ml = "";
+	for (let x in modes) ml += (length(ml) ? "/" : "") + x;
+
+	let curState = "Idle", ver = "MMDVMHost";
+	/* 单次遍历同时取最后一条模式切换与首条版本号，避免重复 split 整份日志 */
+	let verFound = false;
+	for (let l in split(mlog, "\n")) {
+		let s = between(l, "Mode set to ", null);
+		if (s != null) curState = trim(s);
+		if (!verFound) {
+			let v = between(l, "MMDVMHost-", " is running");
+			if (v != null && length(trim(v))) { ver = "MMDVMHost-" + trim(v); verFound = true; }
+		}
+	}
+	/* 日志按 UTC 日期滚动，跨天后新文件里还没有启动行，用上次解析到的版本兜底；
+	   首次（缓存未建立，如刚重启）则回看上一份日志，取最后一次启动的版本 */
+	let verCache = FS.readfile("/tmp/dashboard_ver");
+	let verCached = (verCache != null) ? trim(verCache) : "";
+	if (match(verCached, /^MMDVMHost-[0-9A-Za-z]+$/) == null) verCached = "";
+	if (!verFound) {
+		if (length(verCached)) {
+			ver = verCached;
+		} else {
+			let prev = newestLogs("MMDVM", 2)[1] ?? "";
+			if (length(prev)) {
+				let g = between(sh("grep -o 'MMDVMHost-[0-9A-Za-z]* is running' " + prev + " | tail -1"), "MMDVMHost-", " is running");
+				if (g != null && length(trim(g))) {
+					ver = "MMDVMHost-" + trim(g);
+					try { FS.writefile("/tmp/dashboard_ver", ver + "\n"); } catch (e) {}
+				}
+			}
+		}
+	} else if (verCached != ver) {
+		try { FS.writefile("/tmp/dashboard_ver", ver + "\n"); } catch (e) {}
+	}
+	/* DMRGateway 版本：启动行是 “DMRGateway-YYYYMMDD is starting”，跨天兜底同上 */
+	let gwVer = "", gwFound = false;
+	/* 当前网关日志（最新一份）：启动行写在当天日志里，跨天再由缓存与全量 grep 兜底 */
+	let gwData = "";
+	let gwFile = newestLogs("DMRGateway", 1)[0] ?? "";
+	if (length(gwFile)) gwData = FS.readfile(gwFile) ?? "";
+	/* 必须按行匹配：日志里 “DMRGateway-xxx exited on receipt of SIGTERM” 也会出现该前缀，
+	   跨行截取会把整段关停日志当作版本号 */
+	for (let l in split(gwData, "\n")) {
+		if (index(l, " is starting") < 0) continue;
+		let v = between(l, "DMRGateway-", " is starting");
+		if (v != null && length(trim(v))) { gwVer = "DMRGateway-" + trim(v); gwFound = true; }
+	}
+	let gwVerCache = FS.readfile("/tmp/dashboard_gwver");
+	let gwCached = (gwVerCache != null) ? trim(gwVerCache) : "";
+	/* 缓存只接受形如 DMRGateway-20250607 的值，防止旧的脏缓存继续外显 */
+	if (match(gwCached, /^DMRGateway-[0-9A-Za-z]+$/) == null) gwCached = "";
+	if (!gwFound) {
+		if (length(gwCached)) {
+			gwVer = gwCached;
+		} else {
+			/* 当前日志里没有启动行时，回看所有日志，取最后一次启动（文件名按日期递增） */
+			let g = between(sh("grep -h -o 'DMRGateway-[0-9A-Za-z]* is starting' /var/log/mmdvm/DMRGateway-*.log 2>/dev/null | tail -1"), "DMRGateway-", " is starting");
+			if (g != null && length(trim(g))) gwVer = "DMRGateway-" + trim(g);
+		}
+	}
+	if (length(gwVer) && (gwVerCache == null || trim(gwVerCache) != gwVer))
+		try { FS.writefile("/tmp/dashboard_gwver", gwVer + "\n"); } catch (e) {}
+	/* 热点板型号与固件版本：取自 MMDVMHost 启动日志的 protocol 行
+	   形如 “MMDVM protocol version: 1, description: MMDVM_HS_Dual_Hat-v1.5.2 20201108 ...” */
+	let modemType = "", modemFw = "";
+	let mdCache = null;
+	try { mdCache = json(FS.readfile("/tmp/dashboard_modem.json") ?? ""); } catch (e) { mdCache = null; }
+	/* 解析成功缓存 6 小时；解析失败（如刚重启时日志还没写入）只缓存 2 分钟 */
+	let mdTtl = (type(mdCache) == "object" && mdCache != null && length(mdCache.type ?? "") ? 21600 : 120);
+	if (type(mdCache) == "object" && mdCache != null && (time() - (+(mdCache.t ?? 0))) <= mdTtl) {
+		modemType = mdCache.type ?? "";
+		modemFw = mdCache.fw ?? "";
+	} else {
+		/* 只扫最新一个日志文件：历史日志累计可达 10MB，全量 grep 会把单核设备 I/O 拖垮 */
+		let lastLog = trim(sh("ls -t /var/log/mmdvm/MMDVM-*.log 2>/dev/null | head -1"));
+		let ln = length(lastLog) ? trim(sh("grep -ah 'MMDVM protocol version:' \"" + lastLog + "\" 2>/dev/null | tail -1")) : "";
+		/* protocol 行只在 MMDVMHost 启动时写一次，日志按天滚动后当天文件里可能没有，
+		   此时回看全部日志取最后一次启动的记录（有 6 小时缓存，不会频繁触发） */
+		if (!length(ln))
+			ln = trim(sh("grep -ah 'MMDVM protocol version:' /var/log/mmdvm/MMDVM-*.log 2>/dev/null | tail -1"));
+		let d = between(ln, "description: ", null);
+		if (d != null) {
+			let tok = split(trim(d), " ")[0];
+			let p = index(tok, "-v");
+			if (p > 0) { modemType = substr(tok, 0, p); modemFw = substr(tok, p + 2); }
+			else modemType = tok;
+		}
+		/* 无论是否解析成功都写缓存，避免解析失败时每次请求都重新扫描日志 */
+		try { FS.writefile("/tmp/dashboard_modem.json", sprintf("%J", { t: time(), type: modemType, fw: modemFw }) + "\n"); } catch (e) {}
+		if (!length(modemType) && type(mdCache) == "object" && mdCache != null) {
+			modemType = mdCache.type ?? "";
+			modemFw = mdCache.fw ?? "";
+		}
+	}
+
+	let body = {
+		hostname: hostname(),
+		/* 静态 LAN 地址直接读 /etc/config/network；动态获取时保持原来的表现 */
+		ip: (function(){ let v = uciOpt("network", "lan", "ipaddr"); return length(v) ? v : trim(sh("uci get network.lan.ipaddr 2>/dev/null")); })(),
+		online: true,
+		networks: nets,
+		mmdvm: {
+			running: mmdvmRunning,
+			mode: length(ml) ? ml : "—",
+			state: curState,
+			callsign: g.Callsign ?? "",
+			dmrId: dmrIds[0].id ?? "",
+			dmrIds: dmrIds,
+			dmrSectionId: dmr.Id ?? "",
+			protocol: mod.Protocol ?? "",
+			uartPort: mod.UARTPort ?? "",
+			uartSpeed: mod.UARTSpeed ?? "",
+			serialPorts: serialPorts,
+			i2cPort: mod.I2CPort ?? "",
+			modemBus: modemBus,
+			modemI2cAddr: mod.I2CAddress ?? "",
+			modemAddress: mod.ModemAddress ?? "",
+			modemPort: mod.ModemPort ?? "",
+			screenType: g.Display ?? "",
+			screenPort: dispPort,
+			screenAddr: dispAddr,
+			i2cBus: i2cBus,
+			i2cBuses: i2cBuses,
+			rxFreq: +inf.RXFrequency || 0,
+			txFreq: +inf.TXFrequency || 0,
+			power: +inf.Power || 0,
+			latitude: inf.Latitude ?? "0.0",
+			longitude: inf.Longitude ?? "0.0",
+			height: inf.Height ?? "0",
+			gpsCacheMinutes: gpsCacheMinutes(),
+			location: inf.Location ?? "",
+			description: inf.Description ?? "",
+			url: inf.URL ?? "",
+			dmrType: dmrType == "direct" ? "Direct" : "Gateway",
+			slot1: dmrN.Slot1 ?? "",
+			slot2: dmrN.Slot2 ?? "",
+			colorCode: dmr.ColorCode ?? "",
+			selfOnly: dmr.SelfOnly ?? "",
+			beacons: dmr.Beacons ?? "",
+			beaconInterval: dmr.BeaconInterval ?? "",
+			dmrServerName: srvName,
+			dmrServerAddress: srvAddr,
+			dmrServerPort: srvPort,
+			dmrServerPassword: srvPass,
+			version: ver,
+			gwVersion: gwVer,
+			modemType: modemType,
+			modemFirmware: modemFw
+		}
+	};
+	shortPut(STATUS_CACHE, body, lf);
+	return body;
+}
+
+function cmdServices() {
+	let r = [];
+	for (let s in SVCS) push(r, svcInfo(s));
+	out(r);
+}
+
+function cmdConfigs() {
+	let o = {};
+	for (let s in SVCS) {
+		let p = INI_DIR + s.ini;
+		let c = FS.readfile(p);
+		if (c == null) continue;
+		o[s.ini] = { path: p, svc: s.key, content: c };
+	}
+	out(o);
+}
+
+/* 十六进制字符串转整数：ucode 没有带基数的整数解析，手工按位累加 */
+function hexVal(s) {
+	s = trim(s);
+	if (!length(s)) return null;
+	let v = 0;
+	for (let i = 0; i < length(s); i++) {
+		let c = substr(s, i, 1);
+		let d = index("0123456789abcdef", c);
+		if (d < 0) d = index("0123456789ABCDEF", c);
+		if (d < 0) return null;
+		v = v * 16 + d;
+	}
+	return v;
+}
+/* 物理内存总量（MB）：优先取 dmesg 里内核报告的物理容量（xK/yK 的 y），
+   它包含内核保留内存；读不到时退回 /proc/iomem 的 System RAM 求和 */
+function physMemMb() {
+	let kb = 0;
+	let m = match(sh("dmesg 2>/dev/null | grep -m1 'Memory:'"), /Memory:[ \t]+[0-9]+K\/([0-9]+)K/);
+	if (m != null && length(m) > 1) kb = +m[1];
+	if (kb <= 0) for (let l in split(FS.readfile("/proc/iomem") ?? "", "\n")) {
+		if (index(l, "System RAM") < 0) continue;
+		let i = index(l, ":");
+		if (i < 0) continue;
+		let p = split(trim(substr(l, 0, i)), "-");
+		if (length(p) != 2) continue;
+		let a = hexVal(p[0]), b = hexVal(p[1]);
+		if (a == null || b == null || b <= a) continue;
+		/* 地址被内核打码成全 0 时每段只剩 1 字节，跳过 */
+		if (b - a + 1 < 4096) continue;
+		kb += int((b - a + 1) / 1024);
+	}
+	if (kb <= 0) return 0;
+	/* 向上取整：虚拟机分配 120M 时应显示 120 而不是 119 */
+	return int((kb + 1023) / 1024);
+}
+/* 物理内存总量只在第一次探测（dmesg 较慢），之后走缓存；lite 刷新不再 fork dmesg */
+function physMemMbCached() {
+	let c = 0;
+	try { c = int(trim(FS.readfile(PHYS_CACHE) ?? "")); } catch (e) { c = 0; }
+	if (c > 0) return c;
+	let v = physMemMb();
+	if (v > 0) try { FS.writefile(PHYS_CACHE, "" + v); } catch (e) {}
+	return v;
+}
+/* 整块磁盘容量（KB）：取 /proc/partitions 中最大的整盘设备，排除 sda1 这类分区 */
+function wholeDiskKb() {
+	let best = 0;
+	for (let l in split(FS.readfile("/proc/partitions") ?? "", "\n")) {
+		let w = words(l);
+		if (length(w) < 4) continue;
+		if (match(w[3], /^(sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+|mmcblk[0-9]+|mmdvm[0-9]+)$/) == null) continue;
+		let kb = +w[2] || 0;
+		if (kb > best) best = kb;
+	}
+	return best;
+}
+
+/* 4G 模块状态：由 air780e-monitor 写入 /tmp/air780e.json，超过 5 分钟未更新视为失效 */
+function lteInfo() {
+	let d = FS.readfile("/tmp/air780e.json");
+	if (d == null) return null;
+	let v = null;
+	try { v = json(d); } catch (e) { return null; }
+	if (type(v) != "object" || v == null) return null;
+	if (time() - (v.ts ?? 0) > 300) v.ok = false;
+	return v;
+}
+
+/* 静态系统信息缓存：型号/固件/内核/主机名等开机后不变，首次探测后写入 /tmp 复用，
+   避免仪表盘每次加载都 fork 多个 shell（df/uname/source openwrt_release/uci） */
+const SYS_STATIC_CACHE = "/tmp/dashboard_sysstatic.json";
+function sysStaticInfo() {
+	let c = null;
+	try { c = json(FS.readfile(SYS_STATIC_CACHE) ?? ""); } catch (e) { c = null; }
+	if (type(c) == "object" && c != null && c.model != null) return c;
+	/* 首次探测：固件/内核各 fork 一次 shell，之后永久走缓存直到设备重启清 /tmp */
+	let fw = trim(sh(". /etc/openwrt_release 2>/dev/null; echo $DISTRIB_DESCRIPTION"));
+	let ker = trim(sh("uname -r"));
+	let c2 = {
+		hostname: hostname(),
+		model: trim(FS.readfile("/tmp/sysinfo/model") ?? "—"),
+		firmware: fw,
+		kernel: ker,
+		memTotal: 0,
+		memPhys: physMemMbCached()
+	};
+	/* 内存总量精确读一次 MemTotal */
+	let mem = FS.readfile("/proc/meminfo") ?? "";
+	for (let l in split(mem, "\n")) {
+		if (substr(l, 0, 9) == "MemTotal:") { c2.memTotal = rnd(int(trim(substr(l, index(l, ":") + 1))) / 1024); break; }
+	}
+	try { FS.writefile(SYS_STATIC_CACHE, sprintf("%J", c2)); } catch (e) {}
+	return c2;
+}
+
+function cmdSystem() {
+	let q = qs();
+	/* ?static=1：只返回开机后长期不变的字段，供标识副标题/诊断文件名复用，零高频 shell */
+	if (q.static == "1") {
+		let st = sysStaticInfo();
+		out({
+			hostname: st.hostname, model: st.model, firmware: st.firmware,
+			kernel: st.kernel, memTotal: st.memTotal, memPhys: st.memPhys
+		});
+		return;
+	}
+	/* ?lite=1：系统页每 3 秒只刷新 CPU/内存/根分区，跳过型号、固件、4G 等高成本字段 */
+	let lite = (q.lite == "1");
+	let mem = FS.readfile("/proc/meminfo") ?? "";
+	let total = 0, freeKb = 0, bufKb = 0, cacheKb = 0, reclaimKb = 0;
+	for (let l in split(mem, "\n")) {
+		if (substr(l, 0, 9) == "MemTotal:") total = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 8) == "MemFree:") freeKb = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 8) == "Buffers:") bufKb = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 7) == "Cached:") cacheKb = int(trim(substr(l, index(l, ":") + 1)));
+		if (substr(l, 0, 13) == "SReclaimable:") reclaimKb = int(trim(substr(l, index(l, ":") + 1)));
+	}
+	let la = words(FS.readfile("/proc/loadavg") ?? "");
+	let up = int(trim(split(FS.readfile("/proc/uptime") ?? "0", " ")[0]));
+	let df = words(sh("df -k / | tail -1"));
+	let dTotalKb = +df[1] || 0, dUsedKb = +df[2] || 0, dAvailKb = +df[3] || 0;
+	/* CPU 使用率：取 /proc/stat 两次采样的差值，避免单核机器用负载均值长期顶到 100% */
+	let st = words(split(FS.readfile("/proc/stat") ?? "", "\n")[0] ?? "");
+	let cTotal = 0, cIdle = 0;
+	for (let i = 1; i < length(st); i++) {
+		let v = +st[i] || 0;
+		cTotal += v;
+		if (i == 4 || i == 5) cIdle += v;
+	}
+	let prev = null;
+	try { prev = json(FS.readfile(CPU_CACHE) ?? ""); } catch (e) { prev = null; }
+	let now = time();
+	let prevT = (type(prev) == "object" && prev != null) ? int(prev.t ?? 0) : 0;
+	let cpuPct = -1;
+	/* 采样窗口至少 3 秒：系统页每 3 秒刷新；窗口太短会被 jiffy 量化放大成 0% 或 100% */
+	if (type(prev) == "object" && prev != null && prev.total > 0 && cTotal > prev.total && now - prevT >= 3) {
+		let dt = cTotal - prev.total, di = cIdle - (prev.idle ?? 0);
+		cpuPct = (dt > 0) ? rnd((dt - di) * 100 / dt) : 0;
+	} else if (type(prev) == "object" && prev != null && prev.pct != null && now - prevT < 30) {
+		/* 窗口未满时沿用上次的平滑值 */
+		cpuPct = prev.pct;
+	}
+	if (cpuPct < 0) {
+		/* 首次启动后没有历史采样时，用开机以来的平均值 */
+		cpuPct = (cTotal > 0) ? rnd((cTotal - cIdle) * 100 / cTotal) : 0;
+	}
+	if (cpuPct < 0) cpuPct = 0;
+	if (cpuPct > 100) cpuPct = 100;
+	if (now - prevT >= 3) {
+		try { FS.writefile(CPU_CACHE, sprintf("%J", { total: cTotal, idle: cIdle, t: now, pct: cpuPct })); } catch (e) {}
+	}
+	let totalMb = rnd(total / 1024);
+	/* 已用内存按 free 的算法：总量 - 空闲 - 缓冲 - 缓存 - 可回收，避免把缓存算进已用 */
+	let usedKb = total - freeKb - bufKb - cacheKb - reclaimKb;
+	if (usedKb < 0) usedKb = 0;
+	let memUsedMb = rnd(usedKb / 1024);
+	/* 空闲内存 = MemFree（完全空闲的物理页），不含缓存和可回收部分 */
+	let memFreeMb = rnd(freeKb / 1024);
+	/* 物理内存总量（比 MemTotal 大，含内核保留部分），读取失败时退回 MemTotal */
+	let memPhysMb = physMemMbCached();
+	if (memPhysMb < totalMb) memPhysMb = totalMb;
+	let inGb = dTotalKb >= 1048576;
+	let dTotal = inGb ? +sprintf("%.1f", dTotalKb / 1048576) : rnd(dTotalKb / 1024);
+	let dUsed = inGb ? +sprintf("%.1f", dUsedKb / 1048576) : rnd(dUsedKb / 1024);
+	let dAvail = inGb ? +sprintf("%.1f", dAvailKb / 1048576) : rnd(dAvailKb / 1024);
+	let d = int(up / 86400), h = int((up % 86400) / 3600), mi = int((up % 3600) / 60);
+	if (lite) {
+		out({
+			cpuPct: cpuPct,
+			memTotal: totalMb,
+			memPhys: memPhysMb,
+			memUsed: memUsedMb,
+			memFree: memFreeMb,
+			memPct: memPhysMb ? rnd(memUsedMb * 100 / memPhysMb) : 0,
+			diskTotal: dTotal,
+			diskUsed: dUsed,
+			diskAvail: dAvail,
+			diskUnit: inGb ? "GB" : "MB",
+			diskPct: (dUsedKb + dAvailKb) ? rnd(dUsedKb * 100 / (dUsedKb + dAvailKb)) : 0
+		});
+		return;
+	}
+	/* 整块磁盘总容量（含 boot 等分区），读取失败时退回根分区容量 */
+	let devKb = wholeDiskKb();
+	let devGb = devKb >= 1048576;
+	let dDevTotal = devKb ? (devGb ? +sprintf("%.1f", devKb / 1048576) : rnd(devKb / 1024)) : dTotal;
+	let dDevUnit = (devKb ? devGb : inGb) ? "GB" : "MB";
+	out({
+		hostname: hostname(),
+		model: trim(FS.readfile("/tmp/sysinfo/model") ?? "—"),
+		firmware: trim(sh(". /etc/openwrt_release 2>/dev/null; echo $DISTRIB_DESCRIPTION")),
+		kernel: trim(sh("uname -r")),
+		uptime: d + "天 " + h + "小时 " + mi + "分",
+		load: [ +la[0] || 0, +la[1] || 0, +la[2] || 0 ],
+		cpuPct: cpuPct,
+		memTotal: totalMb,
+		memPhys: memPhysMb,
+		memUsed: memUsedMb,
+		memFree: memFreeMb,
+		memPct: memPhysMb ? rnd(memUsedMb * 100 / memPhysMb) : 0,
+		diskTotal: dTotal,
+		diskUsed: dUsed,
+		diskAvail: dAvail,
+		diskUnit: inGb ? "GB" : "MB",
+		diskDevTotal: dDevTotal,
+		diskDevUnit: dDevUnit,
+		/* 百分比与 df 的 Use% 一致：已用 / (已用 + 可用) */
+		diskPct: (dUsedKb + dAvailKb) ? rnd(dUsedKb * 100 / (dUsedKb + dAvailKb)) : 0,
+		lte: lteInfo()
+	});
+}
+
+/* ---------- 最近通联持久化 ---------- */
+function lhLoad() {
+	let st = null;
+	try {
+		let d = FS.readfile(LH_STORE);
+		if (d != null && substr(trim(d), 0, 1) == "{") st = json(d);
+	} catch (e) { st = null; }
+	if (type(st) != "object" || st == null || type(st.ids) != "object" || st.ids == null)
+		st = { ver: 1, since: 0, ids: {} };
+	if (type(st.since) != "int") st.since = 0;
+	return st;
+}
+function lhSave(st) { writeCache(LH_STORE, st); }
+
+/* 并入一条记录。key 为聚合键（DMR ID；纯呼号记录用 "C:呼号"）。
+   用「该 ID 最后通联时间」做水位去重：日志重启后会重新解析旧内容，
+   旧记录的时间不会超过水位，因此不会重复入库。返回是否有新增 */
+function lhTouch(st, key, id, call, q) {
+	let ts = epochOf(q.ts);
+	if (!ts || ts < st.since) return false;
+	let e = st.ids[key];
+	if (e != null && type(e) == "object" && ts <= (+e.last || 0)) return false;
+	if (e == null || type(e) != "object") {
+		e = { id: id, call: "", last: 0, rec: null, hist: [], gps: null, gpsLeft: 0, gpsTs: 0 };
+		st.ids[key] = e;
+	}
+	e.id = id;
+	if (length(call)) e.call = call;
+	e.last = ts;
+	/* 同一呼号的最新 GPS 最多保留 5 次通联，且坐标有效期只有 30 分钟：
+	   有坐标的本次算第 1 次，后续无坐标记录再沿用 4 次；新坐标重置次数与时间 */
+	if (q.gps != null && q.gps.lat && q.gps.lon) {
+		e.gps = q.gps;
+		e.gpsLeft = 5;
+		e.gpsTs = epochOf(q.gps.ts ?? "");
+		if (!e.gpsTs) e.gpsTs = ts;
+	} else {
+		/* 兼容旧存储：还没有独立 GPS 状态时，从上一条显示记录迁移 */
+		if ((type(e.gps) != "object" || e.gps == null) && type(e.rec) == "object" && e.rec != null
+			&& e.rec.gps != null && e.rec.gps.lat && e.rec.gps.lon) {
+			e.gps = e.rec.gps;
+			e.gpsLeft = 5;
+			e.gpsTs = epochOf(e.rec.gps.ts ?? "");
+			if (!e.gpsTs) e.gpsTs = epochOf(e.rec.ts);
+		}
+		let left = +e.gpsLeft || 0;
+		let gts = +e.gpsTs || 0;
+		if (type(e.gps) == "object" && e.gps != null && left > 1 && gts > 0 && time() - gts <= LH_GPS_TTL) {
+			e.gpsLeft = left - 1;
+		} else {
+			e.gps = null;
+			e.gpsLeft = 0;
+			e.gpsTs = 0;
+		}
+	}
+	let gts = +e.gpsTs || 0;
+	let showGps = (type(e.gps) == "object" && e.gps != null && (+e.gpsLeft || 0) > 0
+		&& gts > 0 && time() - gts <= LH_GPS_TTL) ? e.gps : null;
+	e.rec = {
+		callsign: q.callsign, isId: q.isId, target: q.target, dir: q.dir,
+		slot: q.slot, ts: q.ts, dur: q.dur, ber: q.ber, rssi: q.rssi, gps: showGps,
+		data: q.data ? 1 : 0
+	};
+	let hist = (type(e.hist) == "array") ? e.hist : [];
+	/* 历史只存通话组与时间戳，时间由前端按 ts 格式化，避免重复占用存储 */
+	let nh = [{ tg: q.target ?? "", ts: ts, d: q.data ? 1 : 0 }];
+	for (let i = 0; i < length(hist) && length(nh) < LH_MAX_HIST; i++) push(nh, hist[i]);
+	e.hist = nh;
+	return true;
+}
+/* 超过上限时按最后通联时间淘汰最旧的 ID，避免文件无限增长 */
+function lhTrim(st) {
+	let arr = [];
+	for (let k in st.ids) push(arr, k);
+	if (length(arr) <= LH_MAX_IDS) return;
+	for (let i = 0; i < length(arr); i++)
+		for (let j = i + 1; j < length(arr); j++)
+			if ((+st.ids[arr[j]].last || 0) < (+st.ids[arr[i]].last || 0)) {
+				let t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+			}
+	for (let i = 0; i < length(arr) - LH_MAX_IDS; i++) delete st.ids[arr[i]];
+}
+
+function cmdLastheard() {
+	let file = logFileFor("MMDVM");
+	/* 日志与呼号库都没变化时直接返回上次结果（最长 2 分钟刷新一次） */
+	let sig = fileSig(file) + "#" + fileSig(INI_DIR + "DMRIds.dat") + "#" +
+	          fileSig(BG_CSV) + "#" + fileSig(RW_CSV) + "#" + fileSig(ID_CACHE) + "#" + int(time() / 120);
+	let cc = FS.readfile(LH_CACHE);
+	let cachedBody = null, cachedAge = 9999;
+	if (cc != null && substr(trim(cc), 0, 1) == "{") {
+		let v = json(cc);
+		if (type(v) == "object" && type(v.body) == "array") {
+			cachedBody = v.body;
+			cachedAge = time() - (v.t ?? 0);
+			/* 签名匹配（日志/库都没变）直接用；签名变了但结果在 5 秒内也复用，
+			   避免通话时日志变化导致每次都全量解析 + 查呼号库，逼近超时后堆积雪崩 */
+			if (v.sig == sig || cachedAge <= 5) { out(v.body); return; }
+		}
+	}
+	/* 需要重算：先拿单飞锁，拿不到说明已有实例在跑，退回 20 秒内旧结果（没有则空列表），
+	   绝不再启动第二个重算进程——lastheard 单次解析+查库最重，是堆积雪崩的主要来源 */
+	if (inFlight("lastheard", 8)) {
+		if (cachedBody != null && cachedAge <= 20) out(cachedBody);
+		else out([]);
+		return;
+	}
+	let recs = parseQso().recs;
+	/* 合并阶段只解析 ID：ID 记录用呼号本身，纯呼号记录才查 DMRIds.dat。
+	   地址/呼号全表扫描留到展示阶段，只对最终 50 条做，避免每次刷新都扫库 */
+	let st = lhLoad();
+	let nidCalls = [], seenC = {};
+	for (let q in recs) {
+		if (q.isId || seenC[q.callsign]) continue;
+		seenC[q.callsign] = true;
+		push(nidCalls, q.callsign);
+	}
+	let c2id = length(nidCalls) ? idFor(nidCalls) : {};
+	/* 旧数据迁移：以前 ID 反查不到时按 "C:呼号" 聚合，现在能查到 ID 就并入 ID 键，
+	   否则同一条通联会同时以「呼号键」和「ID 键」出现两次 */
+	let lhk = [];
+	for (let k in st.ids) push(lhk, k);
+	let mergedOld = false;
+	for (let k in lhk) {
+		if (substr(k, 0, 2) != "C:") continue;
+		let cs = substr(k, 2);
+		let nid = c2id[cs] ?? "";
+		if (!length(nid)) continue;
+		let e = st.ids[k];
+		if (e == null || type(e) != "object") continue;
+		let d = st.ids[nid];
+		if (d == null || type(d) != "object") {
+			st.ids[nid] = e;
+			e.id = nid;
+		} else {
+			/* 合并历史：按时间戳去重，保留较新的记录与水位 */
+			let hs = (type(d.hist) == "array") ? d.hist : [];
+			let seenTs = {};
+			for (let h in hs) if (h != null && h.ts != null) seenTs[h.ts] = 1;
+			for (let h in (type(e.hist) == "array") ? e.hist : [])
+				if (h != null && h.ts != null && !seenTs[h.ts]) { push(hs, h); seenTs[h.ts] = 1; }
+			d.hist = hs;
+			if ((+e.last || 0) > (+d.last || 0)) { d.last = e.last; d.rec = e.rec; }
+			if (!length(d.id)) d.id = nid;
+		}
+		delete st.ids[k];
+		mergedOld = true;
+	}
+	if (mergedOld) lhSave(st);
+	let added = false;
+	for (let q in recs) {
+		let id = q.isId ? q.callsign : (c2id[q.callsign] ?? "");
+		let key = length(id) ? id : ("C:" + q.callsign);
+		if (lhTouch(st, key, id, "", q)) { added = true; continue; }
+		/* GPS 可能在通话结束入库后才解析到：只回填当前这条同时间戳记录，
+		   不用旧记录的坐标覆盖更新的通联 */
+		if (q.gps != null && q.gps.lat && q.gps.lon) {
+			let e = st.ids[key];
+			if (e != null && type(e) == "object" && e.rec != null && type(e.rec) == "object"
+				&& epochOf(e.rec.ts) == epochOf(q.ts)) {
+				let eg = e.rec.gps;
+				let qgts = epochOf(q.gps.ts ?? "");
+				if (!qgts) qgts = epochOf(q.ts);
+				if (eg == null || eg.lat != q.gps.lat || eg.lon != q.gps.lon || (+e.gpsLeft || 0) != 5 || (+e.gpsTs || 0) != qgts) {
+					e.gps = q.gps;
+					e.gpsLeft = 5;
+					e.gpsTs = qgts;
+					e.rec.gps = q.gps;
+					added = true;
+				}
+			}
+		}
+		/* 旧数据迁移：已入库的同一时间戳记录补上 data（APRS 等数据突发）标记 */
+		if (!q.data) continue;
+		let e = st.ids[key];
+		if (e == null || type(e) != "object") continue;
+		let qts = epochOf(q.ts), hit = false;
+		if (e.rec != null && type(e.rec) == "object" && epochOf(e.rec.ts) == qts && !e.rec.data) {
+			e.rec.data = 1; hit = true;
+		}
+		let hs = (type(e.hist) == "array") ? e.hist : [];
+		for (let h in hs) {
+			if (h != null && h.ts == qts && !h.d) { h.d = 1; hit = true; }
+		}
+		if (hit) added = true;
+	}
+	if (added) { lhTrim(st); lhSave(st); }
+	/* 按最后通联时间倒序取前 50 个 ID */
+	let keys = [];
+	for (let k in st.ids) push(keys, k);
+	for (let i = 0; i < length(keys); i++)
+		for (let j = i + 1; j < length(keys); j++)
+			if ((+st.ids[keys[j]].last || 0) > (+st.ids[keys[i]].last || 0)) {
+				let t = keys[i]; keys[i] = keys[j]; keys[j] = t;
+			}
+	let pick = [];
+	for (let i = 0; i < length(keys) && length(pick) < 50; i++) {
+		let e = st.ids[keys[i]];
+		if (e != null && type(e.rec) == "object" && e.rec != null) push(pick, e);
+	}
+	/* 只为这 50 条反查呼号 / DMR ID / 地址 */
+	let calls = [], idlist = [], seen = {}, seenId = {};
+	for (let e in pick) {
+		let q = e.rec;
+		if (q.isId) {
+			if (!seenId[q.callsign]) { seenId[q.callsign] = true; push(idlist, q.callsign); }
+		} else if (!seen[q.callsign]) { seen[q.callsign] = true; push(calls, q.callsign); }
+	}
+	/* 展示阶段：多数呼号已在合并阶段解析，只有旧记录里未覆盖的呼号才补查一次 */
+	let ids = c2id;
+	let miss = [];
+	for (let c in calls) if (ids[c] == null) push(miss, c);
+	if (length(miss)) {
+		let extra = idFor(miss);
+		for (let c in extra) ids[c] = extra[c];
+	}
+	let ids46 = [], ids86 = [], otherIds = [];
+	for (let x in idlist) {
+		if (is46Id(x)) push(ids46, x);
+		else if (is86Id(x)) push(ids86, x);
+		else push(otherIds, x);
+	}
+	let id2call = resolveCalls(otherIds);
+	let allids = [];
+	for (let x in idlist) push(allids, x);
+	for (let c in ids) push(allids, ids[c]);
+	/* 46 开头用 BG4ESI，86 开头用 radiowo */
+	let bg = bgLookup(ids46, calls);
+	let rw = rwLookup(ids86, calls);
+	for (let k in bg.call) id2call[k] = bg.call[k];
+	for (let k in rw.call) id2call[k] = rw.call[k];
+	/* 地址合并：BG4ESI 优先（46），radiowo 次之（86），互不妨碍 */
+	let addrMap = {};
+	for (let k in bg.addrId) addrMap[k] = bg.addrId[k];
+	for (let k in rw.addrId) addrMap[k] = rw.addrId[k];
+	let addrCall = {};
+	for (let k in bg.addrCall) addrCall[k] = bg.addrCall[k];
+	for (let k in rw.addrCall) addrCall[k] = rw.addrCall[k];
+	/* 呼号→ID 合并（DMRIds.dat 查不到时用数据库反查） */
+	let call2id = {};
+	for (let k in bg.call2id) call2id[k] = bg.call2id[k];
+	for (let k in rw.call2id) call2id[k] = rw.call2id[k];
+	let r = [];
+	/* 通联记录里的内嵌 GPS：地址只读缓存，未命中交给后台进程查，下一次刷新补上 */
+	let inf = (ini(INI_DIR + "MMDVM.ini")["Info"] ?? {});
+	/* 1 小时内收到过本机手台上报的 GPS 就以它为基准，否则用配置 [Info] 的经纬度 */
+	let lg1 = localGps(file);
+	let myLat = lg1 ? +lg1.lat : +trim(inf.Latitude ?? ""), myLon = lg1 ? +lg1.lon : +trim(inf.Longitude ?? "");
+	let hasMe = ((myLat < 0 ? -myLat : myLat) > 0.0001 || (myLon < 0 ? -myLon : myLon) > 0.0001);
+	for (let e in pick) {
+		let q = e.rec;
+		let call = q.callsign, id = "";
+		if (q.isId) { call = id2call[q.callsign] ?? e.call ?? ""; id = q.callsign; }
+		else id = ids[q.callsign] ?? call2id[q.callsign] ?? (e.id ?? "");
+		let g4 = null;
+		/* 即使一直停留在同一条通联，GPS 超过 30 分钟未更新也不再显示 */
+		let qg = q.gps;
+		let gts = +e.gpsTs || 0;
+		if (!(gts > 0) && qg != null) {
+			gts = epochOf(qg.ts ?? "");
+			if (!gts) gts = epochOf(q.ts);
+		}
+		if (qg == null || !(gts > 0) || time() - gts > LH_GPS_TTL) qg = null;
+		if (qg != null && qg.lat && qg.lon) {
+			let a = addrCached(qg.lat, qg.lon);
+			if (!length(a)) addrPrefetch(qg.lat, qg.lon);
+			let km = hasMe ? distKm(myLat, myLon, qg.lat, qg.lon) : null;
+			g4 = { lat: qg.lat, lon: qg.lon, addr: a,
+				dist: (km != null) ? ((km < 10) ? (rnd(km * 10) / 10) : rnd(km)) : null,
+				base: lg1 ? "radio" : "config" };
+		}
+		/* 历史只回传通话组与时间戳（时间由前端按 ts 格式化），减小响应体积 */
+		let hist = (type(e.hist) == "array") ? e.hist : [];
+		let hout = [];
+		for (let h in hist) {
+			let o = { tg: h.tg ?? "", ts: h.ts ?? 0 };
+			if (h.d) o.d = 1;
+			push(hout, o);
+		}
+		push(r, {
+			callsign: call,
+			id: id,
+			addr: (length(id) && addrMap[id]) ? addrMap[id] : (addrCall[call] ?? ""),
+			dir: q.dir,
+			mode: q.data ? "DATA" : "DMR",
+			slot: q.slot,
+			target: q.target,
+			rssi: (q.dir == "TX" && q.rssi != null) ? sprintf("%d dBm", q.rssi) : "",
+			ber: sprintf("%.1f%%", q.ber),
+			dur: sprintf("%.1f", q.dur),
+			time: hhmmss(q.ts),
+			ts: epochOf(q.ts),
+			gps: g4,
+			hist: hout
+		});
+	}
+	writeCache(LH_CACHE, { sig: sig, t: time(), body: r });
+	out(r);
+}
+
+/* 清除通联记录缓存：保留文件并写入 since 水位，避免日志重新解析后旧记录被再次灌入 */
+function cmdLhClear() {
+	writeCache(LH_STORE, { ver: 1, since: time(), ids: {} });
+	FS.writefile(LH_CACHE, "");
+	out({ ok: true });
+}
+
+/* ---------- BrandMeister 静态组（API Key 方式） ---------- */
+const BM_API = "https://api.brandmeister.network/v2";
+/* 当前设备的 DMR ID：基础配置里的 DMR ID 1 + ESSID（BM 按完整 9 位设备 ID 区分静态组）；
+   手动覆盖优先，7 位覆盖值同样补上 ESSID */
+function bmWithEssid(id, essid) {
+	id = trim(id); essid = trim(essid);
+	if (!length(id)) return "";
+	if (length(id) >= 9) return id;
+	if (length(essid) && match(essid, /^[0-9]{1,2}$/) != null) {
+		if (length(essid) == 1) essid = "0" + essid;
+		if (length(id) <= 7) id = id + essid;
+	}
+	return id;
+}
+function bmDeviceId() {
+	let st = state();
+	let ids = st.dmrIds;
+	let e0 = (type(ids) == "array" && ids[0] != null) ? trim(ids[0].essid ?? "") : "";
+	let ov = trim(st.bmDeviceId ?? "");
+	if (length(ov) && match(ov, /^[0-9]{4,9}$/) != null) return bmWithEssid(ov, e0);
+	if (type(ids) == "array" && ids[0] != null) {
+		let id = trim(ids[0].id ?? "");
+		if (length(id)) return bmWithEssid(id, e0);
+	}
+	let m = ini(INI_DIR + "MMDVM.ini");
+	return bmWithEssid(trim((m["DMR"] ?? {}).Id ?? ""), e0);
+}
+function bmKey() { return trim(state().bmApiKey ?? ""); }
+/* 调 BM API：method + 路径 + 可选 JSON body，返回 { code, body }。
+   查询接口无需鉴权，写入接口需要 API Key（未配置时不带 Authorization） */
+function bmReq(method, path, payload) {
+	let key = bmKey();
+	let cmd = "/usr/bin/curl -s -m 8 -w '\\n%{http_code}' -H 'Accept: application/json'";
+	if (length(key)) cmd += " -H 'Authorization: Bearer " + key + "'";
+	if (method == "POST") cmd += " -X POST -H 'Content-Type: application/json' --data '" + payload + "'";
+	else if (method == "DELETE") cmd += " -X DELETE";
+	cmd += " '" + BM_API + path + "' 2>/dev/null";
+	let raw = sh(cmd);
+	let i = rindex(raw, "\n");
+	let code = 0, body = raw;
+	if (i >= 0) { code = int(trim(substr(raw, i + 1))); body = substr(raw, 0, i); }
+	return { code: code, body: body };
+}
+/* BrandMeister 公开接口要跨公网查询，慢速设备上单次要 3 秒左右；
+   60 秒内同一设备/同一鉴权状态直接复用结果 */
+let TG_MEMO_KEY = "";
+function tgOut(res) {
+	if (length(TG_MEMO_KEY)) { try { memoPut(TG_MEMO_KEY, res); } catch (e) {} }
+	out(res);
+}
+function cmdTgGet() {
+	let st = state();
+	let ids = st.dmrIds;
+	let e0 = (type(ids) == "array" && ids[0] != null) ? trim(ids[0].essid ?? "") : "";
+	let ov = trim(st.bmDeviceId ?? "");
+	let dev = bmDeviceId(), key = bmKey();
+	TG_MEMO_KEY = "tg:" + dev + ":" + (length(key) ? "1" : "0");
+	let hit = memoGet(TG_MEMO_KEY, 60);
+	if (hit != null) { out(hit); return; }
+	/* override：手动指定的 DMR ID（已补足 ESSID，便于页面按完整 ID 匹配选项；空表示自动） */
+	let res = { ok: true, configured: length(key) > 0, deviceId: dev,
+	            override: length(ov) ? bmWithEssid(ov, e0) : "", talkgroups: [], dynamic: [] };
+	if (!length(dev)) { tgOut(res); return; }
+	/* 配置了 Key 时用 profile 一次拿到静态组 + 动态组；未配置时用公开接口只取静态组 */
+	if (length(key)) {
+		let pr = bmReq("GET", "/device/" + dev + "/profile", null);
+		res.status = pr.code;
+		if (pr.code == 200) {
+			let p = null;
+			try { p = json(pr.body); } catch (e) { p = null; }
+			let put = (arr, dst) => {
+				if (type(arr) != "array") return;
+				for (let x in arr) {
+					if (x == null) continue;
+					push(dst, { talkgroup: int(x.talkgroup) || 0, slot: int(x.slot) || 0 });
+				}
+			};
+			if (p != null) {
+				put(p.staticSubscriptions, res.talkgroups);
+				put(p.dynamicSubscriptions, res.dynamic);
+			}
+			tgOut(res);
+			return;
+		}
+		if (pr.code == 401 || pr.code == 403) { res.ok = false; res.error = "API Key 无效或无权访问该设备"; tgOut(res); return; }
+		if (pr.code == 0) { res.ok = false; res.error = "无法连接 BrandMeister（请检查网络）"; tgOut(res); return; }
+		/* 其他异常回落到公开接口，至少能看静态组 */
+	}
+	let r = bmReq("GET", "/device/" + dev + "/talkgroup", null);
+	res.status = r.code;
+	if (r.code == 0) { res.ok = false; res.error = "无法连接 BrandMeister（请检查网络）"; }
+	else if (r.code != 200) { res.ok = false; res.error = "BrandMeister 接口返回 " + r.code; }
+	else {
+		let arr = null;
+		try { arr = json(r.body); } catch (e) { arr = null; }
+		if (type(arr) == "array") {
+			for (let x in arr) {
+				if (x == null) continue;
+				push(res.talkgroups, { talkgroup: int(x.talkgroup) || 0, slot: int(x.slot) || 0 });
+			}
+		}
+	}
+	tgOut(res);
+}
+function cmdTgPost() {
+	let d = body() ?? {};
+	let act = trim(d.act ?? "");
+	if (act == "key") {
+		let st = state();
+		/* 留空表示沿用已保存的密钥，避免误清空 */
+		let nk = trim(d.apiKey ?? "");
+		if (length(nk)) st.bmApiKey = nk;
+		/* DMR ID 允许覆盖（留空则恢复为自动取基础配置的 ID） */
+		let ov = trim(d.deviceId ?? "");
+		if (length(ov)) {
+			if (match(ov, /^[0-9]{4,9}$/) == null) { fail("DMR ID 应为 4~9 位数字"); return; }
+			st.bmDeviceId = ov;
+		} else {
+			delete st.bmDeviceId;
+		}
+		saveState(st);
+		out({ ok: true });
+		return;
+	}
+	/* 清空某个时隙的动态组 */
+	if (act == "dropdynamic") {
+		let slot = int(d.slot ?? 0);
+		if (slot != 1 && slot != 2) { fail("参数不合法"); return; }
+		if (!length(bmKey())) { fail("尚未配置 API Key"); return; }
+		let dev0 = bmDeviceId();
+		if (!length(dev0)) { fail("未找到 DMR ID"); return; }
+		let rr = bmReq("GET", "/device/" + dev0 + "/action/dropDynamicGroups/" + slot, null);
+		if (rr.code == 0) fail("无法连接 BrandMeister（请检查网络）");
+		else if (rr.code == 401 || rr.code == 403) fail("API Key 无效或无权访问该设备");
+		else if (rr.code != 200) fail("BrandMeister 接口返回 " + rr.code);
+		else out({ ok: true });
+		return;
+	}
+	let tg = int(d.tg ?? 0), slot = int(d.slot ?? 0);
+	if (tg <= 0 || tg > 99999999 || (slot != 1 && slot != 2)) { fail("参数不合法"); return; }
+	if (!length(bmKey())) { fail("尚未配置 API Key"); return; }
+	let dev = bmDeviceId();
+	if (!length(dev)) { fail("未找到 DMR ID"); return; }
+	let r;
+	if (act == "add") r = bmReq("POST", "/device/" + dev + "/talkgroup", "{\"group\":" + tg + ",\"slot\":" + slot + "}");
+	else if (act == "del") r = bmReq("DELETE", "/device/" + dev + "/talkgroup/" + slot + "/" + tg, null);
+	else { fail("未知操作"); return; }
+	if (r.code == 0) fail("无法连接 BrandMeister（请检查网络）");
+	else if (r.code == 401 || r.code == 403) fail("API Key 无效或无权访问该设备");
+	else if (r.code != 200) fail("BrandMeister 接口返回 " + r.code);
+	else out({ ok: true });
+}
+
+
+function cmdLive() {
+	let file = logFileFor("MMDVM");
+	/* 实时接口只做同一秒内去重（0.7 秒轮询下几乎每次都重新解析），
+	   保证通联显示实时性；单次解析已是增量读取日志尾部 */
+	let cached = shortGet(LIVE_CACHE, 0, null);
+	if (cached != null) return cached;
+	let m = ini(INI_DIR + "MMDVM.ini");
+	let duplex = (m["General"] ?? {}).Duplex == "1";
+	let modes = [];
+	if ((m["DMR"] ?? {}).Enable == "1") push(modes, "DMR");
+	if ((m["System Fusion"] ?? {}).Enable == "1") push(modes, "YSF");
+	if ((m["P25"] ?? {}).Enable == "1") push(modes, "P25");
+	if ((m["NXDN"] ?? {}).Enable == "1") push(modes, "NXDN");
+	let q = parseQso(file);
+	let now = time();
+	let slots = { "1": { active: false }, "2": { active: false } };
+	let act = {}, startTs = {};
+
+	/* 正在发射/接收（有 header 尚未 end）；APRS 等数据突发只在通联记录里显示 */
+	for (let k in q.pend) {
+		let p = q.pend[k];
+		if (p.data) continue;
+		let ts = epochOf(p.ts);
+		if (!ts || now - ts > 600) continue;
+		/* 日志偶发缺 end 行时，靠“最后一次活动”判断是否已经松手：
+		   本机 RF 发射每 60ms 有音频统计行，5 秒无新行即视为结束；
+		   网络下行通话中间可能几十秒没有任何日志行（只有收尾的 end 或看门狗行），
+		   因此给它更长的兜底时间，避免长通话中途被误判为空闲 */
+		let seenMap = (type(q.seen) == "object" && q.seen != null) ? q.seen : {};
+		let ats = epochOf(seenMap[k] ?? ((q.rt[k] != null) ? q.rt[k].ts : ""));
+		let limit = (p.dir == "RX") ? 180 : 5;
+		if (ats && now - ats > limit) continue;
+		act[k] = { p: p, ts: ts };
+	}
+
+	/* 刚结束的通话再展示 8 秒，避免一松 PTT 就什么都看不到 */
+	let last = {};
+	let recs = q.recs;
+	for (let i = length(recs) - 1; i >= 0; i--) {
+		let r = recs[i];
+		if (r.data) continue;   /* 数据突发不进实时通联 */
+		let key = r.slot ?? "1";
+		if (act[key] || last[key]) continue;
+		let ts = epochOf(r.ts);
+		/* 用「结束时刻」判断新旧：长通话的开始时间可能早于窗口起点，用开始时间会把刚结束的通话丢掉 */
+		let ets = ts + (r.dur ?? 0);
+		if (!ts || now - ets > 8) break;
+		last[key] = { r: r, ts: ts };
+	}
+
+	/* 批量反查呼号 / DMR ID */
+	let calls = [], idlist = [], seen = {}, seenId = {};
+	for (let k in act) {
+		let c = act[k].p;
+		if (c.isId) { if (!seenId[c.callsign]) { seenId[c.callsign] = 1; push(idlist, c.callsign); } }
+		else if (!seen[c.callsign]) { seen[c.callsign] = 1; push(calls, c.callsign); }
+	}
+	for (let k in last) {
+		let c = last[k].r;
+		if (c.isId) { if (!seenId[c.callsign]) { seenId[c.callsign] = 1; push(idlist, c.callsign); } }
+		else if (!seen[c.callsign]) { seen[c.callsign] = 1; push(calls, c.callsign); }
+	}
+	let ids = idFor(calls);
+	let ids46 = [], ids86 = [], otherIds = [];
+	for (let x in idlist) {
+		if (is46Id(x)) push(ids46, x);
+		else if (is86Id(x)) push(ids86, x);
+		else push(otherIds, x);
+	}
+	let id2call = resolveCalls(otherIds);
+	let allids = [];
+	for (let x in idlist) push(allids, x);
+	for (let c in ids) push(allids, ids[c]);
+	/* 46 开头用 BG4ESI，86 开头用 radiowo */
+	let bg = bgLookup(ids46, calls);
+	let rw = rwLookup(ids86, calls);
+	for (let k in bg.call) id2call[k] = bg.call[k];
+	for (let k in rw.call) id2call[k] = rw.call[k];
+	/* 地址合并：BG4ESI 优先（46），radiowo 次之（86），互不妨碍 */
+	let addrMap = {};
+	for (let k in bg.addrId) addrMap[k] = bg.addrId[k];
+	for (let k in rw.addrId) addrMap[k] = rw.addrId[k];
+	let addrCall = {};
+	for (let k in bg.addrCall) addrCall[k] = bg.addrCall[k];
+	for (let k in rw.addrCall) addrCall[k] = rw.addrCall[k];
+
+	for (let k in act) {
+		let p = act[k].p, ts = act[k].ts;
+		startTs[k] = ts;
+		let cs = p.isId ? (id2call[p.callsign] ?? "") : p.callsign;
+		let did = p.isId ? p.callsign : (ids[p.callsign] ?? "");
+		/* 发射中：取当前这次通联最近一个超帧的实时误码率（无数据时为 null） */
+		let rtb = null;
+		let rti = q.rt[k];
+		if (rti != null && epochOf(rti.ts) >= ts - 1) rtb = rti.pct;
+		slots[k] = {
+			active: true, state: p.dir,
+			callsign: cs,
+			id: did,
+			addr: (length(did) && addrMap[did]) ? addrMap[did] : (addrCall[cs] ?? ""),
+			target: p.target,
+			rssi: null, ber: rtb, dur: (now > ts) ? now - ts : 0
+		};
+	}
+	for (let k in last) {
+		let r = last[k].r;
+		startTs[k] = epochOf(r.ts);
+		let cs = r.isId ? (id2call[r.callsign] ?? "") : r.callsign;
+		let did = r.isId ? r.callsign : (ids[r.callsign] ?? "");
+		slots[k] = {
+			active: true, ended: true, state: r.dir,
+			callsign: cs,
+			id: did,
+			addr: (length(did) && addrMap[did]) ? addrMap[did] : (addrCall[cs] ?? ""),
+			target: r.target,
+			rssi: (r.dir == "TX" && r.rssi != null) ? r.rssi : null, ber: r.ber, dur: r.dur
+		};
+	}
+	/* 这次通联里对端上报的内嵌 GPS（APRS）：解析出坐标、逆地理地址、与我这里的距离 */
+	let gpss = gpsBySlot(file);
+	let inf = m["Info"] ?? {};
+	/* 1 小时内收到过本机手台上报的 GPS 就以它为基准，否则用配置 [Info] 的经纬度 */
+	let lg2 = localGps(file);
+	let myLat = lg2 ? +lg2.lat : +trim(inf.Latitude ?? ""), myLon = lg2 ? +lg2.lon : +trim(inf.Longitude ?? "");
+	let hasMe = ((myLat < 0 ? -myLat : myLat) > 0.0001 || (myLon < 0 ? -myLon : myLon) > 0.0001);
+	for (let k in slots) {
+		let g = gpss[k];
+		if (g == null || !g.lat || !g.lon) continue;
+		let st = startTs[k] ?? 0;
+		if (st > 0 && g.ct != null && g.ct > 0 && g.ct < st) continue;   /* GPS 属于上一次通联，勿串到本次 */
+		if (st > 0 && (g.ct == null || !g.ct) && g.ts > 0 && g.ts < st) continue;   /* 无归属信息时退回按落盘时间判断 */
+		if (g.ts > 0 && now - g.ts > 300) continue;          /* 5 分钟前的坐标不再显示 */
+		let d = null;
+		if (hasMe) {
+			let km = distKm(myLat, myLon, g.lat, g.lon);
+			d = (km < 10) ? (rnd(km * 10) / 10) : rnd(km);
+		}
+		/* 地址只读缓存，未命中就丢给后台进程去查，避免实时接口被网络请求拖慢 */
+		let a = addrCached(g.lat, g.lon);
+		if (!length(a)) addrPrefetch(g.lat, g.lon);
+		slots[k].gps = { lat: g.lat, lon: g.lon, addr: a, dist: d, base: lg2 ? "radio" : "config" };
+	}
+	let body = { duplex: duplex, mode: length(modes) ? modes[0] : "DMR", slots: slots };
+	shortPut(LIVE_CACHE, body, null);
+	return body;
+}
+
+/* 由 addrPrefetch 在后台调用：查逆地理并写入缓存，供下一次 /api/live 读取 */
+function cmdGeo() {
+	let q = qs();
+	let la = +(q.lat ?? 0), lo = +(q.lon ?? 0);
+	if (!la && !lo) return;
+	addrOf(la, lo);
+	let mk = "/tmp/dashboard_geo_" + replace(geoKey(la, lo), ",", "_");
+	sh("rm -f '" + mk + "'");
+}
+
+function cmdCalGet() {
+	/* 诊断：记录最近一次轮询页面的 UI 版本，便于确认浏览器是否加载了新前端 */
+	let qv = qs();
+	if (qv.ui != null && length(qv.ui)) FS.writefile("/tmp/dashboard_ui.txt", qv.ui + " " + (qv.src ?? "-") + " " + time() + "\n");
+	let m = ini(INI_DIR + "MMDVM.ini");
+	let mod = m["Modem"] ?? {}, inf = m["Info"] ?? {};
+	let q = parseQso();
+	let recs = q.recs;
+	let last = length(recs) ? recs[length(recs) - 1] : null;
+	let rssi = null;
+	/* 取最近一条带 RSSI 的记录（很多机型不上报，保持 null） */
+	for (let i = length(recs) - 1; i >= 0; i--) {
+		if (recs[i].rssi != null) { rssi = recs[i].rssi; break; }
+	}
+	let ber = last ? last.ber : 0;
+	/* 发射中优先显示当前超帧的实时 BER */
+	let now = time();
+	let active = false;
+	let rf = false;
+	for (let k in q.pend) {
+		let e = epochOf(q.pend[k].ts);
+		if (e && now - e <= 10) { active = true; break; }
+	}
+	for (let k in q.rt) {
+		let e = epochOf(q.rt[k].ts);
+		if (e && now - e <= 5) { active = true; rf = true; ber = q.rt[k].pct; }
+	}
+	out({
+		rxOffset: +mod.RXOffset || 0, txOffset: +mod.TXOffset || 0,
+		rxLevel: +mod.RXLevel || 0, txLevel: +mod.TXLevel || 0, rfLevel: +mod.RFLevel || 0,
+		rxFrequency: +inf.RXFrequency || 0, txFrequency: +inf.TXFrequency || 0,
+		rssi: rssi,
+		ber: ber,
+		/* 逐突发累计：前端按相邻快照差分，避免漏帧与重复计数 */
+		errs: q.cal.errs,
+		total: q.cal.total,
+		frames: q.cal.frames,
+		jumps: q.cal.jumps,
+		jsum: q.cal.jsum,
+		active: active,
+		rf: rf
+	});
+}
+function setIni(file, key, val) {
+	sh("sed -i 's|^" + key + "=.*|" + key + "=" + val + "|' " + file);
+}
+/* 段级写入：只改 [section] 内的 key；无该 key 则插在段内最后一个参数之后；段不存在时追加新段 */
+function setIniSec(file, section, key, val) {
+	let data = FS.readfile(file) ?? "";
+	let lines = split(data, "\n");
+	let cur = null, found = false, hasKey = false, lastKv = -1, idx = -1;
+	for (let line in lines) {
+		idx++;
+		let l = trim(line);
+		let isSec = (length(l) > 2 && substr(l, 0, 1) == "["
+			&& substr(l, length(l) - 1) == "]");
+		if (isSec) { cur = substr(l, 1, length(l) - 2); if (cur == section) found = true; continue; }
+		if (cur == section) {
+			let j = index(l, "=");
+			if (j > 0) { if (trim(substr(l, 0, j)) == key) hasKey = true; lastKv = idx; }
+		}
+	}
+	cur = null; idx = -1;
+	let txt = "";
+	for (let line in lines) {
+		idx++;
+		let l = trim(line);
+		let isSec = (length(l) > 2 && substr(l, 0, 1) == "["
+			&& substr(l, length(l) - 1) == "]");
+		if (isSec) {
+			cur = substr(l, 1, length(l) - 2);
+			txt += line + "\n";
+			if (cur == section && !hasKey && lastKv < 0) txt += key + "=" + val + "\n";
+			continue;
+		}
+		if (cur == section && hasKey) {
+			let i = index(l, "=");
+			if (i > 0 && trim(substr(l, 0, i)) == key) { txt += key + "=" + val + "\n"; continue; }
+		}
+		txt += line + "\n";
+		if (cur == section && !hasKey && idx == lastKv) txt += key + "=" + val + "\n";
+	}
+	if (!found) txt += "\n[" + section + "]\n" + key + "=" + val + "\n";
+	if (length(txt)) FS.writefile(file, txt);
+}
+/* 段级删除：移除 [section] 内的 key；若段因此变空则连段头一并删除 */
+function delIniSec(file, section, key) {
+	let data = FS.readfile(file);
+	if (data == null) return;
+	let lines = split(data, "\n");
+	let remain = 0, c2 = null;
+	for (let line in lines) {
+		let l = trim(line);
+		if (length(l) > 2 && substr(l, 0, 1) == "[" && substr(l, length(l) - 1) == "]") {
+			c2 = substr(l, 1, length(l) - 2); continue;
+		}
+		if (c2 == section && length(l) && substr(l, 0, 1) != "#" && substr(l, 0, 1) != ";") {
+			let j = index(l, "=");
+			if (j > 0 && trim(substr(l, 0, j)) == key) continue;
+			remain++;
+		}
+	}
+	let cur = null, txt = "";
+	for (let line in lines) {
+		let l = trim(line);
+		let isSec = (length(l) > 2 && substr(l, 0, 1) == "["
+			&& substr(l, length(l) - 1) == "]");
+		if (isSec) {
+			let sn = substr(l, 1, length(l) - 2);
+			cur = sn;
+			if (sn == section && remain == 0) continue;
+			txt += line + "\n"; continue;
+		}
+		if (cur == section) {
+			let i = index(l, "=");
+			if (i > 0 && trim(substr(l, 0, i)) == key) continue;
+			if (remain == 0 && !length(l)) continue;
+		}
+		txt += line + "\n";
+	}
+	if (length(txt)) FS.writefile(file, txt);
+}
+
+/* DMRGateway 各 [DMR Network N] 的 Id 只能取自基本信息里配置的 DMR ID（含 ESSID）；
+   不在列表里的旧 ID 一律清空，避免网关继续用旧身份登录 */
+function syncGwIds(ids) {
+	let gw = INI_DIR + "DMRGateway.ini";
+	let secs = ini(gw);
+	let valid = [];
+	for (let it in ids) if (length(it.id)) push(valid, it.id + it.essid);
+	for (let k in secs) {
+		if (match(k, /^DMR Network [0-9]+$/) == null) continue;
+		let cur = trim(secs[k].Id ?? "");
+		if (!length(cur)) continue;
+		let ok = false;
+		for (let v in valid) if (v == cur) { ok = true; break; }
+		if (!ok) setIniSec(gw, k, "Id", "");
+	}
+}
+
+/* ---------- 仪表盘 OTA（只更新网页与 API，不重启） ---------- */
+let name = ep();
+let method = getenv("REQUEST_METHOD") ?? "GET";
+let pi = pathinfo();
+
+const OTA_CONF = "/etc/mmdvm/dashboard-ota.json";
+const OTA_DIR = "/tmp/dashboard-ota";
+const OTA_CACHE = "/tmp/dashboard-ota-cache.json";
+const OTA_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/dashboard.json";
+/* 备用清单：Gitee 不可达时回退到 GitHub API */
+const OTA_DEFAULT_ALT = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
+const DASH_ENDPOINTS = ["auth","basic","calibration","configs","fw","lastheard","lhclear","live","livecfg","log","luci","ota","page","ports","services","status","system","tg","wifi","xlxhosts"];
+
+function sq(s) {
+	let t = sprintf("%s", s), o = "";
+	for (let i = 0; i < length(t); i++) {
+		let ch = substr(t, i, 1);
+		o = o + ((ch == "'") ? "'\\''" : ch);
+	}
+	return "'" + o + "'";
+}
+function otaConf() {
+	let d = FS.readfile(OTA_CONF);
+	if (d == null) return {};
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	return (type(v) == "object" && v != null) ? v : {};
+}
+function otaSource() { return trim(otaConf().url ?? "") || OTA_DEFAULT_SRC; }
+function dashVersion() {
+	let v = FS.readfile("/www-dash/VERSION");
+	return (v == null) ? "unknown" : (trim(v) || "unknown");
+}
+function otaFetch(url) {
+	/* 用固件自带的 uclient-fetch（curl 不一定预装）；加时间戳参数避开 CDN 缓存 */
+	let f = "/tmp/dashboard-ota-manifest.json";
+	let u = url + ((index(url, "?") >= 0) ? "&" : "?") + "t=" + time();
+	sh("rm -f " + sq(f));
+	sh("uclient-fetch -q -T 20 -O " + sq(f) + " " + sq(u) + " 2>/dev/null");
+	let o = FS.readfile(f);
+	if (o == null || !length(trim(o))) return null;
+	let v = null;
+	try { v = json(o); } catch (e) { v = null; }
+	if (type(v) != "object" || v == null) return null;
+	/* GitHub contents API 返回 base64 内容，解码后再解析清单 */
+	if (index(url, "api.github.com") >= 0 && v.content != null) {
+		let b = "";
+		for (let p in split(v.content, "\n")) b = b + trim(p);
+		let t = null;
+		try { t = b64dec(b); } catch (e) { t = null; }
+		if (t == null) return null;
+		let m = null;
+		try { m = json(t); } catch (e) { m = null; }
+		return (type(m) == "object" && m != null) ? m : null;
+	}
+	return v;
+}
+/* 版本比较：V0.<数字> 按数字大小比较，其它格式退回字符串比较
+   注意：ucode 不支持函数前向引用，必须定义在使用它的函数之前 */
+function otaNewer(a, b) {
+	let ma = match(a, /^V0\.([0-9]+)$/);
+	let mb = match(b, /^V0\.([0-9]+)$/);
+	if (ma != null && mb != null) return +ma[1] > +mb[1];
+	return a > b;
+}
+/* 清单短时缓存：正常检查走缓存，减少 GitHub API 调用；拉取失败时退回旧缓存 */
+function otaCacheGet(ttl, url) {
+	let d = FS.readfile(OTA_CACHE);
+	if (d == null) return null;
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	if (type(v) != "object" || v == null) return null;
+	if ((v.url ?? "") != url) return null;
+	if (ttl > 0 && (time() - (+(v.t ?? 0))) > ttl) return null;
+	return (type(v.m) == "object") ? v.m : null;
+}
+function otaCachePut(url, m) {
+	FS.writefile(OTA_CACHE, sprintf("%J", { t: time(), url: url, m: m }) + "\n");
+}
+function otaManifest(url) {
+	let c = otaCacheGet(300, url);
+	if (c != null) return c;
+	let m = otaFetch(url);
+	if (m == null && url == OTA_DEFAULT_SRC) m = otaFetch(OTA_DEFAULT_ALT);
+	let old = otaCacheGet(0, url);
+	let best = m;
+	if (best == null) best = old;
+	else if (old != null && otaNewer(trim(old.version ?? ""), trim(best.version ?? ""))) best = old;
+	if (m != null && best == m) otaCachePut(url, m);
+	return best;
+}
+/* 清单里的 url 可以是相对路径，按清单地址所在目录拼接 */
+function otaAbs(base, u) {
+	if (match(u, /^https?:\/\//) != null) return u;
+	let i = length(base);
+	while (i > 0 && substr(base, i - 1, 1) != "/") i--;
+	return substr(base, 0, i) + u;
+}
+function otaInstallFile(src, dst, mode) {
+	sh("cp " + sq(src) + " " + sq(dst + ".new") + " 2>/dev/null");
+	let st = FS.stat(dst + ".new");
+	if (st == null) return false;
+	sh("chmod " + mode + " " + sq(dst + ".new"));
+	sh("mv " + sq(dst + ".new") + " " + sq(dst));
+	return true;
+}
+function otaLinks(list) {
+	for (let e in list) {
+		let n = sprintf("%s", e);
+		if (match(n, /^[A-Za-z0-9_-]+$/) == null) continue;
+		sh("ln -sf api.uc /www-dash/api/" + n);
+	}
+}
+/* 把 API 源码预编译为字节码：单核设备（MT7628）上每次请求可省约 0.5 秒。
+   编译失败时保留源码，不影响功能 */
+function otaCompileApi() {
+	let p = "/www-dash/api/api.uc";
+	if (FS.stat(p) == null) return;
+	sh("cp -f " + p + " " + p + ".src; ucode -c -s -o " + p + ".bc " + p + ".src >/dev/null 2>&1 && chmod 755 " + p + ".bc && mv -f " + p + ".bc " + p);
+}
+function otaInstallFrom(dir, endpoints, version) {
+	let ok = otaInstallFile(dir + "/app.html", "/www-dash/app.html", "0644");
+	if (!otaInstallFile(dir + "/index.html", "/www-dash/index.html", "0644")) ok = false;
+	if (!otaInstallFile(dir + "/api/api.uc", "/www-dash/api/api.uc", "0755")) ok = false;
+	if (length(version)) FS.writefile("/www-dash/VERSION", version + "\n");
+	else otaInstallFile(dir + "/VERSION", "/www-dash/VERSION", "0644");
+	otaLinks(endpoints);
+	otaCompileApi();
+	return ok;
+}
+function otaBackup() {
+	let f = "/root/dashboard-backup-" + time() + ".tar.gz";
+	sh("tar -czf " + sq(f) + " -C /www-dash app.html index.html api/api.uc VERSION 2>/dev/null");
+	let st = FS.stat(f);
+	return (st != null && st.size > 0) ? f : "";
+}
+function otaPrune() {
+	let out = trim(sh("ls -1t /root/dashboard-backup-*.tar.gz 2>/dev/null"));
+	if (!length(out)) return;
+	let a = split(out, "\n");
+	for (let i = 5; i < length(a); i++) sh("rm -f " + sq(trim(a[i])));
+}
+/* 安装后自检：页面文件完整，新 API 能正常响应且版本号正确 */
+function otaHealth(ver) {
+	let ast = FS.stat("/www-dash/app.html");
+	if (ast == null || ast.size < 10000) return false;
+	let html = FS.readfile("/www-dash/app.html");
+	if (html == null || index(html, "</html>") < 0) return false;
+	let f = OTA_DIR + "/health.json";
+	sh("rm -f " + sq(f));
+	sh("uclient-fetch -q -T 10 -O " + sq(f) + " 'http://127.0.0.1/api/ota?act=info' 2>/dev/null");
+	let d = FS.readfile(f);
+	if (d == null || !length(trim(d))) return false;
+	let j = null;
+	try { j = json(d); } catch (e) { j = null; }
+	if (type(j) != "object" || j == null || !(j.ok ?? false)) return false;
+	if (length(ver) && trim(j.current ?? "") != ver) return false;
+	return true;
+}
+function cmdOta() {
+	let q = qs();
+	let act = q.act ?? "info";
+	if (act == "info") {
+		let c = otaConf();
+		out({ ok: true, current: dashVersion(), source: otaSource(), defaultSource: OTA_DEFAULT_SRC,
+			last: c.last ?? 0, lastVersion: c.lastVersion ?? "",
+			hasBackup: length(trim(sh("ls -1t /root/dashboard-backup-*.tar.gz 2>/dev/null | head -1"))) > 0 });
+		return;
+	}
+	if (act == "seturl") {
+		if (method != "POST") return fail("需要 POST");
+		let u = trim(q.url ?? "");
+		if (match(u, /^https?:\/\/[^ ]+$/) == null) return fail("更新源必须是 http/https 地址");
+		let c = otaConf(); c.url = u;
+		FS.writefile(OTA_CONF, sprintf("%J", c) + "\n");
+		return out({ ok: true, source: u });
+	}
+	if (act == "check") {
+		let src = otaSource();
+		let m = otaManifest(src);
+		if (m == null) return fail("无法获取更新清单：" + src);
+		let cur = dashVersion();
+		let latest = trim(m.version ?? "");
+		if (!length(latest)) return fail("更新清单缺少 version");
+		return out({ ok: true, current: cur, latest: latest,
+			updateAvailable: (cur == "unknown") || otaNewer(latest, cur),
+			size: m.size ?? 0, notes: m.notes ?? "", source: src });
+	}
+	if (act == "install") {
+		if (method != "POST") return fail("需要 POST");
+		let src = otaSource();
+		let m = otaManifest(src);
+		if (m == null) return fail("无法获取更新清单");
+		let u = otaAbs(src, trim(m.url ?? ""));
+		if (!length(u)) return fail("更新清单缺少 url");
+		let sha = lc(trim(m.sha256 ?? ""));
+		if (!length(sha)) return fail("更新清单缺少 sha256");
+		sh("rm -rf " + sq(OTA_DIR));
+		sh("mkdir -p " + sq(OTA_DIR));
+		let pkg = OTA_DIR + "/package.tar.gz";
+		sh("uclient-fetch -q -T 120 -O " + sq(pkg) + " " + sq(u) + " 2>/dev/null");
+		let st = FS.stat(pkg);
+		if (st == null || st.size == 0) return fail("更新包下载失败");
+		let want = +m.size || 0;
+		if (want > 0 && st.size != want) return fail("更新包大小不匹配");
+		let got = lc(trim(split(trim(sh("sha256sum " + sq(pkg))), " ")[0]));
+		if (got != sha) return fail("sha256 校验失败");
+		/* 只允许更新这几类文件，拒绝包内的其它路径 */
+		let lines = split(trim(sh("tar -tzf " + sq(pkg) + " 2>/dev/null")), "\n");
+		if (!length(lines)) return fail("更新包损坏");
+		let okFiles = ["app.html", "index.html", "api/api.uc", "VERSION"];
+		for (let l in lines) {
+			let n = trim(replace(l, "./", ""));
+			if (!length(n) || substr(n, length(n) - 1, 1) == "/") continue;
+			let ok = false;
+			for (let a in okFiles) if (a == n) { ok = true; break; }
+			if (!ok) return fail("更新包包含非法文件：" + n);
+		}
+		let stage = OTA_DIR + "/stage";
+		sh("mkdir -p " + sq(stage) + " && tar -xzf " + sq(pkg) + " -C " + sq(stage) + " 2>/dev/null");
+		/* 安装前先检查新 api.uc 语法，避免把接口文件写坏 */
+		let chk = sh("ucode -c -o " + sq(OTA_DIR + "/syntax.ucb") + " " + sq(stage + "/api/api.uc") + " 2>&1; echo EXIT:$?");
+		if (index(chk, "EXIT:0") < 0) return fail("更新包内 api.uc 未通过语法检查，已中止安装");
+		let bak = otaBackup();
+		let eps = (type(m.endpoints) == "array") ? m.endpoints : DASH_ENDPOINTS;
+		let nv = trim(m.version ?? "");
+		let insOk = otaInstallFrom(stage, eps, nv);
+		/* 安装后自检：文件替换失败或新接口异常时，用刚才的备份自动回滚 */
+		if (!insOk || !otaHealth(nv)) {
+			if (length(bak)) {
+				let rs = OTA_DIR + "/rollback";
+				sh("mkdir -p " + sq(rs));
+				sh("tar -xzf " + sq(bak) + " -C " + sq(rs) + " 2>/dev/null");
+				otaInstallFrom(rs, DASH_ENDPOINTS, "");
+				sh("rm -rf " + sq(OTA_DIR));
+				return fail("安装后自检失败，已自动回滚到上一版本");
+			}
+			sh("rm -rf " + sq(OTA_DIR));
+			return fail("安装后自检失败，且没有可用备份，请手动处理");
+		}
+		otaPrune();
+		let c = otaConf(); c.last = time(); c.lastVersion = nv;
+		FS.writefile(OTA_CONF, sprintf("%J", c) + "\n");
+		sh("rm -rf " + sq(OTA_DIR));
+		return out({ ok: true, version: nv, backup: length(bak) > 0, verified: true });
+	}
+	if (act == "rollback") {
+		if (method != "POST") return fail("需要 POST");
+		let f = trim(sh("ls -1t /root/dashboard-backup-*.tar.gz 2>/dev/null | head -1"));
+		if (!length(f)) return fail("没有可回滚的备份");
+		let stage = OTA_DIR + "/rollback";
+		sh("rm -rf " + sq(OTA_DIR) + "; mkdir -p " + sq(stage));
+		sh("tar -xzf " + sq(f) + " -C " + sq(stage) + " 2>/dev/null");
+		otaInstallFrom(stage, DASH_ENDPOINTS, "");
+		sh("rm -rf " + sq(OTA_DIR));
+		return out({ ok: true, version: dashVersion(), from: f });
+	}
+	return fail("未知操作");
+}
+
+/* ---------- 整机固件 OTA（全量 sysupgrade） ---------- */
+const FW_DIR = "/tmp/fw-ota";
+const FW_IMAGE = FW_DIR + "/image.bin";
+const FW_RC = FW_DIR + "/rc";
+const FW_STATE_FILE = FW_DIR + "/state.json";
+const FW_DEFAULT_SRC = "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/raw/main/fw/";
+const FW_DEFAULT_ALT = "https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main/fw/";
+/* 固件更新检查结果缓存（5 分钟）：4G/弱网下每次刷页面都探测太慢 */
+const FWCHECK_CACHE = "/tmp/dashboard_fwcheck.json";
+const FWCHECK_TTL   = 300;
+
+function fwBoard() {
+	let b = trim(FS.readfile("/tmp/sysinfo/board_name") ?? "");
+	return length(b) ? b : "unknown";
+}
+function fwBoardKey(b) {
+	let o = "";
+	for (let i = 0; i < length(b); i++) {
+		let c = substr(b, i, 1);
+		o = o + ((match(c, /^[A-Za-z0-9._-]$/) != null) ? c : "_");
+	}
+	return o;
+}
+function fwVersion() {
+	let v = trim(FS.readfile("/etc/mmdvm/fw.version") ?? "");
+	return length(v) ? v : "unknown";
+}
+/* 发行目标（如 ramips/mt76x8、x86/64），用于清单兜底匹配与防刷错 */
+function fwTarget() {
+	let d = FS.readfile("/etc/openwrt_release") ?? "";
+	for (let l in split(d, "\n")) {
+		let i = index(l, "DISTRIB_TARGET=");
+		if (i == 0) return trim(replace(substr(l, 15), "'", ""));
+	}
+	return "unknown";
+}
+function fwStateRead() {
+	let d = FS.readfile(FW_STATE_FILE);
+	if (d == null) return {};
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	return (type(v) == "object" && v != null) ? v : {};
+}
+function fwStateWrite(o) {
+	sh("mkdir -p " + sq(FW_DIR));
+	FS.writefile(FW_STATE_FILE, sprintf("%J", o) + "\n");
+}
+function fwFetchManifest(url) {
+	sh("mkdir -p " + sq(FW_DIR));
+	let f = FW_DIR + "/manifest.json";
+	sh("rm -f " + sq(f));
+	let u = url + ((index(url, "?") >= 0) ? "&" : "?") + "t=" + time();
+	sh("uclient-fetch -q -T 8 -O " + sq(f) + " " + sq(u) + " 2>/dev/null");
+	let o = FS.readfile(f);
+	if (o == null || !length(trim(o))) return null;
+	let v = null;
+	try { v = json(o); } catch (e) { v = null; }
+	return (type(v) == "object" && v != null) ? v : null;
+}
+/* 先只查 Gitee（直连约 0.5~1 秒），两个候选键都失败才走 GitHub 镜像兜底，
+   避免每台设备正常检查时都被 ghproxy 的 6~7 秒拖慢 */
+function fwManifest() {
+	let cand = [fwBoardKey(fwBoard()), fwBoardKey(fwTarget())];
+	for (let key in cand) {
+		let m = fwFetchManifest(FW_DEFAULT_SRC + key + ".json");
+		if (type(m) == "object") return m;
+	}
+	for (let key in cand) {
+		let m = fwFetchManifest(FW_DEFAULT_ALT + key + ".json");
+		if (type(m) == "object") return m;
+	}
+	return null;
+}
+function fwNewer(a, b) {
+	if (match(a, /^[0-9]+$/) != null && match(b, /^[0-9]+$/) != null) return +a > +b;
+	return otaNewer(a, b);
+}
+function fwStopSvc() {
+	sh("/etc/init.d/mmdvmhost stop >/dev/null 2>&1");
+	sh("/etc/init.d/dmrgateway stop >/dev/null 2>&1");
+}
+function fwStartSvc() {
+	sh("/etc/init.d/mmdvmhost start >/dev/null 2>&1");
+	sh("/etc/init.d/dmrgateway start >/dev/null 2>&1");
+}
+function fwFreeKb() {
+	let a = words(trim(sh("df -k /tmp 2>/dev/null | tail -1")));
+	return (length(a) >= 4) ? +a[3] : 0;
+}
+function fwStatus() {
+	let s = fwStateRead();
+	let phase = trim(s.phase ?? "");
+	let total = +(s.total ?? 0);
+	let st = FS.stat(FW_IMAGE);
+	let got = (st != null) ? st.size : 0;
+	let rc = FS.readfile(FW_RC);
+	let rcVal = (rc == null) ? null : int(trim(rc));
+	if (phase == "downloading" && rcVal != null) {
+		let ok = (rcVal == 0);
+		if (ok && total > 0 && got != total) ok = false;
+		if (ok) {
+			let want = lc(trim(s.sha ?? ""));
+			let gotSha = lc(trim(split(trim(sh("sha256sum " + sq(FW_IMAGE) + " 2>/dev/null")), " ")[0]));
+			if (!length(want) || gotSha != want) ok = false;
+		}
+		if (ok) {
+			s.phase = "verified";
+			s.phaseAt = time();
+			fwStateWrite(s);
+		} else {
+			s.phase = "error";
+			s.error = (rcVal != 0) ? "固件下载失败" : "固件校验失败";
+			fwStateWrite(s);
+			fwStartSvc();
+		}
+		phase = s.phase;
+	}
+	return { ok: true, phase: phase, current: fwVersion(), board: fwBoard(),
+		version: trim(s.version ?? ""), versionName: trim(s.versionName ?? ""),
+		total: total, got: got, error: trim(s.error ?? ""), notes: trim(s.notes ?? "") };
+}
+function cmdFw() {
+	let q = qs();
+	let act = q.act ?? "info";
+	let cur = fwVersion(), board = fwBoard();
+	if (act == "info") {
+		let s = fwStateRead();
+		return out({ ok: true, current: cur, board: board, phase: trim(s.phase ?? ""),
+			source: FW_DEFAULT_SRC + fwBoardKey(board) + ".json" });
+	}
+	if (act == "check") {
+		/* 5 分钟内复用上次结果，避免每次打开页面都去探测远端清单 */
+		let ckey = board + "|" + cur;
+		let cd = FS.readfile(FWCHECK_CACHE);
+		if (cd != null) {
+			let c = null;
+			try { c = json(cd); } catch (e) { c = null; }
+			if (type(c) == "object" && c != null && c.key == ckey && time() - (c.t ?? 0) <= FWCHECK_TTL)
+				return out(c.body);
+		}
+		let m = fwManifest();
+		if (m == null) return fail("没有找到该机型的固件清单（" + board + "）");
+		let ver = trim(sprintf("%s", m.version ?? ""));
+		if (!length(ver)) return fail("固件清单缺少 version");
+		let mb = trim(m.board ?? "");
+		if (length(mb) && mb != board) return fail("固件机型不匹配：" + mb);
+		let mt = trim(m.target ?? "");
+		if (length(mt) && mt != fwTarget()) return fail("固件目标平台不匹配：" + mt);
+		let body = { ok: true, current: cur, latest: ver, versionName: trim(m.versionName ?? ver),
+			board: board, target: fwTarget(), size: +(m.size ?? 0), notes: trim(m.notes ?? ""),
+			updateAvailable: (cur == "unknown") || fwNewer(ver, cur) };
+		try { writeCache(FWCHECK_CACHE, { t: time(), key: ckey, body: body }); } catch (e) {}
+		return out(body);
+	}
+	if (act == "download") {
+		if (method != "POST") return fail("需要 POST");
+		let m = fwManifest();
+		if (m == null) return fail("没有找到该机型的固件清单");
+		let mb = trim(m.board ?? "");
+		if (length(mb) && mb != board) return fail("固件机型不匹配：" + mb);
+		let mt = trim(m.target ?? "");
+		if (length(mt) && mt != fwTarget()) return fail("固件目标平台不匹配：" + mt);
+		let u = trim(m.url ?? "");
+		if (match(u, /^https?:\/\/[^ ]+$/) == null) return fail("固件地址无效");
+		let sha = lc(trim(m.sha256 ?? ""));
+		let size = +(m.size ?? 0);
+		if (!length(sha) || size <= 0) return fail("固件清单缺少 sha256/size");
+		if (fwFreeKb() < int(size / 1024) + 2048) return fail("内存空间不足，无法下载固件");
+		sh("mkdir -p " + sq(FW_DIR));
+		sh("rm -f " + sq(FW_IMAGE) + " " + sq(FW_RC));
+		fwStateWrite({ phase: "downloading", total: size, sha: sha, version: trim(sprintf("%s", m.version ?? "")),
+			versionName: trim(m.versionName ?? ""), board: board, notes: trim(m.notes ?? ""),
+			url: u, started: time() });
+		fwStopSvc();
+		sh("(uclient-fetch -q -T 300 -O " + sq(FW_IMAGE) + " " + sq(u) + "; echo $? > " + sq(FW_RC) + ") >/dev/null 2>&1 &");
+		return out({ ok: true, phase: "downloading" });
+	}
+	if (act == "status") return out(fwStatus());
+	if (act == "install") {
+		if (method != "POST") return fail("需要 POST");
+		let s = fwStateRead();
+		if (trim(s.phase ?? "") != "verified") return fail("固件尚未下载或未通过校验");
+		if (trim(s.board ?? "") != board) return fail("固件机型不匹配");
+		let st = FS.stat(FW_IMAGE);
+		if (st == null || st.size <= 0) return fail("固件文件不存在");
+		if (+(s.total ?? 0) > 0 && st.size != +s.total) return fail("固件大小不匹配");
+		let want = lc(trim(s.sha ?? ""));
+		let got = lc(trim(split(trim(sh("sha256sum " + sq(FW_IMAGE) + " 2>/dev/null")), " ")[0]));
+		if (!length(want) || got != want) return fail("固件 sha256 校验失败");
+		s.phase = "installing";
+		s.phaseAt = time();
+		fwStateWrite(s);
+		/* 延迟 2 秒再刷写，保证接口响应先返回；sysupgrade 默认保留配置 */
+		sh("(sleep 2; sysupgrade " + sq(FW_IMAGE) + ") > " + sq(FW_DIR + "/upgrade.log") + " 2>&1 &");
+		return out({ ok: true, phase: "installing", version: trim(s.version ?? "") });
+	}
+	return fail("未知操作");
+}
+
+/* ---------- 路由 ---------- */
+
+/* 路由器配置（LuCI）入口：新版 LuCI 是 /www/cgi-bin/luci 的 CGI，
+   默认按需启动（mmdvm-luci 拉起 8080 的 uhttpd 主实例，空闲 10 分钟自动停止） */
+function cmdLuci() {
+	if (FS.stat("/www/cgi-bin/luci") == null) return fail("未安装 LuCI（路由器配置）");
+	if (FS.stat("/usr/bin/mmdvm-luci") != null)
+		sh("/usr/bin/mmdvm-luci start >/dev/null 2>&1");
+	else if (uciOpt("uhttpd", "main", "enabled") == "0")
+		return fail("路由器配置未启用（uhttpd 主实例已关闭）");
+	let host = trim(getenv("HTTP_HOST") ?? "");
+	if (length(host)) host = split(host, ":")[0];
+	if (!length(host)) host = uciOpt("network", "lan", "ipaddr");
+	if (!length(host)) host = "192.168.1.1";
+	/* 端口取主实例第一个 listen_http，默认 8080 */
+	let port = "8080";
+	let data = FS.readfile("/etc/config/uhttpd") ?? "";
+	let inMain = false;
+	for (let l in split(data, "\n")) {
+		let s = trim(l);
+		if (substr(s, 0, 7) == "config ") { inMain = (index(s, "'main'") >= 0); continue; }
+		if (!inMain || substr(s, 0, 5) != "list " || index(s, "listen_http") < 0) continue;
+		let i = index(s, "0.0.0.0:");
+		if (i >= 0) {
+			let p = substr(s, i + 8);
+			let q = index(p, "'");
+			if (q >= 0) p = substr(p, 0, q);
+			if (match(trim(p), /^[0-9]+$/)) port = trim(p);
+		}
+		break;
+	}
+	out({ ok: true, url: "http://" + host + ":" + port + "/cgi-bin/luci" });
+}
+
+/* ---------- 菜单密码：与 LuCI 共用 root 密码（/etc/shadow），校验走 rpcd session ---------- */
+function rootHasPassword() {
+	let data = FS.readfile("/etc/shadow");
+	if (data == null) return false;
+	for (let line in split(data, "\n")) {
+		if (substr(line, 0, 5) == "root:") {
+			let f = split(line, ":");
+			let h = f[1] ?? "";
+			/* 空 / ! / * / 以 ! 开头 → 未设置或锁定，不需要密码 */
+			if (!length(h) || h == "!" || h == "*" || substr(h, 0, 1) == "!") return false;
+			return true;
+		}
+	}
+	return false;
+}
+function verifyRootPassword(pass) {
+	if (type(pass) != "string") pass = "";
+	/* 用 %J 序列化避免密码中的特殊字符破坏 JSON；sq() 避免破坏 shell 命令 */
+	let msg = sprintf("%J", { username: "root", password: pass, timeout: 30 });
+	let o = trim(sh("ubus call session login " + sq(msg) + " 2>/dev/null"));
+	return index(o, "ubus_rpc_session") >= 0;
+}
+
+/* ---------- AX5 网络配置（无线热点 + WiFi 连接，设备差异化） ----------
+   仅 redmi,ax5-jdcloud 提供；其它机型 capability.supported=false，写操作拒绝。
+   所有外部输入经 sq() 转义后再进 shell。数据存 /etc/config/mmdvmwifi：
+     main.ap_band / main.ap_enabled；每个 wifi-profile 存 ssid/key/band。 */
+const WIFI_SCAN_CACHE = "/tmp/mmdvm-wifi-scan.json";
+const WIFI_SCAN_TSV   = "/tmp/mmdvm-wifi-scan.tsv";
+const WIFI_SCAN_TTL   = 30;
+
+function wifiIsAx5() {
+	for (let bp in [ "/tmp/sysinfo/board_name", "/tmp/sysinfo/model",
+	                 "/etc/board.json", "/proc/device-tree/compatible" ]) {
+		let bd = null;
+		try { bd = FS.readfile(bp); } catch (e) { bd = null; }
+		if (bd != null && index(lc(sprintf("%s", bd)), "ax5") >= 0) return true;
+	}
+	return false;
+}
+function wifiCap() {
+	let has5 = length(uciOpt("wireless", "mmdvm_ap_5g", "device")) > 0;
+	let bands = has5 ? [ "2g", "5g" ] : [ "2g" ];
+	let widths = { "2g": [ "20MHz", "40MHz" ] };
+	if (has5) widths["5g"] = [ "20MHz", "40MHz", "80MHz" ];
+	return {
+		supported: wifiIsAx5(),
+		bands: bands,
+		widths: widths,
+		country: "CN"
+	};
+}
+/* 列出 /etc/config/<pkg> 中指定类型的 section 名 */
+function uciSections(pkg, type) {
+	let data = FS.readfile("/etc/config/" + pkg);
+	let r = [];
+	if (data == null) return r;
+	for (let l in split(data, "\n")) {
+		let s = trim(l);
+		if (substr(s, 0, 7) != "config ") continue;
+		let rest = trim(substr(s, 7));
+		let sp = split(rest, " ");
+		if (length(sp) >= 1 && sp[0] == type) {
+			let nm = (length(sp) >= 2) ? trim(sp[1]) : "";
+			if (length(nm) >= 2 && (substr(nm, 0, 1) == "'" || substr(nm, 0, 1) == "\"")) nm = substr(nm, 1, length(nm) - 2);
+			push(r, nm);
+		}
+	}
+	return r;
+}
+function uciDns(sec) {
+	let dns = [];
+	let lines = sh("uci -q show network." + sq(sec) + " 2>/dev/null | grep '\\.dns=' || true");
+	for (let l in split(lines, "\n")) {
+		let i = index(l, ".dns=");
+		if (i < 0) continue;
+		let v = trim(substr(l, i + 5));
+		if (substr(v, 0, 1) == "'" && substr(v, length(v) - 1, 1) == "'") v = substr(v, 1, length(v) - 2);
+		if (length(v)) push(dns, v);
+	}
+	return dns;
+}
+/* 取单个网络接口的 ubus 运行状态；接口未起或 netifd 异常时返回 null */
+function netIfStatus(sec) {
+	let d = trim(sh("ubus call network.interface." + sq(sec) + " status 2>/dev/null || true"));
+	if (!length(d) || substr(d, 0, 1) != "{") return null;
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	return (type(v) == "object" && v != null) ? v : null;
+}
+function netIfInfo(sec) {
+	let dev = uciOpt("network", sec, "device") || sec;
+	if (substr(dev, 0, 1) == "@") dev = sec;
+	let st = netIfStatus(sec);
+	/* 接口起来后 l3_device 才是真正承载 IP 的网卡（如 wwan 对应 mmdvmsta） */
+	let l3 = (st != null) ? trim(sprintf("%s", st.l3_device ?? "")) : "";
+	if (length(l3)) dev = l3;
+	let addr = "", gw = "", dns = [];
+	if (st != null) {
+		let a = st["ipv4-address"] ?? [];
+		if (type(a) == "array" && length(a)) addr = sprintf("%s/%d", a[0].address ?? "", a[0].mask ?? 0);
+		let r = st.route ?? [];
+		if (type(r) == "array") for (let x in r) {
+			if (sprintf("%s", x.target ?? "") == "0.0.0.0" && int(x.mask ?? -1) == 0) {
+				gw = trim(sprintf("%s", x.nexthop ?? ""));
+				break;
+			}
+		}
+		/* DNS 必须按接口取：/tmp/resolv.conf.d/resolv.conf.auto 是所有接口混在一起的 */
+		let ds = st["dns-server"] ?? [];
+		if (type(ds) == "array") for (let x in ds) push(dns, sprintf("%s", x));
+	}
+	if (!length(addr)) addr = trim(sh("ip -4 addr show dev " + sq(dev) + " 2>/dev/null | awk '/inet /{print $2;exit}' || true"));
+	if (!length(gw)) gw = trim(sh("ip -4 route show dev " + sq(dev) + " 2>/dev/null | awk '/^default /{print $3;exit}' || true"));
+	return {
+		ifname: sec,
+		device: dev,
+		proto: uciOpt("network", sec, "proto") || "dhcp",
+		ipaddr: uciOpt("network", sec, "ipaddr") || "",
+		netmask: uciOpt("network", sec, "netmask") || "",
+		gateway: uciOpt("network", sec, "gateway") || "",
+		dns: uciDns(sec),
+		runtime: { ipaddr: addr, gateway: gw, dns: dns }
+	};
+}
+function netValidIp(s) {
+	let v = sprintf("%s", s ?? "");
+	if (v == "") return true;
+	if (index(v, "..") >= 0) return false;
+	for (let c in split(v, "")) {
+		if (!(c >= "0" && c <= "9") && c != ".") return false;
+	}
+	return true;
+}
+function netDnsList(d) {
+	let a = [];
+	if (type(d) == "array") { for (let x in d) push(a, sprintf("%s", x)); }
+	else { let v = sprintf("%s", d ?? ""); if (length(v)) push(a, v); }
+	for (let x in a) if (!netValidIp(x)) return null;
+	return a;
+}
+function netApplyCmd(sec, d) {
+	let proto = (d.proto == "static") ? "static" : "dhcp";
+	/* LAN 不得带 gateway/dns：会给 LAN 插一条默认路由（metric 0），
+	   抢走有线(metric 10)/无线(metric 20)/4G(metric 30) 的上行优先级 */
+	let lan = (sec == "lan");
+	let cmd = "uci set network." + sec + ".proto=" + sq(proto) + "; ";
+	for (let k in [ "ipaddr", "netmask", "gateway" ]) {
+		if (proto == "static" && !(lan && k == "gateway") && length(sprintf("%s", d[k] ?? ""))) cmd += "uci set network." + sec + "." + k + "=" + sq(sprintf("%s", d[k])) + "; ";
+		else cmd += "uci -q delete network." + sec + "." + k + "; ";
+	}
+	cmd += "uci -q delete network." + sec + ".dns; ";
+	if (proto == "static" && !lan) for (let x in netDnsList(d.dns)) cmd += "uci add_list network." + sec + ".dns=" + sq(x) + "; ";
+	return cmd;
+}
+function profileNetCmd(sec, d) {
+	let proto = (d.proto == "static") ? "static" : "dhcp";
+	let cmd = "uci set mmdvmwifi." + sec + ".proto=" + sq(proto) + "; ";
+	for (let k in [ "ipaddr", "netmask", "gateway" ]) {
+		if (proto == "static" && length(sprintf("%s", d[k] ?? ""))) cmd += "uci set mmdvmwifi." + sec + "." + k + "=" + sq(sprintf("%s", d[k])) + "; ";
+		else cmd += "uci -q delete mmdvmwifi." + sec + "." + k + "; ";
+	}
+	cmd += "uci -q delete mmdvmwifi." + sec + ".dns; ";
+	if (proto == "static") {
+		let dns = netDnsList(d.dns);
+		if (length(dns)) cmd += "uci set mmdvmwifi." + sec + ".dns=" + sq(join(" ", dns)) + "; ";
+	}
+	return cmd;
+}
+function profileNetInfo(sec) {
+	let dns = uciOpt("mmdvmwifi", sec, "dns");
+	return {
+		proto: uciOpt("mmdvmwifi", sec, "proto") || "dhcp",
+		ipaddr: uciOpt("mmdvmwifi", sec, "ipaddr") || "",
+		netmask: uciOpt("mmdvmwifi", sec, "netmask") || "",
+		gateway: uciOpt("mmdvmwifi", sec, "gateway") || "",
+		dns: length(dns) ? words(dns) : []
+	};
+}
+function wifiProfiles() {
+	let r = [];
+	for (let s in uciSections("mmdvmwifi", "wifi-profile")) {
+		let ssid = uciOpt("mmdvmwifi", s, "ssid");
+		if (!length(ssid)) continue;
+		push(r, {
+			id: s, ssid: ssid, band: uciOpt("mmdvmwifi", s, "band") || "2g",
+			hasKey: length(uciOpt("mmdvmwifi", s, "key")) > 0,
+			net: profileNetInfo(s)
+		});
+	}
+	return r;
+}
+/* 上游网络：不区分有线/无线，只看默认路由所在网卡是否真的拿到了 IPv4 地址 */
+function wifiUpstream() {
+	let devs = sh("ip route 2>/dev/null | grep '^default ' | sed -n 's/.*dev \\([^ ]*\\).*/\\1/p' || true");
+	/* sed 输出按换行分隔，不能用 words()（按空格切），否则多个设备会被拼成一个名字 */
+	for (let d in split(trim(devs), "\n")) {
+		d = trim(d);
+		if (!length(d)) continue;
+		if (length(trim(sh("ip -4 addr show dev " + sq(d) + " 2>/dev/null | grep 'inet ' || true")))) return true;
+	}
+	return false;
+}
+/* STA 实际关联状态：以 iw link 为准，避免 disabled=0 但实际未连上也显示已连接 */
+function staLink() {
+	let nd = trim(uciOpt("wireless", "mmdvm_sta", "ifname"));
+	/* 未显式配 ifname 时找 managed 模式的无线接口（wifi-iface 自动命名不可预测） */
+	if (!length(nd)) {
+		let list = sh("iw dev 2>/dev/null | sed -n 's/^[ \\t]*Interface //p' || true");
+		for (let n in split(trim(list), "\n")) {
+			n = trim(n);
+			if (!length(n)) continue;
+			if (index(sh("iw dev " + sq(n) + " info 2>/dev/null || true"), "type managed") >= 0) { nd = n; break; }
+		}
+	}
+	if (!length(nd)) return { connected: false, ssid: "", signal: "" };
+	let o = sh("iw dev " + sq(nd) + " link 2>/dev/null || true");
+	if (!length(trim(o)) || index(o, "Not connected") >= 0) return { connected: false, ssid: "", signal: "" };
+	let ssid = "", sig = "";
+	for (let l in split(o, "\n")) {
+		let s = trim(l);
+		if (substr(s, 0, 5) == "SSID:") ssid = trim(substr(s, 5));
+		else if (substr(s, 0, 6) == "signal") sig = trim(substr(s, 7));
+	}
+	return { connected: length(ssid) > 0, ssid: ssid, signal: sig };
+}
+function wifiState() {
+	let apBand = uciOpt("mmdvmwifi", "main", "ap_band") || "2g";
+	let apOn = (uciOpt("mmdvmwifi", "main", "ap_enabled") || "1") != "0";
+	let staSsid = uciOpt("wireless", "mmdvm_sta", "ssid");
+	let link = staLink();
+	/* 已实际关联时以 iw 的 SSID/信号为准；未关联时保留配置值供前端展示 */
+	let liveSsid = length(link.ssid) ? link.ssid : staSsid;
+	let signal = link.signal;
+	if (!length(signal) && length(staSsid)) {
+		let cache = FS.readfile(WIFI_SCAN_TSV);
+		if (cache != null) for (let l in split(cache, "\n")) {
+			let f = split(l, "\t");
+			if (length(f) >= 3 && f[2] == staSsid) { signal = sprintf("%d dBm", 3000 - int(f[0])); break; }
+		}
+	}
+	let apRadio = uciOpt("wireless", (apBand == "5g") ? "mmdvm_ap_5g" : "mmdvm_ap_2g", "device");
+	let apHt = length(apRadio) ? uciOpt("wireless", apRadio, "htmode") : "";
+	let staDev = uciOpt("wireless", "mmdvm_sta", "device") || "";
+	let staBand = (staDev && uciOpt("wireless", staDev, "band") == "5g") ? "5g" : "2g";
+	let widthMap = { "HT20": "20MHz", "HE20": "20MHz", "HT40": "40MHz", "HE40": "40MHz", "HE80": "80MHz" };
+	return {
+		apBand: apBand, apOn: apOn, apSsid: uciOpt("wireless", (apBand == "5g") ? "mmdvm_ap_5g" : "mmdvm_ap_2g", "ssid"),
+		apWidth: widthMap[apHt] ?? ((apBand == "5g") ? "80MHz" : "40MHz"),
+		staSsid: liveSsid, staConnected: link.connected,
+		staSignal: signal,
+		upstream: wifiUpstream(),
+		forced: (FS.readfile("/tmp/mmdvm-ap-force") != null),
+		rollbackPending: (FS.readfile("/tmp/mmdvm-wifi-pending") != null),
+		staBand: staBand,
+		staDev: staDev,
+		ip: { wwan: netIfInfo("wwan"), lan: netIfInfo("lan"), wan: netIfInfo("wan") },
+		profiles: wifiProfiles()
+	};
+}
+function wifiBackup() {
+	/* 观察窗口内已有备份时不要覆盖，否则回滚点会被失败配置污染 */
+	if (FS.readfile("/tmp/mmdvm-wifi-pending") != null) return;
+	sh("cp -f /etc/config/wireless /etc/config/wireless.mmdvm-prev 2>/dev/null || true");
+}
+/* 按 band 找实际 radio 段名；AX5 不同版本固件可能是 radio0/radio1 或其它命名 */
+function wifiRadio(band) {
+	/* 优先用托管 AP 的 device 字段，确保 STA 与对应频段的 AP 使用同一 radio */
+	let sec = (band == "5g") ? "mmdvm_ap_5g" : "mmdvm_ap_2g";
+	let dev = trim(uciOpt("wireless", sec, "device"));
+	if (length(dev)) return dev;
+	let r = [];
+	let secs = sh("uci show wireless 2>/dev/null | sed -n 's/^wireless\\.\\([^.=]*\\)=wifi-device$/\\1/p' || true");
+	for (let l in split(secs, "\n")) {
+		let s = trim(l);
+		if (length(s)) push(r, s);
+	}
+	for (let s in r) if (uciOpt("wireless", s, "band") == band) return s;
+	if (band == "2g") return r[0] ?? "radio0";
+	return r[1] ?? r[0] ?? "radio1";
+}
+function wifiPending(clear) {
+	if (clear) sh("rm -f /tmp/mmdvm-wifi-pending");
+	else sh("touch /tmp/mmdvm-wifi-pending");
+}
+/* 只有拿到上游才证明本次配置生效；否则保留 pending，120 秒后由 guard 回滚并强制开热点 */
+function wifiConfirmSaved() {
+	if (wifiUpstream()) wifiPending(true);
+}
+/* 重建无线：ath11k 上 wifi reload 只重载配置、不重建 netdev
+   （日志报 RTNETLINK answers: Resource busy），切换频段后 STA 接口 mmdvmsta
+   建不出来、wwan 一直 NO_DEVICE。逐射频 ubus down/up 也不行：hostapd 主进程
+   仍持有旧接口（Interface name mmdvm-ap2 already in use → HOSTAPD_START_FAILED）。
+   实测顺序：wifi down → 删残留 /var/run/hostapd-phy*.conf → wpad restart → wifi up。
+   必须删 phy 配置，否则 hostapd 起来时已自行恢复同名 AP 接口，netifd 再 config_add
+   就会冲突。不要删 /var/run/wpa_supplicant 目录：/var/run 属 root，network 用户
+   重建不了，会导致 WPA_SUPPLICANT_FAILED。
+   另：2.4G 射频上 AP 与 STA 同 phy，AP 的 ACS 扫描会和 STA 扫描抢射频
+   （wpa_supplicant: CTRL-EVENT-SCAN-FAILED ret=-16），首次 wifi up 常失败，
+   再执行一次即成功，故按需要重试。放后台执行，避免 CGI 请求等几十秒被前端判超时 */
+function wifiRadioRestart(devs) {
+	let c = "wifi down >/dev/null 2>&1; sleep 3; rm -f /var/run/hostapd-phy*.conf 2>/dev/null; "
+		+ "/etc/init.d/wpad restart >/dev/null 2>&1; sleep 4; "
+		+ "i=0; while [ $i -lt 3 ]; do "
+		+ "wifi up >/dev/null 2>&1; sleep 12; "
+		+ "if [ \"$(uci -q get wireless.mmdvm_sta.disabled)\" = \"0\" ] && [ -n \"$(uci -q get wireless.mmdvm_sta.ssid)\" ]; then "
+		+ "[ -e /sys/class/net/mmdvmsta ] && break; "
+		+ "else break; fi; "
+		+ "i=$((i+1)); "
+		+ "[ $i -lt 3 ] && { wifi down >/dev/null 2>&1; sleep 3; rm -f /var/run/hostapd-phy*.conf 2>/dev/null; "
+		+ "/etc/init.d/wpad restart >/dev/null 2>&1; sleep 4; }; "
+		+ "done; /etc/init.d/network reload >/dev/null 2>&1";
+	sh("( " + c + " ) >/dev/null 2>&1 &");
+}
+function wifiReload(devs) {
+	wifiRadioRestart(devs);
+}
+/* iw 把非 ASCII SSID 输出成 \xNN 转义序列，还原成原始 UTF-8 字节供前端显示 */
+function wifiHexVal(c) {
+	let d = lc(c);
+	if (d >= "0" && d <= "9") return int(d);
+	let o = index("abcdef", d);
+	return o < 0 ? -1 : o + 10;
+}
+function wifiDecodeSsid(s) {
+	let out = "", i = 0;
+	while (i < length(s)) {
+		if (substr(s, i, 2) == "\\x" && i + 3 < length(s)) {
+			let hi = wifiHexVal(substr(s, i + 2, 1));
+			let lo = wifiHexVal(substr(s, i + 3, 1));
+			if (hi >= 0 && lo >= 0) {
+				out += sprintf("%c", hi * 16 + lo);
+				i += 4;
+				continue;
+			}
+		}
+		out += substr(s, i, 1);
+		i++;
+	}
+	return out;
+}
+/* 扫描结果解析：同时写 JSON 与 TSV 缓存，TSV 供 mmdvm-wifi-select 使用 */
+function wifiDoScan() {
+	/* ath11k 等驱动不支持 iw phy scan，改用实际 netdev 接口（wlanN）扫描；
+	   遍历所有接口可同时覆盖 2.4G/5G，避免把 UCI 段名 radio0/1 当设备名 */
+	let ifs = sh("iw dev 2>/dev/null | awk '/Interface/{printf \"%s \", $2}' || true");
+	let scan = "";
+	for (let ifn in words(ifs)) scan += sh("iw dev " + sq(ifn) + " scan 2>/dev/null");
+	let nets = [];
+	let cur = null;
+	for (let line in split(scan, "\n")) {
+		let l = trim(line);
+		if (substr(l, 0, 4) == "BSS ") {
+			if (cur != null && length(cur.ssid)) push(nets, cur);
+			let bssid = trim(substr(l, 4));
+			if (index(bssid, "(") >= 0) bssid = trim(substr(bssid, 0, index(bssid, "(")));
+			/* 同 BSSID 可能同时出现在两个 radio 的扫描结果，保留各频段最强记录 */
+			cur = { ssid: "", bssid: bssid, band: "", signal: -100, secured: false };
+			continue;
+		}
+		if (cur == null) continue;
+		let i = index(l, "freq:");
+		if (i >= 0) {
+			let f = int(trim(substr(l, i + 5)));
+			cur.band = (f >= 2412 && f <= 2484) ? "2g" : ((f >= 5160 && f <= 5895) ? "5g" : "");
+		}
+		i = index(l, "signal:");
+		if (i >= 0) cur.signal = int(trim(substr(l, i + 7)));
+		i = index(l, "SSID:");
+		if (i >= 0) {
+			let ss = trim(substr(l, i + 5));
+			/* 隐藏网络的 SSID 常被转义成全 \\x00 串，不当作可选网络 */
+			if (index(ss, "\\x00") < 0) cur.ssid = wifiDecodeSsid(ss);
+		}
+		if (index(l, "RSN:") >= 0 || index(l, "WPA:") >= 0) cur.secured = true;
+	}
+	if (cur != null && length(cur.ssid)) push(nets, cur);
+	/* 同 SSID 同频段保留最强 BSS；2.4G 与 5G 同名网络分别保留，便于列表标识频段 */
+	let best = {};
+	for (let n in nets) {
+		if (!length(n.ssid) || !length(n.band)) continue;
+		let k = n.band + "\x1f" + n.ssid;
+		if (best[k] == null || n.signal > best[k].signal) best[k] = n;
+	}
+	let uniq = [];
+	for (let k in best) push(uniq, best[k]);
+	/* 按信号强度降序排序（用字符串 key 可排序，再按 key 取回对象） */
+	let order = [];
+	for (let n in uniq) push(order, sprintf("%05d\x1f%s\x1f%s", 3000 - n.signal, n.ssid, n.bssid));
+	sort(order);
+	let sorted = [];
+	for (let k in order) {
+		let parts = split(k, "\x1f");
+		for (let n in uniq) if (n.ssid == parts[1] && n.bssid == parts[2]) { push(sorted, n); break; }
+	}
+	writeCache(WIFI_SCAN_CACHE, { t: time(), networks: sorted });
+	/* TSV 供择优脚本使用；rank=3000-signal，越小信号越强 */
+	let tsvAll = "";
+	for (let n in sorted) tsvAll += sprintf("%04d\t%s\t%s\n", 3000 - n.signal, n.band, n.ssid);
+	try { FS.writefile(WIFI_SCAN_TSV, tsvAll); } catch (e) {}
+	return sorted;
+}
+function wifiScanCached() {
+	let d = FS.readfile(WIFI_SCAN_CACHE);
+	if (d != null) {
+		let v = null;
+		try { v = json(d); } catch (e) { v = null; }
+		if (type(v) == "object" && v != null && (v.t ?? 0) <= time() && time() - (v.t ?? 0) <= WIFI_SCAN_TTL) {
+			/* 缓存命中时也要刷新 TSV，供 STA 择优脚本使用 */
+			let rows = "";
+			for (let n in (v.networks ?? [])) rows += sprintf("%04d\t%s\t%s\n", 3000 - n.signal, n.band, n.ssid);
+			try { FS.writefile(WIFI_SCAN_TSV, rows); } catch (e) {}
+			return v.networks ?? [];
+		}
+	}
+	return wifiDoScan();
+}
+function cmdWifiGet() {
+	out({ ok: true, capability: wifiCap(), status: wifiState() });
+}
+function cmdWifiPost() {
+	let d = body() ?? {};
+	let act = d.act ?? "";
+	if (!wifiIsAx5()) {
+		if (act == "get" || act == "status") { out({ ok: true, capability: wifiCap(), status: wifiState() }); return; }
+		fail("该设备不支持网络配置"); return;
+	}
+	if (act == "scan") {
+		out({ ok: true, networks: wifiScanCached() }); return;
+	}
+	if (act == "save_ap") {
+		let band = (d.band == "5g") ? "5g" : "2g";
+		let w = sprintf("%s", d.htmode ?? "");
+		let wmap = { "20MHz": "20", "40MHz": "40", "80MHz": "80" };
+		let wn = wmap[w] ?? ((band == "5g") ? "80" : "40");
+		/* 2.4G 用 HT20/HT40，5G 用 HE20/HE40/HE80（AX5 ath11k） */
+		let htmode = (band == "5g") ? ("HE" + wn) : ((wn == "20") ? "HT20" : "HT40");
+		let ssid = sprintf("%s", d.ssid ?? "MMDVM-OpenWrt");
+		if (!length(ssid)) ssid = "MMDVM-OpenWrt";
+		let key = sprintf("%s", d.key ?? "");
+		/* SSID/密码中不允许引号、反斜杠、分号，避免拼进 shell 命令时注入 */
+		if (index(ssid, "'") >= 0 || index(ssid, "\"") >= 0 || index(ssid, "\\") >= 0 || index(ssid, ";") >= 0
+			|| index(key, "'") >= 0 || index(key, "\"") >= 0 || index(key, "\\") >= 0 || index(key, ";") >= 0) {
+			fail("名称或密码含有不支持的字符"); return;
+		}
+		let enabled = (d.enabled == true || d.enabled == 1 || d.enabled == "1");
+		/* 无上游时禁止保存关闭热点，避免设备失联；2 分钟保底由 guard 兜底 */
+		if (!enabled && !wifiUpstream()) { fail("当前无上游网络，热点不能关闭"); return; }
+		wifiBackup();
+		let cmd = "uci set mmdvmwifi.main.ap_band=" + sq(band) + "; ";
+		cmd += "uci set mmdvmwifi.main.ap_enabled=" + sq(enabled ? "1" : "0") + "; ";
+		cmd += "uci set wireless." + sq(wifiRadio("2g")) + ".htmode=" + sq((band == "2g") ? htmode : "HT40") + "; ";
+		if (wifiRadio("5g") != wifiRadio("2g")) cmd += "uci set wireless." + sq(wifiRadio("5g")) + ".htmode=" + sq((band == "5g") ? htmode : "HE80") + "; ";
+		cmd += "uci commit mmdvmwifi; ";
+		/* 显式 ifname：同 radio 上 AP+STA 共存时自动命名会冲突，导致 netdev 建不起来 */
+		cmd += "uci set wireless.mmdvm_ap_2g.ifname=mmdvm-ap2; ";
+		cmd += "uci set wireless.mmdvm_ap_2g.ssid=" + sq(ssid) + "; ";
+		cmd += "uci set wireless.mmdvm_ap_2g.encryption=" + sq(length(key) ? "psk2" : "none") + "; ";
+		if (length(key)) cmd += "uci set wireless.mmdvm_ap_2g.key=" + sq(key) + "; ";
+		else cmd += "uci -q delete wireless.mmdvm_ap_2g.key; ";
+		cmd += "uci set wireless.mmdvm_ap_2g.disabled=" + sq(enabled && band == "2g" ? "0" : "1") + "; ";
+		if (length(uciOpt("wireless", "mmdvm_ap_5g", "device"))) {
+			cmd += "uci set wireless.mmdvm_ap_5g.ifname=mmdvm-ap5; ";
+			cmd += "uci set wireless.mmdvm_ap_5g.ssid=" + sq(ssid) + "; ";
+			cmd += "uci set wireless.mmdvm_ap_5g.encryption=" + sq(length(key) ? "psk2" : "none") + "; ";
+			if (length(key)) cmd += "uci set wireless.mmdvm_ap_5g.key=" + sq(key) + "; ";
+			else cmd += "uci -q delete wireless.mmdvm_ap_5g.key; ";
+			cmd += "uci set wireless.mmdvm_ap_5g.disabled=" + sq(enabled && band == "5g" ? "0" : "1") + "; ";
+		} else {
+			cmd += "uci -q delete wireless.mmdvm_ap_5g; ";
+		}
+		cmd += "uci commit wireless";
+		sh(cmd);
+		wifiReload([ wifiRadio("2g"), wifiRadio("5g") ]);
+		out({ ok: true, message: "热点配置已保存", status: wifiState() }); return;
+	}
+	/* 扫描列表里点击已保存的网络：直接用已存密码连接，不弹配置窗口 */
+	if (act == "connect_saved") {
+		let ssid = trim(sprintf("%s", d.ssid ?? ""));
+		let band = (d.band == "5g") ? "5g" : "2g";
+		if (!length(ssid)) { fail("WiFi 名称不能为空"); return; }
+		if (index(ssid, "'") >= 0 || index(ssid, "\"") >= 0 || index(ssid, "\\") >= 0 || index(ssid, ";") >= 0) { fail("网络名称不合法"); return; }
+		let hit = "", hitBand = band;
+		for (let s in uciSections("mmdvmwifi", "wifi-profile")) {
+			if (uciOpt("mmdvmwifi", s, "ssid") != ssid) continue;
+			if (uciOpt("mmdvmwifi", s, "band") == band) { hit = s; hitBand = band; break; }
+			if (!length(hit)) { hit = s; hitBand = uciOpt("mmdvmwifi", s, "band") || "2g"; }
+		}
+		if (!length(hit)) { fail("该网络未保存"); return; }
+		let key = uciOpt("mmdvmwifi", hit, "key");
+		wifiBackup();
+		let cmd = "uci set wireless.mmdvm_sta.device=" + sq(wifiRadio(hitBand)) + "; ";
+		cmd += "uci set wireless.mmdvm_sta.network=wwan; ";
+		cmd += "uci set wireless.mmdvm_sta.ifname=mmdvmsta; ";
+		cmd += "uci set wireless.mmdvm_sta.ssid=" + sq(ssid) + "; ";
+		cmd += "uci -q delete wireless.mmdvm_sta.key; ";
+		if (length(key)) cmd += "uci set wireless.mmdvm_sta.key=" + sq(key) + "; ";
+		cmd += "uci set wireless.mmdvm_sta.encryption=" + sq(length(key) ? "psk2" : "none") + "; ";
+		cmd += "uci set network.wwan=interface; uci set network.wwan.proto=dhcp; uci set network.wwan.device=mmdvmsta; uci set network.wwan.metric=20; uci commit network; ";
+		cmd += "uci set wireless.mmdvm_sta.disabled=0; uci commit wireless";
+		sh(cmd);
+		wifiReload([ wifiRadio(hitBand) ]);
+		wifiPending();
+		wifiConfirmSaved();
+		out({ ok: true, message: "正在连接 " + ssid, status: wifiState() }); return;
+	}
+	if (act == "save_sta") {
+		let ssid = sprintf("%s", d.ssid ?? "");
+		let ssidPipe = index(ssid, "|");
+		if (ssidPipe >= 0) ssid = trim(substr(ssid, 0, ssidPipe));
+		let key = sprintf("%s", d.key ?? "");
+		let band = (d.band == "5g") ? "5g" : "2g";
+		if (!length(ssid)) { fail("WiFi 名称不能为空"); return; }
+		if (index(ssid, "'") >= 0 || index(ssid, "\"") >= 0 || index(ssid, "\\") >= 0 || index(ssid, ";") >= 0
+			|| index(key, "'") >= 0 || index(key, "\"") >= 0 || index(key, "\\") >= 0 || index(key, ";") >= 0) {
+			fail("名称或密码含有不支持的字符"); return;
+		}
+		wifiBackup();
+		/* 同名同频段的 profile 先删掉再重建；不同频段同名（双频保存）要各自保留 */
+		let dupSec = "";
+		for (let s in uciSections("mmdvmwifi", "wifi-profile")) {
+			if (uciOpt("mmdvmwifi", s, "ssid") == ssid && uciOpt("mmdvmwifi", s, "band") == band) { dupSec = s; break; }
+		}
+		if (length(dupSec)) { sh("uci -q delete 'mmdvmwifi." + dupSec + "' 2>/dev/null || true"); }
+		/* 用具名段保存 profile：匿名段(@wifi-profile[N])读回时段名为空，会让
+		   wifiProfiles()/forget_sta 把所有网络错认成同一个，破坏多 WiFi 择优与忘记功能 */
+		let used = uciSections("mmdvmwifi", "wifi-profile");
+		let maxN = -1;
+		for (let s in used) {
+			if (substr(s, 0, 2) == "wp") {
+				let n = int(substr(s, 2));
+				if (n > maxN) maxN = n;
+			}
+		}
+		let newSec = "wp" + (maxN + 1);
+		let cmd = "uci set mmdvmwifi." + newSec + "=wifi-profile; ";
+		cmd += "uci set mmdvmwifi." + newSec + ".ssid=" + sq(ssid) + "; ";
+		cmd += "uci set mmdvmwifi." + newSec + ".key=" + sq(key) + "; ";
+		cmd += "uci set mmdvmwifi." + newSec + ".band=" + sq(band) + "; uci commit mmdvmwifi; ";
+		cmd += "uci set wireless.mmdvm_ap_2g.device=" + sq(wifiRadio("2g")) + "; ";
+		if (length(uciOpt("wireless", "mmdvm_ap_5g", "device"))) cmd += "uci set wireless.mmdvm_ap_5g.device=" + sq(wifiRadio("5g")) + "; ";
+		else cmd += "uci -q delete wireless.mmdvm_ap_5g; ";
+		cmd += "uci set wireless.mmdvm_sta.device=" + sq(wifiRadio(band)) + "; ";
+		cmd += "uci set wireless.mmdvm_sta.network=wwan; ";
+		cmd += "uci set wireless.mmdvm_sta.ifname=mmdvmsta; ";
+		cmd += "uci set wireless.mmdvm_sta.ssid=" + sq(ssid) + "; ";
+		cmd += "uci -q delete wireless.mmdvm_sta.key; ";
+		if (length(key)) cmd += "uci set wireless.mmdvm_sta.key=" + sq(key) + "; ";
+		cmd += "uci set wireless.mmdvm_sta.encryption=" + sq(length(key) ? "psk2" : "none") + "; ";
+		/* wwan 显式绑定 mmdvmsta：实测 netifd 跟随 wifi-iface 的 network= 时经常解析不到设备 */
+		cmd += "uci set network.wwan=interface; uci set network.wwan.proto=dhcp; uci set network.wwan.device=mmdvmsta; uci set network.wwan.metric=20; uci commit network; ";
+		cmd += "uci set wireless.mmdvm_sta.disabled=0; uci commit wireless";
+		sh(cmd);
+		wifiReload([ wifiRadio(band) ]);
+		/* 已有上游说明新 STA 立即可用，无需观察；否则由 guard 等待上游或回滚 */
+		wifiPending();
+		wifiConfirmSaved();
+		out({ ok: true, message: "WiFi 已保存，正在连接", status: wifiState() }); return;
+	}
+	if (act == "save_sta_net" || act == "save_profile_net") {
+		let id = trim(sprintf("%s", d.id ?? ""));
+		let ssid = trim(sprintf("%s", d.ssid ?? ""));
+		let key = sprintf("%s", d.key ?? "");
+		let n = d.net ?? d;
+		if (netDnsList(n.dns) == null) { fail("DNS 地址不合法"); return; }
+		for (let k in [ "ipaddr", "netmask", "gateway" ]) if (!netValidIp(n[k])) { fail(k + " 地址不合法"); return; }
+		let target = "";
+		for (let p in wifiProfiles()) {
+			if ((length(id) && p.id == id) || (length(ssid) && p.ssid == ssid)) { target = p.id; break; }
+		}
+		if (!length(target)) { fail("未找到对应的已保存 WiFi"); return; }
+		let active = (uciOpt("wireless", "mmdvm_sta", "ssid") == uciOpt("mmdvmwifi", target, "ssid"));
+		let cmd = profileNetCmd(target, n);
+		if (length(key)) cmd += "uci set mmdvmwifi." + target + ".key=" + sq(key) + "; ";
+		cmd += "uci commit mmdvmwifi; ";
+		if (active) {
+			wifiBackup(); wifiPending();
+			cmd += netApplyCmd("wwan", n);
+			cmd += "uci set network.wwan.device=mmdvmsta; uci set network.wwan.metric=20; ";
+			cmd += "uci set wireless.mmdvm_sta.network=wwan; uci set wireless.mmdvm_sta.ifname=mmdvmsta; ";
+			if (length(key)) cmd += "uci set wireless.mmdvm_sta.key=" + sq(key) + "; uci set wireless.mmdvm_sta.encryption=psk2; ";
+			cmd += "uci commit network; uci commit wireless; ";
+		}
+		sh(cmd);
+		if (active) {
+			wifiReload([ uciOpt("wireless", "mmdvm_sta", "device") ]);
+			wifiConfirmSaved();
+		}
+		out({ ok: true, id: target, applied: active, status: wifiState() }); return;
+	}
+	if (act == "save_lan" || act == "save_wan") {
+		let sec = (act == "save_wan") ? "wan" : "lan";
+		let n = d.net ?? d;
+		if (netDnsList(n.dns) == null) { fail("DNS 地址不合法"); return; }
+		for (let k in [ "ipaddr", "netmask", "gateway" ]) if (!netValidIp(n[k])) { fail(k + " 地址不合法"); return; }
+		if (n.proto == "static" && !length(sprintf("%s", n.ipaddr ?? ""))) { fail("静态 IP 不能为空"); return; }
+		let cmd = netApplyCmd(sec, n) + "uci commit network; (sleep 1; /etc/init.d/network reload >/dev/null 2>&1) >/dev/null 2>&1 &";
+		sh(cmd);
+		out({ ok: true, status: wifiState() }); return;
+	}
+	if (act == "forget_sta") {
+		let ssid = sprintf("%s", d.ssid ?? "");
+		if (index(ssid, "'") >= 0 || index(ssid, "\"") >= 0 || index(ssid, ";") >= 0) { fail("网络名称不合法"); return; }
+		let removed = false;
+		for (let s in uciSections("mmdvmwifi", "wifi-profile")) {
+			if (uciOpt("mmdvmwifi", s, "ssid") == ssid) { sh("uci -q delete 'mmdvmwifi." + s + "'"); removed = true; }
+		}
+		if (removed) { sh("uci commit mmdvmwifi || true"); }
+		if (uciOpt("wireless", "mmdvm_sta", "ssid") == ssid) {
+			let staDev = uciOpt("wireless", "mmdvm_sta", "device");
+			sh("uci -q delete wireless.mmdvm_sta.ssid; uci -q delete wireless.mmdvm_sta.key; uci set wireless.mmdvm_sta.disabled=1; uci commit wireless");
+			wifiReload([ staDev ]);
+		}
+		out({ ok: true, message: "已忘记该网络", status: wifiState() }); return;
+	}
+	if (act == "toggle_ap") {
+		let enabled = (d.enabled == true || d.enabled == 1 || d.enabled == "1");
+		let upstream = wifiUpstream();
+		if (!enabled && !upstream) {
+			out({ ok: true, apOn: true, message: "当前无上游网络，热点保持开启", status: wifiState() }); return;
+		}
+		let band = (uciOpt("mmdvmwifi", "main", "ap_band") == "5g") ? "5g" : "2g";
+		let cmd = "uci set mmdvmwifi.main.ap_enabled=" + sq(enabled ? "1" : "0") + "; "
+			+ "uci set wireless.mmdvm_ap_2g.disabled=" + sq(enabled && band == "2g" ? "0" : "1") + "; ";
+		if (length(uciOpt("wireless", "mmdvm_ap_5g", "device"))) cmd += "uci set wireless.mmdvm_ap_5g.disabled=" + sq(enabled && band == "5g" ? "0" : "1") + "; ";
+		else cmd += "uci -q delete wireless.mmdvm_ap_5g; ";
+		cmd += "uci commit mmdvmwifi; uci commit wireless";
+		sh(cmd);
+		wifiReload([ wifiRadio("2g"), wifiRadio("5g") ]);
+		out({ ok: true, apOn: enabled, message: enabled ? "热点已开启" : "热点已关闭", status: wifiState() }); return;
+	}
+	fail("未知操作");
+}
+
+if (name == "wifi") {
+	if (method == "POST") cmdWifiPost(); else cmdWifiGet();
+/* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等） */
+} else if (name == "ports") {
+	out({ ok: true, serialPorts: scanSerialPorts(), i2cBuses: scanI2cBuses() });
+} else if (name == "luci") {
+	cmdLuci();
+} else if (name == "status") {
+	out(cmdStatus());
+} else if (name == "services") {
+	if (method == "POST") {
+		let q = qs();
+		let key = "", act = "";
+		if (length(pi) > 1) {
+			let a = split(substr(pi, 1), "/");
+			key = a[0]; act = a[1] ?? "";
+		} else {
+			key = q.key ?? ""; act = q.act ?? "";
+		}
+		let s = svcFind(key);
+		if (s == null) fail("未知服务");
+		else if (act != "start" && act != "stop" && act != "restart" && act != "enable" && act != "disable") fail("未知操作");
+		else {
+			if (act == "restart" && (q.auto ?? "") == "1") {
+				/* 按工作模式编排重启：直连只重启 MMDVMHost 并停止 DMRGateway；网关模式重启两者；未运行则启动 */
+				let mi = ini(INI_DIR + "MMDVM.ini") ?? {};
+				let net = mi["DMR Network"] ?? {};
+				let direct = ((net.Type ?? "Gateway") == "Direct");
+				let msgs = "";
+				let docmd = (k, a) => sh("/etc/init.d/" + k + " " + a + " >/dev/null 2>&1");
+				let onoff = (p) => length(trim(sh("pidof " + p + " 2>/dev/null"))) > 0;
+				if (direct) docmd("dmrgateway", "stop");
+				else {
+					let gwon = onoff("DMRGateway");
+					docmd("dmrgateway", gwon ? "restart" : "start");
+					msgs = "DMRGateway " + (gwon ? "restarted" : "started");
+				}
+				let hwon = onoff("MMDVMHost");
+				docmd("mmdvmhost", hwon ? "restart" : "start");
+				msgs = (length(msgs) ? msgs + "; " : "") + "MMDVMHost " + (hwon ? "restarted" : "started");
+				if (direct) msgs = msgs + "; DMRGateway stopped";
+				out({ ok: true, output: msgs });
+			} else {
+				let rc = trim(sh("/etc/init.d/" + key + " " + act + " 2>&1"));
+				out({ ok: true, output: rc });
+			}
+		}
+	} else cmdServices();
+} else if (name == "configs") {
+	if (method == "POST") {
+		let q = qs();
+		let fn = "";
+		if (length(pi) > 1) fn = substr(pi, 1);
+		else fn = q.name ?? "";
+		if (!match(fn, /^[A-Za-z0-9._ -]+\.ini$/)) fail("非法文件名");
+		else {
+			let d = body();
+			if (d == null || type(d.content) != "string") fail("缺少内容");
+			else { FS.writefile(INI_DIR + fn, d.content); out({ ok: true }); }
+		}
+	} else cmdConfigs();
+} else if (name == "xlxhosts") {
+	if (method == "POST") {
+		let d = body();
+		if (d == null || type(d.content) != "string") fail("缺少内容");
+		else { FS.writefile(INI_DIR + "XLXHosts.txt", d.content); out({ ok: true }); }
+	} else {
+		let c = FS.readfile(INI_DIR + "XLXHosts.txt");
+		if (c == null) fail("文件不存在");
+		else out({ ok: true, content: c });
+	}
+} else if (name == "ota") {
+	cmdOta();
+} else if (name == "fw") {
+	cmdFw();
+} else if (name == "system") {
+	if (method == "POST") {
+		let q = qs();
+		if ((q.act ?? "") == "reboot") {
+			out({ ok: true, message: "rebooting" });
+			sh("(sleep 2; reboot) >/dev/null 2>&1 &");
+		} else fail("未知操作");
+	} else cmdSystem();
+} else if (name == "lastheard") {
+	cmdLastheard();
+} else if (name == "lhclear") {
+	cmdLhClear();
+} else if (name == "tg") {
+	if (method == "POST") cmdTgPost();
+	else cmdTgGet();
+} else if (name == "livecfg") {
+	/* 实时语音开关只对 7628（单核性能不足）提供；其它机型固定开启。
+	   机型识别依次看 board_name / model / board.json / device-tree compatible，
+	   避免 /tmp/sysinfo 尚未生成或内容异常时误判为非 7628 而隐藏开关入口 */
+	let board = trim(FS.readfile("/tmp/sysinfo/board_name") ?? "");
+	let is7628 = false;
+	for (let bp in [ "/tmp/sysinfo/board_name", "/tmp/sysinfo/model",
+	                 "/etc/board.json", "/proc/device-tree/compatible" ]) {
+		let bd = null;
+		try { bd = FS.readfile(bp); } catch (e) { bd = null; }
+		if (bd != null && index(sprintf("%s", bd), "7628") >= 0) { is7628 = true; break; }
+	}
+	if (!is7628) {
+		out({ ok: true, enabled: true, board: board, lowPower: false });
+	} else if (method == "POST") {
+		let b = body() ?? {};
+		let en = (b.enabled == true || b.enabled == 1 || b.enabled == "1");
+		FS.writefile(LIVECFG, sprintf("%J", { enabled: en }) + "\n");
+		sh("/etc/init.d/dmrstreamd " + (en ? "start" : "stop") + " >/dev/null 2>&1");
+		out({ ok: true, enabled: en, board: board });
+	} else {
+		let d = null;
+		try { d = json(FS.readfile(LIVECFG) ?? ""); } catch (e) { d = null; }
+		let en = (type(d) == "object" && d != null && d.enabled != null)
+			? (d.enabled == true || d.enabled == 1 || d.enabled == "1")
+			: false;
+		out({ ok: true, enabled: en, board: board, lowPower: true });
+	}
+} else if (name == "live") {
+	out(cmdLive());
+} else if (name == "geo") {
+	cmdGeo();
+} else if (name == "calibration") {
+	if (method == "POST") {
+		let d = body() ?? {};
+		setIni(INI_DIR + "MMDVM.ini", "RXOffset", int(d.rxOffset) || 0);
+		setIni(INI_DIR + "MMDVM.ini", "TXOffset", int(d.txOffset) || 0);
+		setIni(INI_DIR + "MMDVM.ini", "RXLevel", int(d.rxLevel) || 0);
+		setIni(INI_DIR + "MMDVM.ini", "TXLevel", int(d.txLevel) || 0);
+		setIni(INI_DIR + "MMDVM.ini", "RFLevel", int(d.rfLevel) || 0);
+		out({ ok: true });
+	} else cmdCalGet();
+} else if (name == "basic") {
+	if (method == "POST") {
+		let d = body() ?? {};
+		let cs = trim(d.callsign ?? "");
+		/* DMR ID 1~5：每项 { id, essid }，保存在 dashboard.json，只有 ID1 写入 MMDVM.ini */
+		let dmrList = d.dmrIds ?? [];
+		if (type(dmrList) != "array") dmrList = [];
+		let ids = [];
+		for (let i = 0; i < 5; i++) {
+			let it = dmrList[i] ?? {};
+			let vid = trim(it.id ?? ""), ves = trim(it.essid ?? "");
+			if (!length(vid)) { push(ids, { id: "", essid: "" }); continue; }
+			if (!match(vid, /^[0-9]{1,9}$/)) { fail("DMR ID " + (i + 1) + " 应为数字"); return; }
+			if (length(ves) && !match(ves, /^[0-9]{2}$/)) { fail("DMR ID " + (i + 1) + " 的 ESSID 应为两位数字"); return; }
+			push(ids, { id: vid, essid: ves });
+		}
+		if (!length(ids[0].id)) { fail("DMR ID 1 不能为空"); return; }
+		/* 仅保存 DMR ID：只记录到 dashboard.json，不写入任何 ini 文件 */
+		if (d.dmrOnly) {
+			let s1 = state();
+			s1.dmrIds = ids;
+			saveState(s1);
+			syncGwIds(ids);
+			out({ ok: true });
+			return;
+		}
+		let id = ids[0].id;
+		let proto = trim(d.protocol ?? ""), port = trim(d.uartPort ?? "");
+		let speed = trim(d.uartSpeed ?? "");
+		let i2cPort = trim(d.i2cPort ?? "");
+		let udpAddr = trim(d.udpAddress ?? ""), udpPort = trim(d.udpPort ?? "");
+		let screenType = trim(d.screenType ?? ""), screenPort = trim(d.screenPort ?? "");
+		let screenAddr = trim(d.screenAddr ?? "");
+		let i2cBus = trim(d.i2cBus ?? "");
+		let duplex = trim(d.duplex ?? "");
+		/* 连接：DMR 网络类型/时隙 + 色码/信标/信标时间 */
+		let dmrType = trim(d.dmrType ?? ""), slot1 = trim(d.slot1 ?? ""), slot2 = trim(d.slot2 ?? "");
+		let colorCode = trim(d.colorCode ?? ""), beacons = trim(d.beacons ?? ""), beaconInterval = trim(d.beaconInterval ?? "");
+		let selfOnly = trim(d.selfOnly ?? "");
+		let srvName = trim(d.dmrServerName ?? ""), srvAddr = trim(d.dmrServerAddress ?? ""), srvPort = trim(d.dmrServerPort ?? "");
+		let srvPass = trim(d.dmrServerPassword ?? "");
+		if (!match(cs, /^[A-Za-z0-9]{3,10}$/)) fail("呼号格式不正确");
+		else if (!match(id, /^[0-9]{1,9}$/)) fail("DMR ID 应为数字");
+		else {
+			let f = INI_DIR + "MMDVM.ini";
+			let gw = INI_DIR + "DMRGateway.ini";
+			/* 位置信息（Info 段共有字段）校验：纬度/经度为数字，高度为整数 */
+			let lat = trim(d.latitude ?? ""), lon = trim(d.longitude ?? ""), hgt = trim(d.height ?? "");
+			if (length(lat) && match(lat, /^-?[0-9]+(\.[0-9]+)?$/) == null) { fail("纬度应为数字"); return; }
+			if (length(lon) && match(lon, /^-?[0-9]+(\.[0-9]+)?$/) == null) { fail("经度应为数字"); return; }
+			if (length(hgt) && match(hgt, /^-?[0-9]+$/) == null) { fail("高度应为整数"); return; }
+			/* 通话 GPS 缓存时间：10~1440 分钟 */
+			let gpsTtl = trim(d.gpsCacheMinutes ?? "");
+			if (length(gpsTtl) && (match(gpsTtl, /^[0-9]{1,4}$/) == null || +gpsTtl < 10 || +gpsTtl > 1440)) { fail("GPS 缓存时间应为 10~1440 分钟"); return; }
+			/* 连接字段校验 */
+			if (length(dmrType) && match(dmrType, /^(Gateway|Direct)$/i) == null) { fail("类型不合法"); return; }
+			if (length(slot1) && match(slot1, /^[01]$/) == null) { fail("时隙1 应为 0 或 1"); return; }
+			if (length(slot2) && match(slot2, /^[01]$/) == null) { fail("时隙2 应为 0 或 1"); return; }
+			if (length(colorCode) && match(colorCode, /^([0-9]|1[0-5])$/) == null) { fail("色码应为 0~15"); return; }
+			if (length(selfOnly) && match(selfOnly, /^[01]$/) == null) { fail("隐私应为公共或隐私"); return; }
+			if (length(beacons) && match(beacons, /^[0-9]$/) == null) { fail("信标应为 0 或 1"); return; }
+			if (length(beaconInterval) && (match(beaconInterval, /^[0-9]{1,5}$/) == null || +beaconInterval < 1)) { fail("信标时间应为正整数"); return; }
+			/* 服务器地址/端口校验（直连模式使用） */
+			if (length(srvAddr) && match(srvAddr, /^[A-Za-z0-9._:-]+$/) == null) { fail("服务器地址不合法"); return; }
+			if (length(srvPort) && (match(srvPort, /^[0-9]{1,5}$/) == null || +srvPort < 1 || +srvPort > 65535)) { fail("端口不合法"); return; }
+			/* 频率按 MHz 提交，限制在 1~2000MHz，防止误填 Hz 把 ini 写坏（MMDVMHost 会异常） */
+			for (let k in ["rxFreq", "txFreq"]) {
+				let fv = trim(d[k] ?? "");
+				if (!length(fv)) continue;
+				if (match(fv, /^[0-9]{1,4}(\.[0-9]{1,6})?$/) == null || +fv < 1 || +fv > 2000) { fail("频率应在 1~2000 MHz（单位 MHz，如 434.500）"); return; }
+			}
+			setIniSec(f, "General", "Callsign", cs);
+			setIniSec(f, "General", "Id", id);
+			let rh = rnd((+d.rxFreq || 0) * 1000000);
+			let th = rnd((+d.txFreq || 0) * 1000000);
+			if (rh > 0) setIniSec(f, "Info", "RXFrequency", rh);
+			if (th > 0) setIniSec(f, "Info", "TXFrequency", th);
+			/* 位置信息同时写入 MMDVM.ini 与 DMRGateway.ini 的 [Info] 段 */
+			let loc = trim(d.location ?? ""), desc = trim(d.description ?? ""), url = trim(d.url ?? "");
+			if (length(lat)) { setIniSec(f, "Info", "Latitude", lat); setIniSec(gw, "Info", "Latitude", lat); }
+			if (length(lon)) { setIniSec(f, "Info", "Longitude", lon); setIniSec(gw, "Info", "Longitude", lon); }
+			if (length(hgt)) { setIniSec(f, "Info", "Height", hgt); setIniSec(gw, "Info", "Height", hgt); }
+			if (length(gpsTtl)) { setIniSec(f, "Info", "GPS_CacheMinutes", gpsTtl); setIniSec(gw, "Info", "GPS_CacheMinutes", gpsTtl); }
+			if (length(loc)) { setIniSec(f, "Info", "Location", loc); setIniSec(gw, "Info", "Location", loc); }
+			if (length(desc)) { setIniSec(f, "Info", "Description", desc); setIniSec(gw, "Info", "Description", desc); }
+			if (length(url)) { setIniSec(f, "Info", "URL", url); setIniSec(gw, "Info", "URL", url); }
+			/* Duplex：同频 0，异频 1 */
+			if (match(duplex, /^[01]$/)) setIniSec(f, "General", "Duplex", duplex);
+
+			/* RF 来源 / UART 端口 / 波特率 → [Modem] */
+			if (length(proto) && match(proto, /^(uart|udp|i2c|null)$/))
+				setIniSec(f, "Modem", "Protocol", proto);
+			else if (length(proto)) fail("RF 来源不合法");
+			if (length(port) && match(port, /^\/[A-Za-z0-9._\/-]+$/))
+				setIniSec(f, "Modem", "UARTPort", port);
+			if (length(speed) && match(speed, /^[0-9]{3,9}$/))
+				setIniSec(f, "Modem", "UARTSpeed", speed);
+			/* i2c：总线号 → I2CPort=/dev/i2c-N，地址 → I2CAddress；udp：ModemAddress + ModemPort */
+			if (length(i2cPort)) {
+				let bn = replace(trim(i2cPort), /^\/dev\//, "");
+				bn = replace(bn, /^i2c-?/, "");
+				if (match(bn, /^[0-9]{1,2}$/) == null) { fail("I2C 总线号应为数字"); return; }
+				setIniSec(f, "Modem", "I2CPort", "/dev/i2c-" + bn);
+			}
+			let modemAddr = trim(d.modemI2cAddr ?? "");
+			if (length(modemAddr)) {
+				if (match(modemAddr, /^0[xX][0-9A-Fa-f]{2}$/) == null) { fail("调制解调器 I2C 地址应写成 0x22 这样的两位十六进制"); return; }
+				setIniSec(f, "Modem", "I2CAddress", "0x" + lc(substr(modemAddr, 2)));
+			}
+			if (length(udpAddr) && match(udpAddr, /^[A-Za-z0-9._:-]+$/))
+				setIniSec(f, "Modem", "ModemAddress", udpAddr);
+			if (length(udpPort) && match(udpPort, /^[0-9]{1,5}$/))
+				setIniSec(f, "Modem", "ModemPort", udpPort);
+
+			/* 屏幕类型 → [General] Display；屏幕端口 → 对应屏幕段的 Port（[Nextion]/[OLED]/[TFT Serial]） */
+			if (length(screenType) && match(screenType, /^(Nextion|HD44780|OLED Type3|OLED Type6|None)$/))
+				setIniSec(f, "General", "Display", screenType);
+			else if (length(screenType)) fail("屏幕类型不合法");
+			let portSec = dispSectionFor(length(screenType) ? screenType : (ini(f)["General"] ?? {}).Display);
+			/* Modem：屏幕接在调制解调器的第二串口，MMDVMHost 只认小写 modem */
+			let sp = trim(screenPort ?? "");
+			let spModem = (lc(sp) == "modem");
+			if (length(sp) && (spModem || match(sp, /^\/[A-Za-z0-9._\/-]+$/))) {
+				if (portSec == null) fail("当前屏幕类型没有端口可写");
+				setIniSec(f, portSec, "Port", spModem ? "modem" : sp);
+			} else if (length(sp)) {
+				fail("屏幕端口格式不合法");
+			} else if (portSec != null) {
+				delIniSec(f, portSec, "Port");
+			}
+			/* 旧版本写错的 [Display] 段一并清理 */
+			delIniSec(f, "Display", "Port");
+
+			/* 当前屏幕类型（表单未带时回落到 ini 里的 Display） */
+			let curDisp = length(screenType) ? screenType : ((ini(f)["General"] ?? {}).Display ?? "");
+			let isI2C = (curDisp == "HD44780" || dispSectionFor(curDisp) == "OLED");
+			/* I2C 总线号 → uci（init 脚本转成 MMDVM_I2C_BUS） */
+			if (isI2C && length(i2cBus)) {
+				if (match(i2cBus, /^[0-9]{1,2}$/) == null) { fail("I2C 总线号应为数字"); return; }
+				sh("uci set mmdvmhost.main.i2c_bus='" + i2cBus + "' && uci commit mmdvmhost");
+			}
+			/* I2C 地址：HD44780 写 ini；OLED 无对应 ini 键，改写 uci（init 转成环境变量给驱动） */
+			if (isI2C && length(screenAddr)) {
+				if (match(screenAddr, /^0[xX][0-9A-Fa-f]{2}$/) == null) { fail("I2C 地址应写成 0x27 这样的两位十六进制"); return; }
+				let addrVal = "0x" + lc(substr(screenAddr, 2));
+				if (curDisp == "HD44780")
+					setIniSec(f, "HD44780", "I2CAddress", addrVal);
+				else
+					sh("uci set mmdvmhost.main.oled_i2c_addr='" + addrVal + "' && uci commit mmdvmhost");
+			}
+
+			/* DMR ID 1~5（含 ESSID）保存到 dashboard.json；只把 DMR ID 1 写入 MMDVM.ini */
+			setIniSec(f, "DMR", "Id", ids[0].id + ids[0].essid);
+			/* 连接：类型/时隙 → [DMR Network]；色码/信标/信标时间 → [DMR] */
+			if (length(dmrType)) setIniSec(f, "DMR Network", "Type", dmrType);
+			if (length(slot1)) setIniSec(f, "DMR Network", "Slot1", slot1);
+			if (length(slot2)) setIniSec(f, "DMR Network", "Slot2", slot2);
+			if (length(colorCode)) setIniSec(f, "DMR", "ColorCode", colorCode);
+			if (length(selfOnly)) setIniSec(f, "DMR", "SelfOnly", selfOnly);
+			if (length(beacons)) setIniSec(f, "DMR", "Beacons", beacons);
+			if (length(beaconInterval)) setIniSec(f, "DMR", "BeaconInterval", beaconInterval);
+			/* 网关模式：MMDVM.ini 的 [DMR Network] 指向本机 DMRGateway；直连模式连到所选服务器 */
+			if (dmrType == "Gateway") {
+				setIniSec(f, "DMR Network", "Enable", "1");
+				setIniSec(f, "DMR Network", "LocalAddress", "127.0.0.1");
+				setIniSec(f, "DMR Network", "LocalPort", "62032");
+				setIniSec(f, "DMR Network", "RemoteAddress", "127.0.0.1");
+				setIniSec(f, "DMR Network", "RemotePort", "62031");
+				/* 网关模式：本机 DMRGateway 链路密码固定为 passw0rd */
+				setIniSec(f, "DMR Network", "Password", "passw0rd");
+			} else if (dmrType == "Direct") {
+				setIniSec(f, "DMR Network", "Enable", "1");
+				if (length(srvAddr)) setIniSec(f, "DMR Network", "RemoteAddress", srvAddr);
+				if (length(srvPort)) setIniSec(f, "DMR Network", "RemotePort", srvPort);
+				/* 密码：留空时使用默认 passw0rd */
+				let netPass = length(srvPass) ? srvPass : "passw0rd";
+				if (match(netPass, /^[A-Za-z0-9!@#$%^&*._\-]{1,64}$/) != null)
+					setIniSec(f, "DMR Network", "Password", netPass);
+				/* 直连不能再绑定回环本地地址，清空以使用默认绑定 */
+				delIniSec(f, "DMR Network", "LocalAddress");
+				delIniSec(f, "DMR Network", "LocalPort");
+			}
+			let st = state();
+			st.dmrIds = ids;
+			st.dmrServerName = srvName;
+			st.dmrServerAddress = srvAddr;
+			st.dmrServerPort = srvPort;
+			st.dmrServerPassword = srvPass;
+			saveState(st);
+			syncGwIds(ids);
+			/* 配置变更后立即失效短缓存与 ping 缓存，避免右上角/电台信息仍显示旧服务器 */
+			try { FS.writefile(STATUS_CACHE, ""); } catch (e) {}
+			try { FS.writefile(PING_CACHE, "{}"); } catch (e) {}
+			out({ ok: true });
+		}
+	} else out(cmdStatus());
+} else if (name == "log") {
+	let q = qs();
+	let svc = q.service ?? "MMDVMHost";
+	let prefix = "MMDVM";
+	if (svc == "DMRGateway") prefix = "DMRGateway";
+	let file = logFileFor(prefix);
+	if (!length(file)) out({ next: 0, lines: [] });
+	else {
+		let total = int(trim(sh("wc -l < " + file))) || 0;
+		let since = int(q.since ?? 0) || 0;
+		if (since <= 0) since = (total > 200) ? total - 200 : 0;
+		else if (since > total) since = total;
+		let txt = sh("tail -n +" + (since + 1) + " " + file + " | head -300");
+		let lines = [];
+		for (let l in split(txt, "\n")) if (length(trim(l))) push(lines, l);
+		out({ next: total, lines: lines });
+	}
+} else if (name == "page") {
+	/* 用 CGI 输出 HTML 并强制 no-store，彻底避免浏览器缓存旧版本界面 */
+	let html = FS.readfile("/www-dash/app.html");
+	if (html == null) fail("页面不存在");
+	else {
+		print("Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store, no-cache, must-revalidate\r\nPragma: no-cache\r\n\r\n");
+		print(html);
+	}
+} else if (name == "auth") {
+	/* GET  → 是否需要密码（与 LuCI 的 root 密码同步）
+	   POST → 校验密码，成功 granted:true */
+	if (method == "POST") {
+		let d = body() ?? {};
+		let pass = (type(d.password) == "string") ? d.password : "";
+		if (!rootHasPassword()) { out({ ok: true, granted: true, required: false }); return; }
+		if (verifyRootPassword(pass)) out({ ok: true, granted: true, required: true });
+		else out({ ok: false, granted: false, error: "密码错误" });
+	} else {
+		out({ ok: true, required: rootHasPassword() });
+	}
+} else {
+	fail("未知接口");
+}
