@@ -3281,6 +3281,19 @@ function wifiDoScan() {
 	let ifs = sh("iw dev 2>/dev/null | awk '/Interface/{printf \"%s \", $2}' || true");
 	let scan = "";
 	for (let ifn in words(ifs)) scan += sh("iw dev " + sq(ifn) + " scan 2>/dev/null");
+	/* 5G 热点关闭时其 radio 上没有任何 netdev，iw dev 不列出该 phy，扫描会漏掉整个 5G 频段；
+	   对没有 netdev 的 phy 临时挂一个 managed 探测口扫描，扫完立即删除（不动 UCI） */
+	/* 注意：words() 只按空格切分，须先把换行归一化成空格 */
+	let allPhy = words(replace(sh("ls /sys/class/ieee80211 2>/dev/null"), "\n", " "));
+	let usedPhy = words(replace(sh("iw dev 2>/dev/null | grep '^phy#'"), "\n", " "));
+	for (let ph in allPhy) {
+		let hasIf = false;
+		for (let u in usedPhy) if (u == "phy#" + ph) { hasIf = true; break; }
+		if (hasIf) continue;
+		scan += sh("iw dev mmdvmscan del 2>/dev/null; iw phy " + sq(ph)
+			+ " interface add mmdvmscan type managed 2>/dev/null && ip link set mmdvmscan up && iw dev mmdvmscan scan 2>/dev/null"
+			+ "; iw dev mmdvmscan del 2>/dev/null");
+	}
 	let nets = [];
 	let cur = null;
 	for (let line in split(scan, "\n")) {
