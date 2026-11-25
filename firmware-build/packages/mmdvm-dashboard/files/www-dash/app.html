@@ -6,6 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
+<meta name="theme-color" content="#0b0f14">
 <title>MMDVM Dashboard</title>
 <style>
 :root{
@@ -14,6 +15,35 @@
   --text:#e6edf3; --muted:#aab6c2; --faint:#7c8894;
   --green:#34d399; --cyan:#38bdf8; --amber:#fbbf24; --red:#f87171; --violet:#a78bfa;
   --accent:#34d399;
+  /* 语义色：浅色主题只覆盖这些变量，深色值保持原样 */
+  --accent2:#0ea5e9;          /* 渐变副色（logo / 进度条） */
+  --on-accent:#06231a;        /* 主按钮与 logo 上的文字/描边 */
+  --glow:52,211,153;          /* 强调色 RGB，用于半透明底与光晕 */
+  --danger-rgb:248,113,113;
+  --warn-rgb:251,191,36;
+  --cyan-rgb:56,189,248;
+  --neutral-rgb:139,152,165;
+  --body-glow:#13202b;        /* body 径向渐变 */
+  --scroll:#2a3644;
+  --header-bg:rgba(15,20,27,.86);
+  --spin-track:#ddd; --spin-head:#4b8bf5;
+  --surface:#1b2734;          /* 国旗底 / 收发圆环高光 */
+  --list-bg:#121922;          /* 最近通联列表底 */
+  --hover:#17212b;            /* 列表项悬停 / 下拉项悬停 */
+  --item-a:#18212b;           /* 手机通联卡片渐变起点 */
+  --code-bg:#0a0e13;          /* 日志 / 编辑器 / 查看器底 */
+  --log-info:#b3bec9; --log-ts:#8a97a4; --placeholder:#7c8698;
+  --hairline:rgba(255,255,255,.045);
+  --row-hover:rgba(255,255,255,.015);
+  --help-bg:rgba(148,163,184,.08);
+  --toast-ok-bg:#0f1a16; --toast-err-bg:#1a0f12;
+  --overlay:rgba(0,0,0,.5);
+  --modal-mask:rgba(3,6,9,.72); --modal-mask2:rgba(3,6,9,.76);
+  --shadow-sm:0 4px 16px rgba(0,0,0,.25);
+  --shadow-md:0 12px 32px rgba(0,0,0,.45);
+  --shadow-lg:0 16px 44px rgba(0,0,0,.55);
+  --shadow-xl:0 18px 60px rgba(0,0,0,.65);
+  --shadow-side:20px 0 60px rgba(0,0,0,.5);
   --radius:14px;
   --sidebar-w:232px;
   --header-h:58px;
@@ -22,39 +52,39 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{
-  background:radial-gradient(1200px 600px at 80% -10%, #13202b 0%, transparent 60%), var(--bg);
+  background:radial-gradient(1200px 600px at 80% -10%, var(--body-glow) 0%, transparent 60%), var(--bg);
   color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;
   font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased;
 }
 a{color:inherit;text-decoration:none}
 ::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:#2a3644;border-radius:8px;border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:8px;border:2px solid var(--bg)}
 ::-webkit-scrollbar-track{background:transparent}
 
 /* ===== Header ===== */
 header{
   position:fixed;top:0;left:0;right:0;height:var(--header-h);z-index:50;
   display:flex;align-items:center;gap:14px;padding:0 16px;
-  background:rgba(15,20,27,.86);backdrop-filter:blur(10px);
+  background:var(--header-bg);backdrop-filter:blur(10px);
   border-bottom:1px solid var(--border);
 }
 .brand{display:flex;align-items:center;gap:11px;min-width:0}
 .logo{width:32px;height:32px;border-radius:9px;flex:none;
-  background:linear-gradient(135deg,#34d399,#0ea5e9);display:flex;align-items:center;justify-content:center;
-  box-shadow:0 2px 10px rgba(52,211,153,.28)}
+  background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 10px rgba(var(--glow),.28)}
 .logo svg{width:19px;height:19px}
 .brand .t{font-weight:700;font-size:17px;letter-spacing:.2px;white-space:nowrap;display:flex;flex-direction:row;gap:.3em;line-height:1.2}
 .brand .s{font-size:13px;color:var(--muted);white-space:nowrap}
 .hspacer{flex:1}
 .hstatus{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--muted);
   padding:6px 11px;border:1px solid var(--border);border-radius:999px;background:var(--card)}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(52,211,153,.18);animation:pulse 2s infinite}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(var(--glow),.18);animation:pulse 2s infinite}
 #netStatus{flex-direction:column;align-items:flex-end;justify-content:center;gap:3px;padding:3px 0;border:none;background:none}
 .net-item{display:flex;align-items:center;gap:6px;font-size:11.5px;line-height:1.35;white-space:nowrap}
 .net-item .net-name{color:var(--muted)}
 .net-item .netdot{width:0.55em;height:0.55em;border-radius:50%;flex:none}
-.net-item .netdot.ok{background:var(--green);box-shadow:0 0 0.22em 0.04em rgba(52,211,153,.9);animation:netpulse 2s infinite}
-.net-item .netdot.err{background:var(--red);box-shadow:0 0 0.22em 0.04em rgba(248,113,113,.9)}
+.net-item .netdot.ok{background:var(--green);box-shadow:0 0 0.22em 0.04em rgba(var(--glow),.9);animation:netpulse 2s infinite}
+.net-item .netdot.err{background:var(--red);box-shadow:0 0 0.22em 0.04em rgba(var(--danger-rgb),.9)}
 /* ping 值：电脑版显示在状态点后面，数字按 4 位预留右对齐 */
 .net-item .net-ping{display:none}
 @media (min-width:861px){
@@ -64,8 +94,8 @@ header{
   .net-item .net-ping .pn{display:inline-block;width:4ch;text-align:right;font-style:normal}
   .net-item .net-ping.warn{color:var(--amber)}
 }
-@keyframes netpulse{0%,100%{box-shadow:0 0 0.22em 0.04em rgba(52,211,153,.92)}50%{box-shadow:0 0 0.3em 0.06em rgba(52,211,153,.55)}}
-@keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(52,211,153,.18)}50%{box-shadow:0 0 0 5px rgba(52,211,153,.08)}}
+@keyframes netpulse{0%,100%{box-shadow:0 0 0.22em 0.04em rgba(var(--glow),.92)}50%{box-shadow:0 0 0.3em 0.06em rgba(var(--glow),.55)}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(var(--glow),.18)}50%{box-shadow:0 0 0 5px rgba(var(--glow),.08)}}
 .clock{font-family:var(--mono);font-size:14px;color:var(--muted)}
 /* 菜单按钮与密码框的容器：手机版保持原有流式布局，电脑版整体居中 */
 .nav-slot{display:contents}
@@ -83,7 +113,7 @@ header{
 .topnav .nav-group{position:relative;display:flex;align-items:center;height:100%}
 /* 下拉与菜单名无缝衔接（无 margin 间隙），鼠标从名字移入面板途中不会丢失悬停 */
 .topnav .submenu{position:absolute;top:100%;left:50%;transform:translateX(-50%);min-width:150px;margin-top:0;padding:10px 6px 6px;
-  background:var(--card);border:1px solid var(--border);border-radius:11px;box-shadow:0 12px 32px rgba(0,0,0,.45);
+  background:var(--card);border:1px solid var(--border);border-radius:11px;box-shadow:var(--shadow-md);
   display:block;opacity:0;visibility:hidden;z-index:70;transition:opacity .14s ease,visibility 0s linear .14s}
 .topnav .submenu a{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;color:var(--muted);font-size:17px;margin-bottom:2px;white-space:nowrap}
 .topnav .submenu a:hover{color:var(--text);background:var(--card2)}
@@ -95,7 +125,7 @@ header{
   color:var(--muted);font-size:12.5px;font-weight:600;border:1px solid var(--border2);border-radius:999px;
   background:transparent;text-decoration:none;transition:color .18s,background .18s,border-color .18s,transform .18s,box-shadow .18s}
 #topnavLogout svg{width:13px;height:13px;stroke:currentColor}
-#topnavLogout:hover{color:var(--text);background:var(--card2);border-color:var(--border);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.28)}
+#topnavLogout:hover{color:var(--text);background:var(--card2);border-color:var(--border);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
 #topnavLogout:active{transform:translateY(0);box-shadow:none}
 
 /* 电脑版行内密码框（手机版隐藏） */
@@ -108,9 +138,9 @@ header{
 /* 密码框内的登录箭头按钮 */
 .pc-auth-go{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:27px;height:26px;
   display:flex;align-items:center;justify-content:center;padding:0;border:none;border-radius:7px;
-  background:rgba(52,211,153,.16);color:var(--accent);cursor:pointer;transition:background .15s,transform .15s}
+  background:rgba(var(--glow),.16);color:var(--accent);cursor:pointer;transition:background .15s,transform .15s}
 .pc-auth-go svg{width:14px;height:14px;stroke:currentColor}
-.pc-auth-go:hover{background:rgba(52,211,153,.3)}
+.pc-auth-go:hover{background:rgba(var(--glow),.3)}
 .pc-auth-go:active{transform:translateY(-50%) scale(.94)}
 .pc-auth-err{color:var(--red);font-size:12px;white-space:nowrap}
 .pc-auth-hint{color:var(--muted);font-size:12px;white-space:nowrap}
@@ -121,7 +151,7 @@ aside{
   background:var(--bg2);border-right:1px solid var(--border);padding:14px 10px;overflow-y:auto;
   transform:translateX(-100%);transition:transform .24s ease;
 }
-aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
+aside.open{transform:translateX(0);box-shadow:var(--shadow-side)}
 .nav-label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--text);font-weight:600;padding:10px 12px 6px}
 .nav a{
   display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:10px;color:var(--muted);
@@ -149,13 +179,13 @@ aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
   .brand{order:1}
   /* 登录按钮：胶囊形 + 绿色渐变描边，紧跟在 MMDVM 标识右侧 */
   .menuBtn{display:flex;order:2;width:auto;height:32px;padding:0 14px;gap:6px;
-    border:1px solid rgba(52,211,153,.38);border-radius:999px;
-    background:linear-gradient(135deg,rgba(52,211,153,.20),rgba(52,211,153,.05));
+    border:1px solid rgba(var(--glow),.38);border-radius:999px;
+    background:linear-gradient(135deg,rgba(var(--glow),.20),rgba(var(--glow),.05));
     color:var(--accent);font-weight:700;font-size:13px;
-    box-shadow:0 2px 10px rgba(52,211,153,.12);transition:background .18s,border-color .18s,box-shadow .18s,transform .18s}
+    box-shadow:0 2px 10px rgba(var(--glow),.12);transition:background .18s,border-color .18s,box-shadow .18s,transform .18s}
   .menuBtn svg{display:none}
-  .menuBtn:hover{background:linear-gradient(135deg,rgba(52,211,153,.32),rgba(52,211,153,.12));
-    border-color:var(--accent);box-shadow:0 5px 16px rgba(52,211,153,.26);transform:translateY(-1px)}
+  .menuBtn:hover{background:linear-gradient(135deg,rgba(var(--glow),.32),rgba(var(--glow),.12));
+    border-color:var(--accent);box-shadow:0 5px 16px rgba(var(--glow),.26);transform:translateY(-1px)}
   .menuBtn:active{transform:translateY(0)}
   .menuBtn .menuBtn-label{display:inline}
   .pc-auth{display:none;order:3;align-items:center;gap:6px}
@@ -175,6 +205,17 @@ aside.open{transform:translateX(0);box-shadow:20px 0 60px rgba(0,0,0,.5)}
   #view-config .cfg-sec > :not(.cfg-sec-h):not(.cfg-sec-head){margin-left:100px}
   /* 电脑版基础配置：设置项同样右移 100px，卡片边框与标题不动 */
   #view-basic .card > :not(.basic-sec-title){margin-left:100px}
+  /* 电脑版网络配置：卡片内容左右各缩 1/3 并居中 */
+  #view-netcfg .nc-card > :not(.basic-sec-title),#view-netcfg #netpanel-ap.card > :not(.basic-sec-title){width:66.666%;margin-left:auto;margin-right:auto}
+  #view-netcfg .nc-card > .nc-card-grid{width:100%;margin-left:0;margin-right:0}
+  #view-netcfg .nc-card > .grid,#view-netcfg .nc-card > .nc-net-list{width:66.666%;margin-left:auto;margin-right:auto}
+  /* 卡片标题与内容同宽同起点：标题与「当前连接」等内容左对齐 */
+  #view-netcfg .nc-card > h2.basic-sec-title,
+  #view-netcfg #netpanel-ap.card > h2.basic-sec-title{width:66.666%;margin-left:auto;margin-right:auto}
+  #view-netcfg .nc-card > .nc-sta-scan-area{width:66.666%;margin-left:auto;margin-right:auto}
+  #view-netcfg .nc-card > .nc-sta-scan-area > .nc-hint,
+  #view-netcfg .nc-card > .nc-sta-scan-area > .nc-scan-wrap{width:100%;margin-left:0;margin-right:0}
+  #view-netcfg .nc-card > .card > :not(.basic-sec-title){width:100%;margin-left:0;margin-right:0}
 }
 
 /* ===== Main ===== */
@@ -184,7 +225,7 @@ main{max-width:calc(100% - var(--sidebar-w));margin:0 auto;padding:calc(var(--he
 .view.on{display:block}
 #bootMask{display:flex;align-items:center;justify-content:center;min-height:38vh}
 body.routed #bootMask{display:none}
-.boot-spin{width:26px;height:26px;border:3px solid #ddd;border-top-color:#4b8bf5;border-radius:50%;animation:spin .8s linear infinite}
+.boot-spin{width:26px;height:26px;border:3px solid var(--spin-track);border-top-color:var(--spin-head);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .page-head{margin-bottom:18px}
@@ -211,27 +252,129 @@ body.routed #bootMask{display:none}
 .radio-panel{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
 .rx-state{display:flex;align-items:center;gap:14px}
 .rx-ring{width:70px;height:70px;border-radius:50%;border:3px solid var(--border2);display:flex;align-items:center;justify-content:center;
-  font-weight:800;font-size:17px;letter-spacing:.05em;color:var(--muted);background:radial-gradient(circle at 50% 35%,#1b2734,#151c25)}
+  font-weight:800;font-size:17px;letter-spacing:.05em;color:var(--muted);background:radial-gradient(circle at 50% 35%,var(--surface),var(--card))}
 .rx-ring.idle{border-color:var(--border2)}
-.rx-ring.rx{border-color:var(--green);color:var(--green);box-shadow:0 0 24px rgba(52,211,153,.35)}
-.rx-ring.tx{border-color:var(--red);color:var(--red);box-shadow:0 0 24px rgba(248,113,113,.4)}
+.rx-ring.rx{border-color:var(--green);color:var(--green);box-shadow:0 0 24px rgba(var(--glow),.35)}
+.rx-ring.tx{border-color:var(--red);color:var(--red);box-shadow:0 0 24px rgba(var(--danger-rgb),.4)}
 
 /* ===== badges ===== */
 .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:13.5px;font-weight:600}
 .badge .bdot{width:7px;height:7px;border-radius:50%}
-.badge.ok{background:rgba(52,211,153,.13);color:var(--green)} .badge.ok .bdot{background:var(--green)}
-.badge.off{background:rgba(139,152,165,.12);color:var(--muted)} .badge.off .bdot{background:var(--muted)}
-.badge.warn{background:rgba(251,191,36,.13);color:var(--amber)} .badge.warn .bdot{background:var(--amber)}
-.badge.err{background:rgba(248,113,113,.13);color:var(--red)} .badge.err .bdot{background:var(--red)}
+.badge.ok{background:rgba(var(--glow),.13);color:var(--green)} .badge.ok .bdot{background:var(--green)}
+.badge.off{background:rgba(var(--neutral-rgb),.12);color:var(--muted)} .badge.off .bdot{background:var(--muted)}
+.badge.warn{background:rgba(var(--warn-rgb),.13);color:var(--amber)} .badge.warn .bdot{background:var(--amber)}
+.badge.err{background:rgba(var(--danger-rgb),.13);color:var(--red)} .badge.err .bdot{background:var(--red)}
 .badge.tag{background:var(--card2);color:var(--cyan);border:1px solid var(--border)}
 
 /* ===== tables ===== */
 .table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)}
+.nc-scan-wrap{max-height:320px;overflow-y:auto}
+/* WiFi 列表的名称/频段/信号三列整体右移 50px，加密状态列保持原位 */
+#nc-sta-list th:nth-child(-n+3),#nc-sta-list td:nth-child(-n+3){padding-left:64px}
+/* WiFi 名称列再右移 15px */
+#nc-sta-list th:nth-child(1),#nc-sta-list td:nth-child(1){padding-left:79px}
+/* WiFi 名称列占满整行剩余宽度，长名称换行完整显示 */
+#nc-sta-list td:nth-child(1){width:100%;white-space:normal;word-break:break-word}
+/* 表头一律不换行；名称列不再拉伸，避免把后面三列挤到换行 */
+#nc-sta-list th{white-space:nowrap;width:auto}
+/* 未扫描 / 正在扫描等状态提示居中 */
+#nc-sta-list td[colspan]{text-align:center;color:var(--muted)}
+#nc-sta-list{table-layout:auto}
+.nc-sta-scan-area{display:flex;flex-direction:column;align-items:stretch}
+.nc-sta-scan-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.nc-sta-scan-head .basic-sec-title{margin:0}
+.nc-net-list{padding:4px 0}
+.nc-net-row{display:flex;align-items:center;gap:12px;padding:9px 4px;flex-wrap:wrap}
+.nc-net-row + .nc-net-row{border-top:1px solid var(--hairline)}
+.nc-card-grid{display:grid;gap:14px;margin-top:6px}
+.nc-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.nc-card h2.basic-sec-title{margin:0 0 14px}
+.nc-card .grid{gap:14px}
+.nc-card .nc-net-list{padding:2px 0 4px}
+#view-netcfg .nc-card{padding:16px}
+.nc-net-row .nc-net-main{flex:1;min-width:140px;font-size:15px}
+.nc-net-row .nc-net-sub{color:var(--muted);font-size:12px;margin-top:2px}
+/* 当前连接的 WiFi 名称：加大加粗，突出显示 */
+#nc-current-list .nc-net-main > div:first-child{font-size:18px;font-weight:700;color:var(--text)}
+/* 有线网络信息：获取方式 / IP / 子网掩码 / 网关 / DNS 每行一种 */
+#nc-wan-info .nc-net-sub > div,
+#nc-wired-info .nc-net-sub > div{line-height:1.75}
+/* 当前连接：频段与信号同一行，上游网络单独一行靠左 */
+#nc-current-list .nc-net-sub > div{line-height:1.7}
+.nc-net-row .nc-net-actions{display:flex;gap:8px;flex-wrap:wrap}
+/* 网络配置说明文字：字号随基础配置（手机 11.5px / 电脑 14.5px） */
+.nc-hint{font-size:11.5px;color:var(--faint);line-height:1.6;margin:0}
+/* 热点面板里的勾选/单选行：与输入框同高 */
+.nc-ctl-row{display:flex;gap:16px;align-items:center;height:36px;flex-wrap:wrap}
+.field .nc-ctl-row label{display:flex;gap:6px;align-items:center;font-size:14px;font-weight:400;margin:0}
+#nc-sta-list .badge{font-size:11.5px;padding:2px 7px}
+.nc-mode-tabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.eye-eye{width:30px;height:28px;border:0;background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.eye-eye svg{width:18px;height:18px;stroke:currentColor}
+.eye-eye:hover{color:var(--text)}
+.nc-ipfield.hid{display:none}
+/* 无线热点：设置项单行显示，标题在左 */
+.nc-ap-rows{display:flex;flex-direction:column;gap:10px}
+.nc-ap-row{display:flex;align-items:center;gap:12px}
+.nc-ap-label{flex:0 0 88px;font-size:14px;color:var(--text);font-weight:600;text-align:left}
+.nc-ap-row > .inp,.nc-ap-row > .nc-ctl-row{flex:1 1 auto;min-width:0}
+.nc-ap-row > .pw-wrap{flex:1 1 auto;width:100%;min-width:0}
+.nc-ap-row > .pw-wrap .inp{flex:1 1 auto;width:auto;min-width:0}
+/* 名称与频段/信号同行的次要信息 */
+.nc-inline-sub{font-size:12.5px;font-weight:400;color:var(--muted);margin-left:10px;white-space:nowrap}
+@media (max-width:860px){
+  /* 手机版：热点设置项标题与内容同一行，标题固定宽度 */
+  .nc-ap-row{gap:10px}
+  .nc-ap-label{flex:0 0 76px;font-size:13.5px}
+  /* 手机版：频宽选择框宽度减半（可用宽度 = 100% - 标题76px - 间距10px） */
+  .nc-ap-row > #nc-ap-width{flex:0 0 calc((100% - 86px) / 2);width:calc((100% - 86px) / 2);max-width:calc((100% - 86px) / 2)}
+  .nc-net-row .nc-net-main{min-width:120px}
+  /* 手机版：网络配置与基础配置一致的紧凑卡片 */
+  #view-netcfg{max-width:100%;overflow-x:hidden}
+  #view-netcfg .nc-card-grid{grid-template-columns:minmax(0,1fr)}
+  #view-netcfg .nc-card,
+  #view-netcfg #netpanel-ap.card{padding:12px;border-radius:12px;box-sizing:border-box;width:100%;max-width:100%;min-width:0}
+  #view-netcfg .nc-card-grid{gap:10px}
+  #view-netcfg .nc-card h2.basic-sec-title{margin:0 0 10px}
+  #view-netcfg .grid,
+  #view-netcfg .nc-ap-grid{gap:8px}
+  #view-netcfg .nc-mode-tabs{gap:6px;margin-bottom:10px}
+  #view-netcfg .nc-mode-tabs .btn{flex:1 1 0;justify-content:center;padding:8px 6px}
+  #view-netcfg .nc-net-row{gap:8px;padding:8px 2px}
+  #view-netcfg .nc-net-row .nc-net-main{font-size:14px}
+  #view-netcfg .nc-net-row .nc-net-sub{font-size:11.5px}
+  /* 手机版：当前连接 WiFi 名称加大加粗 */
+  #view-netcfg #nc-current-list .nc-net-main > div:first-child{font-size:17px;font-weight:700}
+  /* 手机版：有线网络信息每行一种，行距略紧 */
+  #view-netcfg #nc-wan-info .nc-net-sub > div,
+  #view-netcfg #nc-wired-info .nc-net-sub > div{line-height:1.7}
+  #view-netcfg .nc-net-row .nc-net-actions{width:100%}
+  #view-netcfg .nc-net-row .nc-net-actions .btn{flex:1 1 auto;justify-content:center}
+  #view-netcfg .nc-ctl-row{height:36px;gap:12px}
+  #view-netcfg .nc-ctl-row label{font-size:14px}
+  /* 扫描列表：手机版改为两行列表（名称一行，频段/信号/加密第二行小字） */
+  #view-netcfg .nc-sta-scan-area{min-width:0}
+  #view-netcfg .nc-scan-wrap{max-height:52vh;width:100%;max-width:100%;-webkit-overflow-scrolling:touch}
+  #view-netcfg #nc-sta-list{display:block;table-layout:auto;min-width:0;width:100%}
+  #view-netcfg #nc-sta-list thead{display:none}
+  #view-netcfg #nc-sta-list tbody{display:block}
+  #view-netcfg #nc-sta-list tbody tr{display:block;padding:9px 2px;border-bottom:1px solid var(--border);text-align:right}
+  #view-netcfg #nc-sta-list tbody tr:last-child{border-bottom:none}
+  #view-netcfg #nc-sta-list tbody td{display:inline;padding:0;border:none;white-space:normal;overflow:visible;text-overflow:clip;
+    font-size:11.5px;color:var(--muted);line-height:1.5}
+  #view-netcfg #nc-sta-list tbody td:nth-child(1){display:block;font-size:15.5px;font-weight:600;color:var(--text);text-align:left;
+    margin-bottom:3px;padding-left:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #view-netcfg #nc-sta-list tbody td:nth-child(2),
+  #view-netcfg #nc-sta-list tbody td:nth-child(3){margin-right:10px}
+  #view-netcfg #nc-sta-list tbody td[colspan]{display:block;font-size:13px;color:var(--muted);padding:6px 2px;text-align:center}
+  #view-netcfg #nc-sta-list .badge{font-size:10.5px;padding:1px 5px;vertical-align:middle}
+  #view-netcfg #netcfg-upstream{font-size:12px}
+}
 table{width:100%;border-collapse:collapse;min-width:520px}
 th{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--text);text-align:left;padding:11px 14px;border-bottom:1px solid var(--border);font-weight:600}
 td{padding:12px 14px;border-bottom:1px solid var(--border);font-size:15px}
 tr:last-child td{border-bottom:none}
-tr:hover td{background:rgba(255,255,255,.015)}
+tr:hover td{background:var(--row-hover)}
 .mono{font-family:var(--mono);font-size:14.5px}
 
 /* ===== buttons ===== */
@@ -241,8 +384,8 @@ tr:hover td{background:rgba(255,255,255,.015)}
 /* 系统操作：统一按钮高度，避免 a 与 button 的默认行高差异 */
 #view-system .sys-ops > .btn{height:36px}
 .btn:active{transform:translateY(1px)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#06231a}
-.btn.primary:hover{filter:brightness(1.08);color:#06231a}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{filter:brightness(1.08);color:var(--on-accent)}
 .btn.danger{color:var(--red)} .btn.danger:hover{border-color:var(--red)}
 .btn.sm{padding:5px 10px;font-size:13.5px}
 .btn.ghost{background:transparent}
@@ -252,14 +395,14 @@ tr:hover td{background:rgba(255,255,255,.015)}
 .log-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .chip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;border:1px solid var(--border);
   background:var(--card);color:var(--muted);font-size:14.5px;cursor:pointer;transition:.14s}
-.chip.active{color:var(--accent);border-color:var(--accent);background:rgba(52,211,153,.08)}
-.logbox{background:#0a0e13;border:1px solid var(--border);border-radius:var(--radius);padding:14px;height:62vh;overflow-y:auto;
+.chip.active{color:var(--accent);border-color:var(--accent);background:rgba(var(--glow),.08)}
+.logbox{background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius);padding:14px;height:62vh;overflow-y:auto;
   font-family:var(--mono);font-size:14px;line-height:1.7}
 .logline{white-space:pre-wrap;word-break:break-all}
 /* 电台信息：手机版日志字体缩小并加宽、加高显示框（收紧内边距、向卡片边缘扩展） */
 @media (max-width:860px){ #view-radio .logbox{font-size:11.5px;line-height:1.55;padding:8px 4px;margin:0 -8px;height:63vh!important} }
-.lg-I{color:#b3bec9} .lg-M{color:var(--cyan)} .lg-W{color:var(--amber)} .lg-E{color:var(--red)} .lg-D{color:var(--faint)}
-.log-ts{color:#8a97a4}
+.lg-I{color:var(--log-info)} .lg-M{color:var(--cyan)} .lg-W{color:var(--amber)} .lg-E{color:var(--red)} .lg-D{color:var(--faint)}
+.log-ts{color:var(--log-ts)}
 
 /* ===== config editor ===== */
 .cfg-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
@@ -273,14 +416,14 @@ tr:hover td{background:rgba(255,255,255,.015)}
 .cfg-item:hover{border-color:var(--accent)}
 .cfg-item .n{font-family:var(--mono);font-weight:600;font-size:15px}
 .cfg-item .p{font-size:13px;color:var(--faint);font-family:var(--mono);margin-top:6px;word-break:break-all}
-.editor textarea{width:100%;height:60vh;background:#0a0e13;border:1px solid var(--border);border-radius:var(--radius);
+.editor textarea{width:100%;height:60vh;background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius);
   color:var(--text);font-family:var(--mono);font-size:14.5px;padding:14px;resize:vertical;line-height:1.6}
 .editor-actions{display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap}
 .editor .hint{color:var(--muted);font-size:14px}
 .cfg-search{width:100%;max-width:340px;margin-bottom:12px;padding:9px 12px;background:var(--card2);
   border:1px solid var(--border2);border-radius:9px;color:var(--text);font-size:15px;font-family:inherit}
 .cfg-search:focus{outline:none;border-color:var(--accent)}
-.cfg-sec-text{width:100%;min-height:120px;background:#0a0e13;border:1px solid var(--border);border-radius:var(--radius);
+.cfg-sec-text{width:100%;min-height:120px;background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius);
   color:var(--text);font-family:var(--mono);font-size:14.5px;padding:12px;resize:vertical;line-height:1.6;overflow:hidden}
 .cfg-sec-text:focus{outline:none;border-color:var(--accent)}
 /* 配置卡片标题：统一居左 */
@@ -356,8 +499,8 @@ tr:hover td{background:rgba(255,255,255,.015)}
 /* 自定义状态下地址框后的清空按钮 */
 .cfg-gw-addr-row{display:flex;align-items:center;gap:6px;min-width:0}
 .cfg-gw-addr-row .inp{flex:none}
-.cfg-gw-addr-del{flex:none;width:16px;height:16px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1;color:var(--red);border-color:var(--red);background:rgba(248,113,113,.14)}
-.cfg-gw-addr-del:hover{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.26)}
+.cfg-gw-addr-del{flex:none;width:16px;height:16px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1;color:var(--red);border-color:var(--red);background:rgba(var(--danger-rgb),.14)}
+.cfg-gw-addr-del:hover{color:var(--red);border-color:var(--red);background:rgba(var(--danger-rgb),.26)}
 /* DMR Network 的「启用」：勾选框，独占一行 */
 #cfgSections .cfg-gw-en{grid-column:1/-1}
 #cfgSections .cfg-more-toggle{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:4px;padding:9px 0 2px;font-size:13px;color:var(--muted);cursor:pointer;border-top:1px dashed var(--border2);user-select:none}
@@ -377,16 +520,16 @@ tr:hover td{background:rgba(255,255,255,.015)}
 #cfgSections .rw-title{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;color:var(--text);line-height:1.3}
 #cfgSections .rw-help-btn{flex:none;width:16px;height:16px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1;color:var(--muted);border-color:var(--border2);background:transparent}
 #cfgSections .rw-help-btn:hover{color:var(--cyan);border-color:var(--cyan)}
-#cfgSections .rw-help{font-size:12px;line-height:1.65;color:var(--muted);background:rgba(148,163,184,.08);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+#cfgSections .rw-help{font-size:12px;line-height:1.65;color:var(--muted);background:var(--help-bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
 #cfgSections .rw-row{display:flex;align-items:center;gap:6px;min-width:0}
 #cfgSections .rw-row > .inp{flex:1 1 auto;min-width:0}
 #cfgSections .rw-acts{flex:none;width:44px;display:flex;gap:4px;justify-content:flex-start}
 #cfgSections .rw-acts .btn{width:20px;height:20px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-family:var(--mono);line-height:1}
-#cfgSections .rw-acts .rw-add{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.12)}
-#cfgSections .rw-acts .rw-add:hover{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.24)}
-#cfgSections .rw-acts .rw-del{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.14)}
-#cfgSections .rw-acts .rw-del:hover{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.26)}
-#cfgSections .inp::placeholder{color:#7c8698;opacity:1}
+#cfgSections .rw-acts .rw-add{color:var(--green);border-color:var(--green);background:rgba(var(--glow),.12)}
+#cfgSections .rw-acts .rw-add:hover{color:var(--green);border-color:var(--green);background:rgba(var(--glow),.24)}
+#cfgSections .rw-acts .rw-del{color:var(--red);border-color:var(--red);background:rgba(var(--danger-rgb),.14)}
+#cfgSections .rw-acts .rw-del:hover{color:var(--red);border-color:var(--red);background:rgba(var(--danger-rgb),.26)}
+#cfgSections .inp::placeholder{color:var(--placeholder);opacity:1}
 /* 电脑版主机配置页：所有输入框宽度缩为 70%（缩小 30%） */
 @media (min-width:861px){
   #cfgSections[data-cfg="host"] .field > .inp,
@@ -408,7 +551,7 @@ label small{font-size:0.78em;color:var(--faint);font-weight:400;letter-spacing:.
 .uart-custom{display:flex;gap:6px;margin-top:6px}
 .uart-custom .inp{flex:1 1 auto;min-width:0}
 /* 端口自定义删除按钮（位于标题右侧，红色背景文字按钮） */
-.port-del-btn{background:#ff4d4f;color:#fff;border:none;border-radius:5px;
+.port-del-btn{background:var(--red);color:#fff;border:none;border-radius:5px;
   font-size:13px;line-height:1;cursor:pointer;padding:5px 10px;margin-left:auto;
   display:inline-flex;align-items:center;align-self:center}
 .inp{width:100%;height:36px;box-sizing:border-box;background:var(--card2);border:1px solid var(--border2);border-radius:9px;color:var(--text);
@@ -435,7 +578,7 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 .port-arrow:hover::after{border-top-color:var(--text)}
 .port-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--card2);
   border:1px solid var(--border2);border-radius:9px;max-height:220px;overflow-y:auto;z-index:200;
-  display:none;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+  display:none;box-shadow:var(--shadow-sm)}
 .port-dropdown.show{display:block}
 .port-dropdown .port-opt{padding:9px 12px;cursor:pointer;font-size:15px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* I2C 地址下拉：宽度按内容展开，右侧显示设备说明 */
@@ -485,15 +628,15 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 .dmr-id-row .dmr-essid{flex:none;width:75px}
 /* 行内按钮：保存 + 添加/删除（添加/删除约为原添加按钮一半大小，并排放在一起） */
 .dmr-id-row .dmr-save{flex:none;align-self:flex-end;height:24px;padding:0 7px;margin-bottom:6px;font-size:12px;
-  color:var(--green);border-color:var(--green);background:rgba(52,211,153,.12)}
-.dmr-id-row .dmr-save:not(:disabled):hover{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.24)}
+  color:var(--green);border-color:var(--green);background:rgba(var(--glow),.12)}
+.dmr-id-row .dmr-save:not(:disabled):hover{color:var(--green);border-color:var(--green);background:rgba(var(--glow),.24)}
 .dmr-id-row .dmr-save:disabled{color:var(--faint);border-color:var(--border);background:var(--card);opacity:.55;cursor:default}
 .dmr-acts{flex:none;display:flex;gap:4px;align-self:flex-end;margin-bottom:10px}
 .dmr-acts .btn{width:20px;height:20px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-family:var(--mono);line-height:1}
-.dmr-acts .dmr-add-sm{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.12)}
-.dmr-acts .dmr-add-sm:hover{color:var(--green);border-color:var(--green);background:rgba(52,211,153,.24)}
-.dmr-acts .dmr-del{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.14)}
-.dmr-acts .dmr-del:hover{color:var(--red);border-color:var(--red);background:rgba(248,113,113,.26)}
+.dmr-acts .dmr-add-sm{color:var(--green);border-color:var(--green);background:rgba(var(--glow),.12)}
+.dmr-acts .dmr-add-sm:hover{color:var(--green);border-color:var(--green);background:rgba(var(--glow),.24)}
+.dmr-acts .dmr-del{color:var(--red);border-color:var(--red);background:rgba(var(--danger-rgb),.14)}
+.dmr-acts .dmr-del:hover{color:var(--red);border-color:var(--red);background:rgba(var(--danger-rgb),.26)}
 
 /* ===== files ===== */
 .file-group{margin-bottom:20px}
@@ -505,13 +648,13 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 .fitem .ic svg{width:15px;height:15px;stroke:var(--cyan)}
 .fitem .fn{font-family:var(--mono);font-size:14px;word-break:break-all}
 .fitem .fs{font-size:12.5px;color:var(--faint);font-family:var(--mono)}
-.viewer{background:#0a0e13;border:1px solid var(--border);border-radius:var(--radius);padding:14px;max-height:55vh;overflow:auto;
+.viewer{background:var(--code-bg);border:1px solid var(--border);border-radius:var(--radius);padding:14px;max-height:55vh;overflow:auto;
   font-family:var(--mono);font-size:14px;white-space:pre-wrap;word-break:break-all;margin-top:12px}
 
 /* ===== system ===== */
 .sys-grid{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
 .bar{height:7px;border-radius:99px;background:var(--card2);overflow:hidden;margin-top:8px}
-.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#0ea5e9);border-radius:99px;transition:width .5s}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:99px;transition:width .5s}
 .sys-table{width:100%;border-collapse:collapse;min-width:0}
 .sys-table td{padding:9px 2px;border-bottom:1px solid var(--border);font-size:15px}
 .sys-table td:first-child{color:var(--muted);width:150px}
@@ -569,7 +712,7 @@ select.inp{appearance:auto;-webkit-appearance:auto}
 #view-cal h2{font-size:17px}
 /* 误码率进度条：满格=5% 误码率（与折线图 Y 轴上限一致） */
 .berbar{position:relative;height:20px;background:var(--card2);border:1px solid var(--border2);border-radius:999px;overflow:hidden;margin-top:8px}
-.berbar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),#0ea5e9);border-radius:999px;transition:width .5s}
+.berbar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--accent2));border-radius:999px;transition:width .5s}
 .bernone{font-family:var(--mono);font-size:18px;color:var(--muted);line-height:20px;margin-top:8px}
 #cal-mon-time,#cal-ber-val,#cal-ber-avg-val{font-size:18px;color:var(--muted)}
 input.num{background:var(--card2);border:1px solid var(--border2);border-radius:8px;color:var(--text);
@@ -580,7 +723,7 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .switch input{opacity:0;width:0;height:0}
 .switch i{position:absolute;inset:0;background:var(--card2);border:1px solid var(--border2);border-radius:99px;cursor:pointer;transition:.2s}
 .switch i::before{content:'';position:absolute;width:17px;height:17px;left:3px;top:3px;border-radius:50%;background:var(--muted);transition:.2s}
-.switch input:checked+i{background:rgba(52,211,153,.22);border-color:var(--accent)}
+.switch input:checked+i{background:rgba(var(--glow),.22);border-color:var(--accent)}
 .switch input:checked+i::before{transform:translateX(21px);background:var(--accent)}
 
 /* 最近通联：点击呼号查看该 ID 的历史记录（只显示呼号/通话组/时间） */
@@ -588,7 +731,7 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .lh-call[data-lhi]:hover{color:var(--cyan)}
 .lh-hist-tip{position:fixed;z-index:9999;display:none;max-width:440px;max-height:60vh;overflow-y:auto;
   padding:12px 16px;border-radius:14px;background:var(--card2);border:1px solid var(--border2);
-  box-shadow:0 16px 44px rgba(0,0,0,.55);font-size:15px;line-height:1.6;color:var(--text);text-align:left}
+  box-shadow:var(--shadow-lg);font-size:15px;line-height:1.6;color:var(--text);text-align:left}
 .lh-hist-tip.show{display:block}
 .lh-hist-tip .hd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px;font-weight:800;white-space:nowrap}
 .lh-hist-tip .hd i{font-style:normal;font-size:12px;color:var(--faint);font-weight:600}
@@ -654,8 +797,8 @@ input.num:focus{outline:none;border-color:var(--accent)}
 
 /* --- 基础值（拷贝自重建前的裸基础层）--- */
 .live-card{display:block;padding:20px}
-.live-flag{width:80px;height:53px;flex:none;border-radius:6px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.45);
-  display:flex;align-items:center;justify-content:center;background:#1b2734}
+.live-flag{width:80px;height:53px;flex:none;border-radius:6px;overflow:hidden;box-shadow:var(--shadow-md);
+  display:flex;align-items:center;justify-content:center;background:var(--surface)}
 .live-flag svg{width:100%;height:100%;display:block}
 .live-flag .flag-emoji{font-size:38px;line-height:1;font-family:'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif}
 .live-flag .flag-img,.lh-flag .flag-img{width:100%;height:100%;object-fit:cover;display:block}
@@ -673,15 +816,15 @@ input.num:focus{outline:none;border-color:var(--accent)}
 
 /* 注：PC 专用覆盖值里已包含 .lh-list/.lh-item/.lh-item::before/.lh-item.tx::before/.lh-mode-badge/.lh-ber,.lh-rssi 的完整值，基础值里的重复行已删掉 */
 .lh-flag{grid-column:1;width:52px;height:22px;border-radius:4px;overflow:hidden;
-  display:flex;align-items:center;justify-content:flex-start;background:#1b2734}
+  display:flex;align-items:center;justify-content:flex-start;background:var(--surface)}
 .lh-flag svg{width:100%;height:100%;display:block}
 .lh-flag .flag-emoji{font-size:15px;line-height:1;font-family:'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif}
 .lh-main,.lh-top,.lh-sub,.lh-right{display:contents}
 .lh-call{grid-column:2;width:100%;white-space:nowrap;font-size:15px;font-weight:800;color:var(--text);letter-spacing:.02em;text-align:center}
 .lh-id{grid-column:3;width:100%;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap;text-align:center}
 .lh-dir{grid-column:4;font-size:10.5px;font-weight:800;padding:1px 5px;border-radius:5px;letter-spacing:.04em;line-height:1.5;justify-self:center}
-.lh-dir.rx{color:var(--green);background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3)}
-.lh-dir.tx{color:var(--amber);background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3)}
+.lh-dir.rx{color:var(--green);background:rgba(var(--glow),.12);border:1px solid rgba(var(--glow),.3)}
+.lh-dir.tx{color:var(--amber);background:rgba(var(--warn-rgb),.12);border:1px solid rgba(var(--warn-rgb),.3)}
 .lh-addr{grid-column:5;width:144px;min-width:144px;max-width:144px;overflow:hidden;white-space:nowrap;position:relative;text-align:center}
 .lh-addr-text{display:inline-block;white-space:nowrap}
 .lh-addr.marquee .lh-addr-text{animation:lhmarquee 6s linear infinite;padding-right:24px}
@@ -697,7 +840,7 @@ input.num:focus{outline:none;border-color:var(--accent)}
 .lh-geo:hover{opacity:1;color:var(--cyan)}
 .lh-geo svg{width:16px;height:16px}
 .lh-geo-slot{flex:0 0 19px;width:19px;display:inline-flex;align-items:center;justify-content:center;margin-right:-10px}
-.lh-geo-tip{position:fixed;z-index:9999;display:none;max-width:520px;padding:18px 22px;border-radius:14px;background:var(--card2);border:1px solid var(--border2);box-shadow:0 16px 44px rgba(0,0,0,.55);font-size:16px;line-height:1.75;color:var(--text);white-space:normal;text-align:left}
+.lh-geo-tip{position:fixed;z-index:9999;display:none;max-width:520px;padding:18px 22px;border-radius:14px;background:var(--card2);border:1px solid var(--border2);box-shadow:var(--shadow-lg);font-size:16px;line-height:1.75;color:var(--text);white-space:normal;text-align:left}
 .lh-geo-tip.show{display:block}
 .lh-geo-tip .k{color:var(--faint);font-size:13px;margin-right:6px}
 .lh-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--faint);font-size:14px}
@@ -734,7 +877,7 @@ input.num:focus{outline:none;border-color:var(--accent)}
 
 /* ===== 最近通联 PC 覆盖 ===== */
 .lh-list{display:flex ;flex-direction:column ;height:70vh ;overflow-y:auto ;overflow-x:hidden ;
-  background:#121922 ;border:1px solid var(--border) ;border-radius:12px }
+  background:var(--list-bg) ;border:1px solid var(--border) ;border-radius:12px }
 .lh-card{padding:12px }
 .lh-item{display:grid ;grid-template-columns:auto 82px 56px minmax(0,1fr) 144px 78px repeat(5,minmax(0,1fr)) ;
   align-items:center ;gap:6px ;padding:10px 14px ;min-width:0 ;
@@ -805,8 +948,8 @@ th{font-size:12px}
 
 /* --- 基础值（拷贝自重建前的裸基础层）--- */
 .live-card{display:block;padding:20px}
-.live-flag{width:80px;height:53px;flex:none;border-radius:6px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.45);
-  display:flex;align-items:center;justify-content:center;background:#1b2734}
+.live-flag{width:80px;height:53px;flex:none;border-radius:6px;overflow:hidden;box-shadow:var(--shadow-md);
+  display:flex;align-items:center;justify-content:center;background:var(--surface)}
 .live-flag svg{width:100%;height:100%;display:block}
 .live-flag .flag-emoji{font-size:38px;line-height:1;font-family:'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif}
 .live-flag .flag-img,.lh-flag .flag-img{width:100%;height:100%;object-fit:cover;display:block}
@@ -823,25 +966,25 @@ th{font-size:12px}
 .lm .lv{font-family:var(--mono);font-size:16px;font-weight:700}
 
 .lh-list{display:flex;flex-direction:column;height:70vh;overflow-y:auto;overflow-x:hidden;
-  background:#121922;border:1px solid var(--border);border-radius:12px}
+  background:var(--list-bg);border:1px solid var(--border);border-radius:12px}
 .lh-item{display:grid;grid-template-columns:auto 82px 56px minmax(0,1fr) 144px 78px repeat(4,minmax(0,1fr));
   align-items:center;gap:6px;padding:10px 14px;min-width:0;
   border-bottom:1px solid var(--border);transition:background .14s;position:relative}
 .lh-item:last-child{border-bottom:0}
-.lh-item:hover{background:#17212b}
+.lh-item:hover{background:var(--hover)}
 .lh-item::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;
   background:var(--green);opacity:.85}
 .lh-item.tx::before{background:var(--amber)}
 .lh-flag{grid-column:1;width:52px;height:22px;border-radius:4px;overflow:hidden;
-  display:flex;align-items:center;justify-content:flex-start;background:#1b2734}
+  display:flex;align-items:center;justify-content:flex-start;background:var(--surface)}
 .lh-flag svg{width:100%;height:100%;display:block}
 .lh-flag .flag-emoji{font-size:15px;line-height:1;font-family:'Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif}
 .lh-main,.lh-top,.lh-sub,.lh-right{display:contents}
 .lh-call{grid-column:2;width:100%;white-space:nowrap;font-size:15px;font-weight:800;color:var(--text);letter-spacing:.02em;text-align:center}
 .lh-id{grid-column:3;width:100%;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap;text-align:center}
 .lh-dir{grid-column:4;font-size:10.5px;font-weight:800;padding:1px 5px;border-radius:5px;letter-spacing:.04em;line-height:1.5;justify-self:center}
-.lh-dir.rx{color:var(--green);background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3)}
-.lh-dir.tx{color:var(--amber);background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3)}
+.lh-dir.rx{color:var(--green);background:rgba(var(--glow),.12);border:1px solid rgba(var(--glow),.3)}
+.lh-dir.tx{color:var(--amber);background:rgba(var(--warn-rgb),.12);border:1px solid rgba(var(--warn-rgb),.3)}
 .lh-addr{grid-column:5;width:144px;min-width:144px;max-width:144px;overflow:hidden;white-space:nowrap;position:relative;text-align:center}
 .lh-addr-text{display:inline-block;white-space:nowrap}
 .lh-addr.marquee .lh-addr-text{animation:lhmarquee 6s linear infinite;padding-right:24px}
@@ -859,7 +1002,7 @@ th{font-size:12px}
 .lh-geo:hover{opacity:1;color:var(--cyan)}
 .lh-geo svg{width:16px;height:16px}
 .lh-geo-slot{flex:0 0 19px;width:19px;display:inline-flex;align-items:center;justify-content:center;margin-right:-10px}
-.lh-geo-tip{position:fixed;z-index:9999;display:none;max-width:520px;padding:18px 22px;border-radius:14px;background:var(--card2);border:1px solid var(--border2);box-shadow:0 16px 44px rgba(0,0,0,.55);font-size:16px;line-height:1.75;color:var(--text);white-space:normal;text-align:left}
+.lh-geo-tip{position:fixed;z-index:9999;display:none;max-width:520px;padding:18px 22px;border-radius:14px;background:var(--card2);border:1px solid var(--border2);box-shadow:var(--shadow-lg);font-size:16px;line-height:1.75;color:var(--text);white-space:normal;text-align:left}
 .lh-geo-tip.show{display:block}
 .lh-geo-tip .k{color:var(--faint);font-size:13px;margin-right:6px}
 .lh-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--faint);font-size:14px}
@@ -871,12 +1014,12 @@ th{font-size:12px}
   header{position:static ;height:auto ;padding:10px 16px 8px ;background:transparent ;border-bottom:0 ;backdrop-filter:none ;-webkit-backdrop-filter:none }
   /* 手机版抽屉：高度随菜单内容自适应，内容超出时再滚动 */
   aside{top:0 ;bottom:auto ;height:auto ;max-height:100vh ;z-index:60 ;transform:translateX(-100%) ;width:190px ;border-radius:0 0 14px 0 }
-  aside.open{transform:translateX(0) ;box-shadow:20px 0 60px rgba(0,0,0,.5) }
+  aside.open{transform:translateX(0) ;box-shadow:var(--shadow-side) }
   main{max-width:100% ;margin:0 ;padding:14px 14px 40px }
   /* 手机版按钮：只显示图标，未登录为锁形、登录后为三条杠菜单图标 */
   .menuBtn{display:inline-flex;width:36px;height:36px;padding:0;border-radius:10px;
-    border:1px solid rgba(52,211,153,.38);color:var(--accent);
-    background:linear-gradient(135deg,rgba(52,211,153,.18),rgba(52,211,153,.05))}
+    border:1px solid rgba(var(--glow),.38);color:var(--accent);
+    background:linear-gradient(135deg,rgba(var(--glow),.18),rgba(var(--glow),.05))}
   .menuBtn svg{width:18px;height:18px}
   .menuBtn .menuBtn-label{display:none}
   .menuBtn .ic-menu{display:none}
@@ -921,7 +1064,7 @@ th{font-size:12px}
     display:grid ;grid-template-columns:40px 1fr ;grid-template-rows:auto auto ;
     gap:3px 10px ;padding:10px 12px ;position:relative ;
     border:1px solid var(--border) ;border-radius:12px ;
-    background:linear-gradient(180deg,#18212b,#151c25) }
+    background:linear-gradient(180deg,var(--item-a),var(--card)) }
   .lh-item::before{display:none }
   .lh-call,.lh-id,.lh-dir,.lh-addr,.lh-tg,.lh-slot,.lh-mode-pc,.lh-dur,.lh-time{
     grid-column:auto ;grid-row:auto ;margin-left:0 ;padding-left:0 ;padding-right:0 ;
@@ -1238,6 +1381,28 @@ th{font-size:12px}
   #view-adv .btn{font-size:15.5px}
   #view-basic .port-dropdown .port-opt,
   #view-config .port-dropdown .port-opt{font-size:16px}
+  /* 网络配置：电脑版字体与基础配置完全一致 */
+  #view-netcfg .page-head h1{font-size:24px}
+  #view-netcfg .page-head p{font-size:15.5px}
+  #view-netcfg .field label{font-size:16px}
+  #view-netcfg .inp{font-size:15.5px;height:40px;padding:9px 13px}
+  #view-netcfg .basic-sec-title{font-size:17.5px}
+  #view-netcfg .nc-hint{font-size:14.5px;color:var(--text)}
+  #view-netcfg .nc-ctl-row{height:40px}
+  #view-netcfg .nc-ctl-row label{font-size:16px}
+  #view-netcfg .btn{font-size:15.5px}
+  #view-netcfg .nc-net-row .nc-net-main{font-size:16px}
+  #view-netcfg .nc-net-row .nc-net-sub{font-size:13.5px}
+  #view-netcfg #netcfg-upstream{font-size:13.5px}
+  #view-netcfg #nc-sta-list th{font-size:14px}
+  #view-netcfg #nc-sta-list td{font-size:15.5px}
+  #view-netcfg #nc-sta-list td:nth-child(1){font-size:17px;font-weight:600}
+  #view-netcfg #nc-sta-list .badge{font-size:13px;padding:3px 9px}
+  #ncNetModal .field label,#ncJoinModal .field label{font-size:16px}
+  #ncNetModal .inp,#ncJoinModal .inp{font-size:15.5px;height:40px;padding:9px 13px}
+  #ncNetModal .btn,#ncJoinModal .btn{font-size:15.5px}
+  #ncNetModal #ncNetInfo{font-size:13.5px}
+  #ncJoinBandChoice label{font-size:16px}
 
   /* 校准页 */
   #view-cal .page-head h1{font-size:24px}
@@ -1341,18 +1506,20 @@ th{font-size:12px}
 
 /* ===== toast ===== */
 #toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.96);z-index:100;
-  background:#0f1a16;border:1px solid var(--green);color:var(--text);padding:13px 22px;border-radius:12px;font-size:15px;
-  opacity:0;transition:.25s;box-shadow:0 10px 36px rgba(0,0,0,.5);display:flex;gap:9px;align-items:center}
+  background:var(--toast-ok-bg);border:1px solid var(--green);color:var(--text);padding:13px 22px;border-radius:12px;font-size:15px;
+  opacity:0;transition:.25s;box-shadow:var(--shadow-lg);display:flex;gap:9px;align-items:center;
+  /* 常驻 DOM 且位于屏幕正中：必须不吃点击，否则隐藏时仍会挡住下方按钮 */
+  pointer-events:none}
 #toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
-#toast.err{border-color:var(--red);background:#1a0f12}
+#toast.err{border-color:var(--red);background:var(--toast-err-bg)}
 
 /* ===== 确认弹窗 / API Key 弹窗 ===== */
 #uiModal,#tgKeyModal,#xlxModal,#otaModal,#fwModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
-  background:rgba(3,6,9,.72);backdrop-filter:blur(3px)}
+  background:var(--modal-mask);backdrop-filter:blur(3px)}
 #uiModal.show,#tgKeyModal.show,#xlxModal.show,#otaModal.show,#fwModal.show{display:flex}
 #uiModal .um-box,#tgKeyModal .um-box,#xlxModal .um-box,#otaModal .um-box,#fwModal .um-box{width:min(470px,100%);max-height:82vh;display:flex;flex-direction:column;
   background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);
-  box-shadow:0 18px 60px rgba(0,0,0,.65);overflow:hidden;animation:umIn .16s ease}
+  box-shadow:var(--shadow-xl);overflow:hidden;animation:umIn .16s ease}
 #xlxModal .um-box{width:min(860px,100%)}
 #otaModal .um-box,#fwModal .um-box{width:min(560px,100%)}
 @keyframes umIn{from{opacity:0;transform:translateY(6px) scale(.99)}to{opacity:1;transform:none}}
@@ -1367,14 +1534,28 @@ th{font-size:12px}
 #uiModal .um-foot,#tgKeyModal .um-foot,#xlxModal .um-foot,#otaModal .um-foot,#fwModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
 /* 确认框要盖在更新弹窗之上，否则从更新弹窗点安装时看不到确认提示 */
 #uiModal{z-index:200}
+/* 网络配置弹窗：沿用统一弹窗外观，但内容是表单，不套用预换行样式 */
+#ncNetModal,#ncJoinModal{position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;padding:20px;
+  background:var(--modal-mask2);backdrop-filter:blur(3px)}
+#ncNetModal.show,#ncJoinModal.show{display:flex}
+#ncNetModal .um-box,#ncJoinModal .um-box{width:min(560px,100%);max-height:82vh;display:flex;flex-direction:column;
+  background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);
+  box-shadow:var(--shadow-xl);overflow:hidden;animation:umIn .16s ease}
+#ncJoinModal .um-box{width:min(480px,100%)}
+#ncNetModal .um-head,#ncJoinModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
+#ncNetModal .um-body,#ncJoinModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:normal;overflow-y:auto;word-break:break-word}
+#ncNetModal .um-foot,#ncJoinModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
+#ncNetInfo{margin-bottom:10px}
+#ncJoinBandChoice{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+#ncJoinBandChoice label{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--text);cursor:pointer}
 
 /* ===== 菜单密码弹窗 ===== */
 #authModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;
-  background:rgba(3,6,9,.72);backdrop-filter:blur(3px)}
+  background:var(--modal-mask);backdrop-filter:blur(3px)}
 #authModal.show{display:flex}
 #authModal .um-box{width:min(420px,100%);max-height:82vh;display:flex;flex-direction:column;
   background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);
-  box-shadow:0 18px 60px rgba(0,0,0,.65);overflow:hidden;animation:umIn .16s ease}
+  box-shadow:var(--shadow-xl);overflow:hidden;animation:umIn .16s ease}
 #authModal .um-head{padding:14px 18px;border-bottom:1px solid var(--border);font-weight:700;font-size:16px;color:var(--text)}
 #authModal .um-body{padding:16px 18px;color:var(--muted);font-size:14.5px;line-height:1.7;white-space:normal;overflow-y:auto}
 #authModal .um-foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 18px;border-top:1px solid var(--border);background:var(--bg2)}
@@ -1384,7 +1565,7 @@ th{font-size:12px}
 @keyframes authShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
 
 /* ===== DMR 实时语音 ===== */
-.audio-card{padding:12px 16px;background:linear-gradient(135deg,rgba(52,211,153,.055),transparent 55%),var(--card)}
+.audio-card{padding:12px 16px;background:linear-gradient(135deg,rgba(var(--glow),.055),transparent 55%),var(--card)}
 /* 电脑版：全部信息一行——标题、按钮、状态徽标、通联信息依次排开 */
 .audio-row{display:grid;grid-template-columns:auto auto auto 1fr;align-items:center;gap:8px 10px}
 .audio-title{grid-area:1/1/2/2;display:flex;align-items:center;gap:9px;font-size:15px;font-weight:700;white-space:nowrap}
@@ -1392,7 +1573,7 @@ th{font-size:12px}
 /* 状态徽标紧挨在按钮右侧；挂起时可点击恢复播音 */
 .audio-badge{grid-area:1/3/2/4;justify-self:start;display:flex;align-items:center}
 #dmrAudioBadge{border:0;font:inherit;cursor:default}
-.audio-card.resume-need #dmrAudioBadge{cursor:pointer;box-shadow:0 0 0 1px rgba(251,191,36,.5)}
+.audio-card.resume-need #dmrAudioBadge{cursor:pointer;box-shadow:0 0 0 1px rgba(var(--warn-rgb),.5)}
 .audio-now{grid-area:1/4/2/5;display:flex;align-items:baseline;justify-content:flex-start;gap:9px;min-width:0;overflow:hidden}
 #dmrAudioCall{font-family:var(--mono);font-size:17px;font-weight:800;white-space:nowrap}
 #dmrAudioTarget{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1404,8 +1585,8 @@ th{font-size:12px}
 /* 按钮文字与按钮本身都不换行，窄屏下两个按钮始终并排 */
 .audio-controls .btn{flex:none;white-space:nowrap}
 /* 时隙切换：单按钮循环 自动 → 时隙1 → 时隙2 */
-#dmrAudioSlotBtn{min-width:66px;justify-content:center;color:var(--accent);border-color:var(--accent);background:rgba(52,211,153,.12)}
-#dmrAudioSlotBtn:hover{color:var(--accent);background:rgba(52,211,153,.2)}
+#dmrAudioSlotBtn{min-width:66px;justify-content:center;color:var(--accent);border-color:var(--accent);background:rgba(var(--glow),.12)}
+#dmrAudioSlotBtn:hover{color:var(--accent);background:rgba(var(--glow),.2)}
 @media (max-width:600px){
   /* 手机版：卡片加高约一半，标题+状态、通联信息、按钮三行 */
   .audio-card{display:flex;flex-direction:column;min-height:168px}
@@ -1424,9 +1605,95 @@ th{font-size:12px}
 }
 
 /* ===== overlay ===== */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:55;opacity:0;pointer-events:none;transition:.2s}
+.overlay{position:fixed;inset:0;background:var(--overlay);z-index:55;opacity:0;pointer-events:none;transition:.2s}
 .overlay.on{opacity:1;pointer-events:auto}
+
+/* ===== 浅色主题：只覆盖语义变量，深色为默认 ===== */
+html[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f4f6f9; --bg2:#ffffff; --card:#ffffff; --card2:#eef2f7;
+  --border:#dde3ea; --border2:#cbd5e1;
+  --text:#16202b; --muted:#5a6875; --faint:#8592a0;
+  --green:#0f9d63; --cyan:#0284c7; --amber:#b45309; --red:#dc2626; --violet:#7c3aed;
+  --accent:#0f9d63;
+  --accent2:#0284c7;
+  --on-accent:#ffffff;
+  --glow:15,157,99;
+  --danger-rgb:220,38,38;
+  --warn-rgb:180,83,9;
+  --cyan-rgb:2,132,199;
+  --neutral-rgb:100,116,139;
+  --body-glow:#e3ecf5;
+  --scroll:#c3ccd6;
+  --header-bg:rgba(255,255,255,.88);
+  --spin-track:#dbe2ea; --spin-head:#2563eb;
+  --surface:#eaeff5;
+  --list-bg:#f7f9fc;
+  --hover:#eef2f7;
+  --item-a:#f4f7fb;
+  --code-bg:#f6f8fa;
+  --log-info:#3f4c5a; --log-ts:#7b8794; --placeholder:#93a0ad;
+  --hairline:rgba(15,23,42,.07);
+  --row-hover:rgba(15,23,42,.03);
+  --help-bg:rgba(100,116,139,.09);
+  --toast-ok-bg:#eafaf2; --toast-err-bg:#fdecec;
+  --overlay:rgba(15,23,42,.32);
+  --modal-mask:rgba(15,23,42,.34); --modal-mask2:rgba(15,23,42,.38);
+  --shadow-sm:0 4px 16px rgba(15,23,42,.08);
+  --shadow-md:0 12px 32px rgba(15,23,42,.12);
+  --shadow-lg:0 16px 44px rgba(15,23,42,.16);
+  --shadow-xl:0 18px 60px rgba(15,23,42,.2);
+  --shadow-side:20px 0 60px rgba(15,23,42,.16);
+}
+/* 浅色下强调色变深，半透明底需加重才看得见 */
+html[data-theme="light"] .badge.ok{background:rgba(var(--glow),.16)}
+html[data-theme="light"] .badge.warn{background:rgba(var(--warn-rgb),.16)}
+html[data-theme="light"] .badge.err{background:rgba(var(--danger-rgb),.14)}
+html[data-theme="light"] .switch input:checked+i{background:rgba(var(--glow),.3)}
+html[data-theme="dark"]{color-scheme:dark}
+/* 外观选择器（系统信息页） */
+.theme-seg{display:inline-flex;gap:4px;padding:4px;border:1px solid var(--border);border-radius:11px;background:var(--card2)}
+.theme-seg button{padding:7px 16px;border:1px solid transparent;border-radius:8px;background:transparent;
+  color:var(--muted);font-size:14px;font-family:inherit;cursor:pointer;transition:.15s}
+.theme-seg button:hover{color:var(--text)}
+.theme-seg button.active{color:var(--accent);background:var(--card);border-color:var(--border);font-weight:600}
 </style>
+<script>
+/* 主题：在样式解析后、页面渲染前立即应用，避免刷新闪色。偏好仅存本地，全系机型通用 */
+(function(){
+  var KEY='dash_theme';
+  function read(){ try{ return localStorage.getItem(KEY)||'auto'; }catch(e){ return 'auto'; } }
+  function resolve(m){
+    if(m==='light'||m==='dark') return m;
+    try{ return matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'; }catch(e){ return 'dark'; }
+  }
+  function apply(m){
+    var t=resolve(m);
+    document.documentElement.setAttribute('data-theme',t);
+    var meta=document.querySelector('meta[name="theme-color"]');
+    if(meta) meta.setAttribute('content', t==='light'?'#f4f6f9':'#0b0f14');
+    return t;
+  }
+  window.dashTheme={
+    key:KEY,
+    mode:read(),
+    get:function(){ return document.documentElement.getAttribute('data-theme')||'dark'; },
+    set:function(m){
+      this.mode=(m==='light'||m==='dark')?m:'auto';
+      try{ localStorage.setItem(KEY,this.mode); }catch(e){}
+      apply(this.mode);
+      /* canvas 图表颜色取自 CSS 变量，切换后必须重绘 */
+      if(typeof drawCalChart==='function'){ try{ drawCalChart(); }catch(e){} }
+    }
+  };
+  apply(window.dashTheme.mode);
+  try{
+    var mq=matchMedia('(prefers-color-scheme: light)');
+    var on=function(){ if(window.dashTheme.mode==='auto') window.dashTheme.set('auto'); };
+    if(mq.addEventListener) mq.addEventListener('change',on); else if(mq.addListener) mq.addListener(on);
+  }catch(e){}
+})();
+</script>
 </head>
 <body>
 
@@ -1454,7 +1721,7 @@ th{font-size:12px}
   </div>
   <div class="brand">
     <div class="logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#06231a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <svg viewBox="0 0 24 24" fill="none" stroke="var(--on-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 11h18M3 11a3 3 0 0 1 3 3m-3-3a3 3 0 0 0 3-3m12 6a3 3 0 0 1-3 3m3-3a3 3 0 0 0-3-3M6 14a6 6 0 0 1 12 0"/><circle cx="12" cy="14" r="1"/>
       </svg>
     </div>
@@ -1482,16 +1749,10 @@ th{font-size:12px}
         <a href="#/livetool" data-view="livetool">实时语音</a>
       </div>
     </div>
-    <div class="nav-group" id="netcfgNav">
-      <a href="#/netcfg" data-view="netcfg" class="has-sub">网络配置</a>
-      <div class="submenu">
-        <a href="#/netcfg/ap" data-view="netcfg" data-mode="ap">无线热点</a>
-        <a href="#/netcfg/sta" data-view="netcfg" data-mode="sta">WiFi连接</a>
-      </div>
-    </div>
     <div class="nav-group">
       <a href="#/radio" data-view="info" class="has-sub">信息</a>
       <div class="submenu">
+        <a href="#/netcfg" data-view="netcfg" class="netcfg-entry">网络配置</a>
         <a href="#/radio" data-view="radio">电台信息</a>
         <a href="#/system" data-view="system">系统信息</a>
       </div>
@@ -1554,28 +1815,16 @@ th{font-size:12px}
       </a>
     </div>
     </div>
-    <div class="nav-group" id="netcfgNavM">
-      <a href="#/netcfg" data-view="netcfg" class="has-sub">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
-        网络配置
-      </a>
-      <div class="submenu">
-        <a href="#/netcfg/ap" data-view="netcfg" data-mode="ap">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-          无线热点
-        </a>
-        <a href="#/netcfg/sta" data-view="netcfg" data-mode="sta">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
-          WiFi连接
-        </a>
-      </div>
-    </div>
     <div class="nav-group">
     <a href="#/radio" data-view="info" class="has-sub">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
       信息
     </a>
     <div class="submenu">
+      <a href="#/netcfg" data-view="netcfg" class="netcfg-entry">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg>
+        网络配置
+      </a>
       <a href="#/radio" data-view="radio">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11h18M3 11a3 3 0 0 1 3 3m-3-3a3 3 0 0 0 3-3m12 6a3 3 0 0 1-3 3m3-3a3 3 0 0 0-3-3M6 14a6 6 0 0 1 12 0"/><circle cx="12" cy="14" r="1"/></svg>
         电台信息
@@ -1674,71 +1923,102 @@ th{font-size:12px}
     </div>
   </section>
 
-  <!-- ============ 网络配置（设备差异化：仅 AX5） ============ -->
+  <!-- ============ 网络配置（设备差异化：仅 AX5；放在信息菜单内） ============ -->
   <section class="view" id="view-netcfg">
-    <div class="page-head" style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap">
-      <div><h1>网络配置</h1><p>无线热点与 WiFi 连接</p></div>
-      <div id="netcfg-upstream" class="badge tag" style="font-size:12px">上游检测中…</div>
+    <div class="page-head" style="display:flex;align-items:flex-end;justify-content:flex-start;gap:14px;flex-wrap:wrap">
+      <div><h1>网络配置</h1><p>有线网络、WiFi 连接与无线热点</p></div>
+      <div id="netcfg-upstream" class="badge tag">上游检测中…</div>
     </div>
-    <!-- 子页签 -->
-    <div class="subtabs" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-      <a href="#/netcfg/ap" id="nettab-ap" data-mode="ap" class="btn" style="text-decoration:none">无线热点</a>
-      <a href="#/netcfg/sta" id="nettab-sta" data-mode="sta" class="btn" style="text-decoration:none">WiFi连接</a>
+    <div class="nc-mode-tabs">
+      <button type="button" class="btn primary active" data-nc-mode="wired">有线网络</button>
+      <button type="button" class="btn" data-nc-mode="sta">WiFi连接</button>
+      <button type="button" class="btn" data-nc-mode="ap">无线热点</button>
+      <button type="button" class="btn" data-nc-mode="lte">4G 网络</button>
+    </div>
+
+    <!-- 有线网络 -->
+    <div id="netpanel-wired" class="nc-panel" style="display:none">
+      <h2 class="basic-sec-title">有线网络</h2>
+      <div class="nc-card-grid">
+        <div class="nc-card">
+          <h2 class="basic-sec-title">WAN 口</h2>
+          <div id="nc-wan-info" class="nc-net-list">读取中…</div>
+        </div>
+        <div class="nc-card">
+          <h2 class="basic-sec-title">LAN 网络</h2>
+          <div id="nc-wired-info" class="nc-net-list">读取中…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4G 网络（Air780E，USB 网卡；只作数据旁路，不算上游） -->
+    <div id="netpanel-lte" class="nc-panel" style="display:none">
+      <div class="nc-card-grid">
+        <div class="nc-card">
+          <h2 class="basic-sec-title">4G 模块</h2>
+          <div id="nc-lte-info" class="nc-net-list">读取中…</div>
+        </div>
+        <div class="nc-card">
+          <h2 class="basic-sec-title">4G 数据</h2>
+          <div class="nc-ap-rows">
+            <div class="nc-ap-row"><label class="nc-ap-label">启用 4G</label>
+              <div class="nc-ctl-row"><label><input type="checkbox" id="nc-lte-enabled"> 开启</label></div>
+            </div>
+          </div>
+          <p class="nc-hint" style="margin-top:10px">4G 仅用于给局域网客户端提供互联网出口，优先级低于 WiFi（有线 &gt; WiFi &gt; 4G）。4G 不算上游网络，热点仍需保持开启才能管理设备。</p>
+          <div style="margin-top:12px"><button class="btn primary" id="nc-lte-save">保存 4G 设置</button></div>
+        </div>
+      </div>
     </div>
 
     <!-- 无线热点 -->
-    <div id="netpanel-ap">
-      <div class="card" style="margin-bottom:14px">
-        <h2 class="basic-sec-title">无线热点</h2>
-        <div class="grid">
-          <div class="field"><label>启用热点</label><label style="display:flex;gap:6px;align-items:center;height:38px"><input type="checkbox" id="nc-ap-enabled" checked> 开启</label></div>
-          <div class="field"><label>工作频段</label>
-            <div style="display:flex;gap:16px;align-items:center;height:38px">
-              <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="nc-ap-band" value="2g" checked> 2.4G</label>
-              <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="nc-ap-band" value="5g"> 5G</label>
-            </div>
-          </div>
-          <div class="field"><label>网络名称（SSID）</label><input id="nc-ap-ssid" class="inp" type="text" value="MMDVM-OpenWrt" maxlength="32"></div>
-          <div class="field"><label>密码（留空为开放网络）</label>
-            <div class="pw-wrap"><input id="nc-ap-key" class="inp" type="password" maxlength="63" placeholder="留空则不加密"><span class="pw-eye">显示</span></div>
-          </div>
-          <div class="field"><label>频宽</label>
-            <select id="nc-ap-width" class="inp">
-              <option value="20MHz">20 MHz</option>
-              <option value="40MHz" selected>40 MHz</option>
-              <option value="80MHz">80 MHz（仅 5G）</option>
-            </select>
+    <div id="netpanel-ap" class="nc-panel card" style="display:none">
+      <h2 class="basic-sec-title">无线热点</h2>
+      <div class="nc-ap-rows">
+        <div class="nc-ap-row"><label class="nc-ap-label">启用热点</label>
+          <div class="nc-ctl-row"><label><input type="checkbox" id="nc-ap-enabled" checked> 开启</label></div>
+        </div>
+        <div class="nc-ap-row"><label class="nc-ap-label">工作频段</label>
+          <div class="nc-ctl-row">
+            <label><input type="radio" name="nc-ap-band" value="2g" checked> 2.4G</label>
+            <label><input type="radio" name="nc-ap-band" value="5g"> 5G</label>
           </div>
         </div>
-        <p class="muted" style="font-size:12px;margin:10px 0 0">信道自动、区域中国（CN）。保存后热点会短暂重启；无上游网络时热点会强制开启以保证可管理。</p>
-        <div style="margin-top:12px"><button class="btn primary" id="nc-ap-save">保存热点设置</button></div>
+        <div class="nc-ap-row"><label class="nc-ap-label" for="nc-ap-ssid">网络名称</label>
+          <input id="nc-ap-ssid" class="inp" type="text" value="MMDVM-OpenWrt" maxlength="32">
+        </div>
+        <div class="nc-ap-row"><label class="nc-ap-label" for="nc-ap-key">密码</label>
+          <div class="pw-wrap"><input id="nc-ap-key" class="inp" type="password" maxlength="63" placeholder="留空则不加密"><button type="button" class="pw-eye eye-eye" title="显示密码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        </div>
+        <div class="nc-ap-row"><label class="nc-ap-label" for="nc-ap-width">频宽</label>
+          <select id="nc-ap-width" class="inp"></select>
+        </div>
       </div>
+      <p class="nc-hint" style="margin-top:10px">信道自动、区域中国（CN）。保存后热点会短暂重启；无上游网络时热点会强制开启以保证可管理。</p>
+      <div style="margin-top:12px"><button class="btn primary" id="nc-ap-save">保存热点设置</button></div>
     </div>
 
-    <!-- WiFi 连接 -->
-    <div id="netpanel-sta" style="display:none">
-      <div class="card" style="margin-bottom:14px">
-        <h2 class="basic-sec-title">WiFi 连接 <button class="btn" id="nc-sta-scan" style="float:right">重新扫描</button></h2>
-        <p class="muted" style="font-size:12px">选择一个网络，输入密码保存后自动连接；信号最强的已保存网络会优先连接。</p>
-        <div class="table-wrap"><table class="sys-table" id="nc-sta-list"><tbody><tr><td>正在扫描…</td></tr></tbody></table></div>
-      </div>
-      <div class="card">
-        <h2 class="basic-sec-title">已保存的网络</h2>
-        <div class="table-wrap"><table class="sys-table" id="nc-saved-list"><tbody><tr><td>加载中…</td></tr></tbody></table></div>
-      </div>
-    </div>
-    <!-- 内联连接表单（点击列表中的网络后展开） -->
-    <div class="card" id="ncJoinCard" style="margin-bottom:14px;display:none">
-      <h2 class="basic-sec-title">连接 WiFi：<span id="ncJoinSsid"></span></h2>
-      <div class="grid">
-        <div class="field"><label>密码（留空为开放网络）</label>
-          <div class="pw-wrap"><input id="ncJoinKey" class="inp" type="password" maxlength="63" placeholder="输入该网络的密码"><span class="pw-eye">显示</span></div>
+    <!-- WiFi 连接：当前连接 / 扫描列表 / 已保存网络 -->
+    <div id="netpanel-sta" class="nc-panel" style="display:none">
+      <div class="nc-card-grid">
+        <div class="nc-card">
+          <h2 class="basic-sec-title">当前连接</h2>
+          <div id="nc-current-list" class="nc-net-list">读取中…</div>
         </div>
-        <div class="field"><label>频段</label><input id="ncJoinBand" class="inp" type="text" readonly></div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn primary" id="ncJoinSave">保存并连接</button>
-        <button class="btn" id="ncJoinCancel">取消</button>
+        <div class="nc-card">
+          <h2 class="basic-sec-title">WiFi 连接</h2>
+          <div class="nc-sta-scan-area">
+            <div class="nc-sta-scan-head">
+              <p class="nc-hint">选择一个网络，输入密码保存后自动连接；信号最强的已保存网络会优先连接。</p>
+              <button class="btn" id="nc-sta-scan">重新扫描</button>
+            </div>
+            <div class="table-wrap nc-scan-wrap"><table class="sys-table" id="nc-sta-list"><thead><tr><th>WiFi 名称</th><th>频段</th><th>信号</th><th>加密</th></tr></thead><tbody><tr><td colspan="4">未扫描</td></tr></tbody></table></div>
+          </div>
+        </div>
+        <div class="nc-card">
+          <h2 class="basic-sec-title">已保存的网络</h2>
+          <div id="nc-saved-list" class="nc-net-list">加载中…</div>
+        </div>
       </div>
     </div>
   </section>
@@ -1975,8 +2255,8 @@ th{font-size:12px}
       </div>
       <div id="liveState" style="font-size:12.5px;color:var(--muted);margin-top:10px"></div>
     </div>
-    <div class="card" style="border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.06)">
-      <div style="font-weight:700;font-size:14px;color:#fbbf24;margin-bottom:8px">风险提示</div>
+    <div class="card" style="border-color:rgba(var(--warn-rgb),.35);background:rgba(var(--warn-rgb),.06)">
+      <div style="font-weight:700;font-size:14px;color:var(--amber);margin-bottom:8px">风险提示</div>
       <div style="font-size:13px;line-height:1.75;color:var(--muted)">
         1. 实时语音需要持续解码 AMBE 音频，会明显增加 CPU 占用<br>
         2. 7628 为单核 580MHz，开启后 CPU 可能接近满载，导致网页卡顿、通联延迟<br>
@@ -2152,6 +2432,55 @@ th{font-size:12px}
     <div class="um-foot">
       <button class="btn" id="umCancel" type="button">取消</button>
       <button class="btn primary" id="umOk" type="button">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 网络信息与 IP 配置弹窗 -->
+<div id="ncNetModal">
+  <div class="um-box">
+    <div class="um-head" id="ncNetEditTitle">网络信息</div>
+    <div class="um-body">
+      <div id="ncNetInfo" class="nc-hint" style="white-space:pre-wrap;margin-bottom:10px"></div>
+      <div class="grid">
+        <div class="field" id="ncNetKeyField"><label>WiFi 密码（留空不修改）</label>
+          <div class="pw-wrap"><input id="ncNetKey" class="inp" type="password" maxlength="63"><button type="button" class="pw-eye eye-eye" title="显示密码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        </div>
+        <div class="field"><label>IP 获取方式</label><select id="ncNetProto" class="inp"><option value="dhcp">DHCP 自动获取</option><option value="static">静态 IP</option></select></div>
+        <div class="field nc-ipfield"><label>IP 地址</label><input id="ncNetIp" class="inp" type="text" placeholder="192.168.1.2"></div>
+        <div class="field nc-ipfield"><label>子网掩码</label><input id="ncNetMask" class="inp" type="text" placeholder="255.255.255.0"></div>
+        <div class="field nc-ipfield nc-lanhide"><label>网关</label><input id="ncNetGw" class="inp" type="text" placeholder="192.168.1.1"></div>
+        <div class="field nc-ipfield nc-lanhide"><label>DNS（空格分隔）</label><input id="ncNetDns" class="inp" type="text" placeholder="223.5.5.5 119.29.29.29"></div>
+      </div>
+    </div>
+    <div class="um-foot">
+      <button class="btn" id="ncNetCancel" type="button">取消</button>
+      <button class="btn primary" id="ncNetSave" type="button">保存配置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 连接 WiFi 弹窗 -->
+<div id="ncJoinModal">
+  <div class="um-box">
+    <div class="um-head">连接 WiFi：<span id="ncJoinSsid"></span></div>
+    <div class="um-body">
+      <div class="grid">
+        <div class="field"><label>密码（留空为开放网络）</label>
+          <div class="pw-wrap"><input id="ncJoinKey" class="inp" type="password" maxlength="63" placeholder="输入该网络的密码"><button type="button" class="pw-eye eye-eye" title="显示密码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+        </div>
+        <div class="field"><label>连接频段</label>
+          <div id="ncJoinBandChoice">
+            <label><input type="radio" name="ncJoinBand" value="2g"> 连接 2.4G</label>
+            <label><input type="radio" name="ncJoinBand" value="5g"> 连接 5G</label>
+            <label><input type="radio" name="ncJoinBand" value="both" checked> 两个频段都保存</label>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="um-foot">
+      <button class="btn" id="ncJoinCancel" type="button">取消</button>
+      <button class="btn primary" id="ncJoinSave" type="button">保存并连接</button>
     </div>
   </div>
 </div>
@@ -2605,6 +2934,10 @@ document.addEventListener('click', e=>{
   if(lhHistEl && !(e.target.closest && e.target.closest('.lh-hist-tip'))) hideLhHist();
 });
 document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape'){
+    if($('#ncNetModal').classList.contains('show')){ ncCloseNetModal(); return; }
+    if($('#ncJoinModal').classList.contains('show')){ ncCloseJoinModal(); return; }
+  }
   if(!umResolve) return;
   if(e.key === 'Escape'){ e.preventDefault(); uiClose(false); }
   else if(e.key === 'Enter'){ e.preventDefault(); uiClose(true); }
@@ -2662,17 +2995,16 @@ let lastRoute = '';
 /* 高级页进入确认后的一次性放行标记 */
 let advGate = false;
 let cfgMode = 'mmdvmhost';
-let netMode = 'ap';
 let netSupported = false;   /* 设备能力：仅 AX5 支持网络配置 */
 function applyNavActive(sel, view, persistOpen){
   const nav = $(sel); if(!nav) return;
   $$(sel+' a').forEach(a=>{
     const active = a.dataset.mode
-      ? ((view==='config' && a.dataset.mode===cfgMode) || (view==='netcfg' && a.dataset.mode===netMode))
+      ? (view==='config' && a.dataset.mode===cfgMode)
       : (a.dataset.view===view);
     a.classList.toggle('active', active);
   });
-  const groups = [['config', view==='config'||view==='basic'||view==='services'||view==='adv'], ['tools', view==='cal'||view==='tg'], ['netcfg', view==='netcfg'], ['info', view==='radio'||view==='system']];
+  const groups = [['config', view==='config'||view==='basic'||view==='services'||view==='adv'], ['tools', view==='cal'||view==='tg'], ['info', view==='radio'||view==='system'||view==='netcfg']];
   groups.forEach(([dv, on])=>{
     const p = $(sel+' a.has-sub[data-view="'+dv+'"]');
     if(p){
@@ -2713,8 +3045,7 @@ function route(){
   if(view !== 'adv') advGate = false;
   /* 主机配置页已从菜单移除，直接进入「配置」时默认打开 DMR 网关配置 */
   cfgMode = (view==='config') ? (seg[1] || 'dmrgateway') : 'mmdvmhost';
-  netMode = (view==='netcfg') ? ((seg[1]==='sta') ? 'sta' : 'ap') : 'ap';
-  const key = view + ':' + (view==='config' ? cfgMode : view==='netcfg' ? netMode : '');
+  const key = view + ':' + (view==='config' ? cfgMode : '');
   closeSidebar();
   document.body.classList.add('routed');
   if(lastRoute === key) return;
@@ -2947,6 +3278,8 @@ setInterval(()=>{
 /* ---- 网络配置（设备差异化：仅 AX5；与仪表盘同主题） ---- */
 let netWifiInit = false;
 let netScanning = false;
+let ncMode = 'wired';
+let ncEditCtx = null;
 async function netWifiGet(){ return await api('/api/wifi?act=get') || {}; }
 async function netWifiPost(body){
   try{
@@ -2964,21 +3297,39 @@ async function initNetWifiCap(){
     if(netSupported) window._netCap = j.capability;
   }catch(e){ netSupported = false; }
   const show = netSupported ? '' : 'none';
-  ['#netcfgNav','#netcfgNavM'].forEach(sel=>{ const el=$(sel); if(el) el.style.display = show; });
+  $$('.netcfg-entry').forEach(el=>{ el.style.display = show; });
   if(!netSupported && location.hash.startsWith('#/netcfg')) location.hash = '#/qso';
+  ncApplyCap();
   return netSupported;
 }
-function ncSetBandOptions(cap){
+/* 按机型能力显隐页签：7628 无有线 WAN（wired=false），只有 WiFi 与 4G */
+function ncApplyCap(){
+  const cap = window._netCap || {};
+  const hasWired = cap.wired !== false;
+  const hasLte = !!cap.lte;
+  const tabs = $$('.nc-mode-tabs [data-nc-mode]');
+  tabs.forEach(btn=>{
+    const k = btn.dataset.ncMode;
+    const ok = k === 'wired' ? hasWired : (k === 'lte' ? hasLte : true);
+    btn.style.display = ok ? '' : 'none';
+  });
+  /* 当前模式被裁掉时回落到 WiFi 连接 */
+  if((ncMode === 'wired' && !hasWired) || (ncMode === 'lte' && !hasLte)) ncSetMode('sta');
+}
+function ncSetBandOptions(cap, preferred){
   const sel = $('#nc-ap-width'); if(!sel || !cap || !cap.widths) return;
   const bands = Array.isArray(cap.bands) ? cap.bands : ['2g','5g'];
   Array.from(document.querySelectorAll('input[name="nc-ap-band"]')).forEach(function(r){
     const ok = bands.includes(r.value); r.disabled = !ok;
+    /* 单频机型直接隐藏 5G 选项，不留灰掉的死选项 */
+    const lb = r.closest('label'); if(lb) lb.style.display = ok ? '' : 'none';
     if(!ok && r.checked){ const alt = document.querySelector('input[name="nc-ap-band"]:not(:disabled)'); if(alt) alt.checked = true; }
   });
   const chosen = (document.querySelector('input[name="nc-ap-band"]:checked')?.value) || '2g';
   const allow = Array.isArray(cap.widths[chosen]) ? cap.widths[chosen] : (cap.widths['2g'] || []);
-  Array.from(sel.options).forEach(o=>{ o.disabled = !allow.includes(o.value); });
-  if(sel.selectedOptions[0] && sel.selectedOptions[0].disabled){ const first = allow[0]; if(first) sel.value = first; }
+  sel.innerHTML = allow.map(w=>'<option value="'+esc(w)+'">'+esc(w)+'</option>').join('');
+  if(preferred && allow.includes(preferred)) sel.value = preferred;
+  else if(chosen === '2g' && allow.includes('40MHz')) sel.value = '40MHz';
 }
 function ncRenderUpstream(st){
   const el = $('#netcfg-upstream'); if(!el) return;
@@ -2994,43 +3345,184 @@ function ncRenderAp(cap, st){
   const cb = $('#nc-ap-enabled'); if(cb) cb.checked = enabled;
   const rb = document.querySelector('input[name="nc-ap-band"][value="'+band+'"]'); if(rb) rb.checked = true;
   const ssid = $('#nc-ap-ssid'); if(ssid) ssid.value = st.apSsid || 'MMDVM-OpenWrt';
-  const w = $('#nc-ap-width'); if(w && st.apWidth) w.value = st.apWidth;
-  ncSetBandOptions(cap);
+  ncSetBandOptions(cap, st.apWidth);
   ncRenderUpstream(st);
 }
-function ncRenderSaved(list){
-  const el = $('#nc-saved-list tbody'); if(!el) return;
-  if(!list || !list.length){ el.innerHTML = '<tr><td>暂无已保存的网络</td></tr>'; return; }
-  el.innerHTML = list.map(p=>'<tr><td>'+esc(p.ssid)+'</td><td>'+(p.band==='5g'?'5G':'2.4G')+'</td><td>'+(p.hasKey?'有密码':'开放')+'</td><td><button class="btn nc-forget" data-ssid="'+esc(p.ssid)+'" style="padding:3px 10px">忘记</button></td></tr>').join('');
+function ncMaskOf(addr){
+  /* 把 192.168.8.19/24 里的前缀长度换算成点分十进制掩码 */
+  const m = String(addr||'').match(/\/(\d{1,2})$/);
+  if(!m) return '';
+  const p = Number(m[1]); if(p < 0 || p > 32) return '';
+  let n = 0; for(let i=0;i<32;i++) n = (n<<1) + (i<p?1:0);
+  return [ (n>>>24)&255, (n>>>16)&255, (n>>>8)&255, n&255 ].join('.');
 }
+function ncIpLines(ip, skipCfg){
+  if(!ip) return ['IP 信息读取中'];
+  const cfg = ip.proto === 'dhcp' ? 'DHCP 自动获取' : ip.proto === 'static' ? '静态 IP' : ip.proto;
+  const runtime = ip.runtime || {};
+  /* 每项单独一行，便于逐项查看 */
+  const lines = [];
+  lines.push('获取方式：' + cfg);
+  if(runtime.ipaddr) lines.push('IP 地址：' + runtime.ipaddr.split('/')[0]);
+  const mask = ncMaskOf(runtime.ipaddr) || ip.netmask;
+  if(mask) lines.push('子网掩码：' + mask);
+  if(runtime.gateway) lines.push('网关：' + runtime.gateway);
+  if(runtime.dns && runtime.dns.length) lines.push('DNS：' + runtime.dns.join('  '));
+  /* LAN 卡片不显示配置地址：与上面的 IP 地址/子网掩码重复 */
+  if(!skipCfg && ip.proto === 'static' && ip.ipaddr) lines.push('配置地址：' + ip.ipaddr + (ip.netmask ? ' / ' + ip.netmask : ''));
+  return lines;
+}
+function ncIpLine(ip, skipCfg){
+  return ncIpLines(ip, skipCfg).map(l=>'<div>'+esc(l)+'</div>').join('');
+}
+function ncIpText(ip){
+  return ncIpLines(ip).join('\n');
+}
+function ncRow(title, subtitle, buttons){
+  return '<div class="nc-net-row"><div class="nc-net-main"><div>'+title+'</div>'
+    + (subtitle ? '<div class="nc-net-sub">'+subtitle+'</div>' : '')
+    + '</div><div class="nc-net-actions">'+buttons+'</div></div>';
+}
+function ncRenderCurrent(st){
+  const el = $('#nc-current-list'); if(!el) return;
+  st = st || {};
+  const ssid = st.staSsid || '';
+  if(!ssid || !st.staConnected){
+    el.innerHTML = ncRow('当前未连接 WiFi'+(ssid?'（已配置：'+esc(ssid)+'）':''), '', '');
+    return;
+  }
+  const band = st.staBand && String(st.staBand).includes('5g') ? '5G' : '2.4G';
+  const signal = st.staSignal || '—';
+  const upstream = st.upstream ? '<span style="color:var(--green)">已连通</span>' : '<span style="color:var(--amber)">未连通</span>';
+  /* 名称与频段/信号同一行；上游网络单独一行靠左 */
+  el.innerHTML = '<div class="nc-net-row"><div class="nc-net-main">'
+    + '<div>'+esc(ssid)+'<span class="nc-inline-sub">'+band+' · '+esc(signal)+'</span></div>'
+    + '<div class="nc-net-sub"><div style="text-align:left">上游网络 '+upstream+'</div></div>'
+    + '</div><div class="nc-net-actions">'
+    + '<button class="btn nc-edit-net" data-kind="sta" data-ssid="'+esc(ssid)+'" style="padding:3px 10px">网络信息与配置</button>'
+    + '</div></div>';
+}
+function ncRenderSaved(list){
+  const el = $('#nc-saved-list'); if(!el) return;
+  if(!list || !list.length){ el.innerHTML = ncRow('暂无已保存的网络', '', ''); return; }
+  /* 名称与频段、密码状态同一行 */
+  el.innerHTML = list.map(p=>'<div class="nc-net-row"><div class="nc-net-main">'
+    + '<div>'+esc(p.ssid)+'<span class="nc-inline-sub">'+(p.band==='5g'?'5G':'2.4G')+' · '+(p.hasKey?'有密码':'开放')+'</span></div>'
+    + '</div><div class="nc-net-actions">'
+    + '<button class="btn nc-edit-net" data-kind="profile" data-id="'+esc(p.id)+'" style="padding:3px 10px">修改</button>'
+    + '<button class="btn nc-forget" data-ssid="'+esc(p.ssid)+'" style="padding:3px 10px">忘记</button>'
+    + '</div></div>').join('');
+}
+function ncRenderWired(st){
+  const el = $('#nc-wired-info'); if(!el) return;
+  const ip = st && st.ip && st.ip.lan;
+  el.innerHTML = ncRow('LAN 网络', ncIpLine(ip, true),
+    '<button class="btn nc-edit-net" data-kind="wired" style="padding:3px 10px">修改网络信息</button>');
+  const wan = $('#nc-wan-info'); if(!wan) return;
+  const w = st && st.ip && st.ip.wan;
+  wan.innerHTML = ncRow('WAN 口', ncIpLine(w),
+    '<button class="btn nc-edit-net" data-kind="wan" style="padding:3px 10px">修改网络信息</button>');
+}
+/* 4G 面板：模块信号/注册状态 + 数据接口状态。4G 不是上游，不参与热点开关判定 */
+function ncRenderLte(st){
+  const el = $('#nc-lte-info'); if(!el) return;
+  const l = (st && st.lte) || {};
+  const cb = $('#nc-lte-enabled'); if(cb) cb.checked = !!l.enabled;
+  const lines = [];
+  lines.push('数据状态：' + (l.up ? '<span style="color:var(--green)">已连接</span>' : '<span style="color:var(--amber)">未连接</span>'));
+  if(l.device) lines.push('接口：' + esc(l.device));
+  if(l.ipaddr) lines.push('IP 地址：' + esc(String(l.ipaddr).split('/')[0]));
+  if(l.gateway) lines.push('网关：' + esc(l.gateway));
+  if(l.operator) lines.push('运营商：' + esc(l.operator));
+  lines.push('注册：' + esc(l.reg || '未知'));
+  if(l.signal !== null && l.signal !== undefined) lines.push('信号：' + esc(String(l.signal)) + ' dBm');
+  else if(l.csq !== null && l.csq !== undefined && l.csq !== 99) lines.push('信号：CSQ ' + esc(String(l.csq)));
+  el.innerHTML = lines.map(x=>'<div>'+x+'</div>').join('');
+}
+/* 本机是否具备 5G 射频：单频机型（如 7628）不显示任何 5G 相关选项 */
+function ncHas5g(){
+  const cap = window._netCap || {};
+  return Array.isArray(cap.bands) ? cap.bands.includes('5g') : true;
+}
+function ncBandLabel(band){
+  return band === '5g' ? '<span class="badge tag">5G</span>' : '<span class="badge tag">2.4G</span>';
+}
+function ncScanBandOf(n){ return n && n.band === '5g' ? '5g' : '2g'; }
 function ncRenderScan(networks, st){
   const el = $('#nc-sta-list tbody'); if(!el) return;
-  if(!networks || !networks.length){ el.innerHTML = '<tr><td>未发现网络，请稍后重试</td></tr>'; return; }
-  const cur = (st && st.staSsid) || '';
-  el.innerHTML = networks.map(n=>{
+  if(!networks || !networks.length){ el.innerHTML = '<tr><td colspan="4">未发现网络，请稍后重试</td></tr>'; return; }
+  const curSsid = (st && st.staSsid) || '';
+  const curBandRaw = (st && st.staBand) || '';
+  const has5g = ncHas5g();
+  const curBand = String(curBandRaw).indexOf('5g') >= 0 ? '5g' : '2g';
+  /* 2.4G/5G 同名只显示一行；频段标签全部显示，信号取两个频段里更强的 */
+  const merged = {};
+  for(const n of networks){
+    const ssid = String(n.ssid || ''); if(!ssid) continue;
+    const band = ncScanBandOf(n);
+    if(band === '5g' && !has5g) continue;   /* 单频机型忽略 5G 扫描结果 */
     const sig = Number(n.signal) || 0;
+    if(!merged[ssid]) merged[ssid] = { ssid, bands:[], best:{ '2g':null, '5g':null }, signal:sig, secured:!!n.secured };
+    const m = merged[ssid];
+    if(!m.bands.includes(band)) m.bands.push(band);
+    const prev = m.best[band];
+    if(!prev || sig > prev.signal) m.best[band] = { signal:sig, secured:!!n.secured };
+    if(sig > m.signal) m.signal = sig;
+    m.secured = m.secured || !!n.secured;
+  }
+  const list = Object.values(merged).sort((a,b)=>b.signal-a.signal);
+  if(!list.length){ el.innerHTML = '<tr><td colspan="4">未发现网络，请稍后重试</td></tr>'; return; }
+  /* 频段按信号强弱排序，点击已保存网络时优先连信号更好的频段 */
+  list.forEach(m=>m.bands.sort((x,y)=>((m.best[y]&&m.best[y].signal)||-999)-((m.best[x]&&m.best[x].signal)||-999)));
+  el.innerHTML = list.map(m=>{
+    const sig = m.signal;
     const bars = sig >= -50 ? 4 : sig >= -65 ? 3 : sig >= -75 ? 2 : 1;
-    const band = (n.band === '5g') ? '<span class="badge tag" style="font-size:11px">5G</span>' : '<span class="badge tag" style="font-size:11px">2.4G</span>';
-    return '<tr class="nc-net" data-ssid="'+esc(n.ssid)+'" data-band="'+esc(n.band||'2g')+'" style="cursor:pointer">'
-      + '<td>'+esc(n.ssid)+(n.ssid===cur?' <span style="color:var(--green)">当前</span>':'')+'</td>'
-      + '<td>'+band+'</td><td>'+sig+' dBm '+'▮'.repeat(bars)+'</td>'
-      + '<td>'+(n.secured?'加密':'开放')+'</td></tr>';
+    const bandLabels = m.bands.map(ncBandLabel).join(' ');
+    /* 当前标记只在同 SSID 且同频段的扫描行上显示 */
+    const isCurrent = curSsid && m.ssid === curSsid && m.bands.includes(curBand);
+    const bandsData = m.bands.join(',');
+    return '<tr class="nc-net" data-ssid="'+esc(m.ssid)+'" data-bands="'+esc(bandsData)+'" style="cursor:pointer">'
+      + '<td>'+esc(m.ssid)+(isCurrent?' <span style="color:var(--green)">当前</span>':'')+'</td>'
+      + '<td>'+bandLabels+'</td><td>'+sig+' dBm '+'▮'.repeat(bars)+'</td>'
+      + '<td>'+(m.secured?'加密':'开放')+'</td></tr>';
   }).join('');
 }
-function ncShowJoin(ssid, band){
-  $('#ncJoinCard').style.display = '';
+function ncShowJoin(ssid, bands){
+  const list = Array.isArray(bands) ? bands : [bands];
+  const has2g = list.includes('2g') || list.includes('2.4g');
+  const has5g = list.includes('5g') && ncHas5g();
   $('#ncJoinSsid').textContent = ssid;
   $('#ncJoinSsid').dataset.ssid = ssid;
-  $('#ncJoinBand').value = (band === '5g') ? '5G' : '2.4G';
+  const radios = $$('#ncJoinBandChoice input[name="ncJoinBand"]');
+  /* 本机无 5G 射频时整项隐藏；只有一个可用频段时不必让用户选 */
+  const cap5g = ncHas5g();
+  radios.forEach(r=>{
+    if(r.value === '2g') r.disabled = !has2g;
+    else if(r.value === '5g') r.disabled = !has5g;
+    else r.disabled = !(has2g && has5g);
+    const lb = r.closest('label');
+    if(lb) lb.style.display = (r.value !== '2g' && !cap5g) ? 'none' : '';
+  });
+  const usable = radios.filter(r=>!r.disabled);
+  const field = $('#ncJoinBandChoice').closest('.field');
+  if(field) field.style.display = usable.length > 1 ? '' : 'none';
+  const first = usable[0];
+  if(first) first.checked = true;
   $('#ncJoinKey').value = '';
-  $('#ncJoinKey').focus();
+  $('#ncJoinModal').classList.add('show');
+  setTimeout(()=>{ $('#ncJoinKey').focus(); }, 30);
 }
 async function ncRefreshStatus(){
   const j = await netWifiGet();
   if(!j.capability || !j.capability.supported){ netSupported = false; initNetWifiCap(); return; }
   window._netCap = j.capability;
+  window._netStatus = j.status;
   ncRenderAp(j.capability, j.status);
+  ncRenderCurrent(j.status);
   ncRenderSaved(j.status && j.status.profiles);
+  ncRenderWired(j.status);
+  ncRenderLte(j.status);
+  ncApplyCap();
   if(j.status && j.status.forced && !j.status.upstream){
     toast('当前无上游网络，热点已强制开启', false, 4000);
   }
@@ -3040,32 +3532,153 @@ async function ncDoScan(){
   if(netScanning) return;
   netScanning = true;
   const btn = $('#nc-sta-scan'); if(btn) btn.disabled = true;
-  const tbody = $('#nc-sta-list tbody'); if(tbody) tbody.innerHTML = '<tr><td>正在扫描，请稍候…</td></tr>';
+  const tbody = $('#nc-sta-list tbody'); if(tbody) tbody.innerHTML = '<tr><td colspan="4">正在扫描…</td></tr>';
   try{
     const j = await netWifiPost({ act:'scan' });
     const st = (await netWifiGet()).status || null;
     ncRenderScan(j.networks || [], st);
-    toast('扫描完成，共 '+(j.networks||[]).length+' 个网络');
-  }catch(e){ if(tbody) tbody.innerHTML = '<tr><td>扫描失败</td></tr>'; }
+    toast('扫描完成，共 '+(j.networks||[]).length+' 个结果');
+  }catch(e){ if(tbody) tbody.innerHTML = '<tr><td colspan="4">扫描失败</td></tr>'; }
   finally{ netScanning = false; if(btn) btn.disabled = false; }
+}
+function ncSetMode(mode){
+  ncMode = (mode === 'sta' || mode === 'ap' || mode === 'lte') ? mode : 'wired';
+  ['wired','sta','ap','lte'].forEach(k=>{
+    const p = $('#netpanel-'+k); if(p) p.style.display = (ncMode === k) ? '' : 'none';
+  });
+  $$('.nc-mode-tabs [data-nc-mode]').forEach(btn=>{
+    const on = btn.dataset.ncMode === ncMode;
+    btn.classList.toggle('primary', on);
+    btn.classList.toggle('active', on);
+  });
+  $('#ncNetModal').classList.remove('show');
+  $('#ncJoinModal').classList.remove('show');
+  /* 进入 WiFi 连接页即自动扫描一次；其它页签保持“未扫描” */
+  if(ncMode === 'sta') ncDoScan();
+}
+function ncToggleIpFields(){
+  const staticMode = $('#ncNetProto') && $('#ncNetProto').value === 'static';
+  $$('#ncNetModal .nc-ipfield').forEach(f=>f.classList.toggle('hid', !staticMode));
+  /* LAN 不填网关/DNS：LAN 带网关会插一条 metric 0 的默认路由，抢走有线/无线/4G 的上行优先级 */
+  const lanMode = !!(ncEditCtx && ncEditCtx.kind === 'wired');
+  $$('#ncNetModal .nc-lanhide').forEach(f=>f.classList.toggle('hid', lanMode || !staticMode));
+}
+function ncCloseNetModal(){ $('#ncNetModal').classList.remove('show'); ncEditCtx = null; }
+function ncCloseJoinModal(){ $('#ncJoinModal').classList.remove('show'); }
+function ncOpenEdit(kind, data){
+  const st = window._netStatus || {};
+  let title = '网络信息', info = '', proto = 'dhcp', ipaddr = '', netmask = '', gateway = '', dns = [];
+  if(kind === 'wired' || kind === 'wan'){
+    const ip = st.ip && st.ip[kind === 'wan' ? 'wan' : 'lan'] ? st.ip[kind === 'wan' ? 'wan' : 'lan'] : {};
+    title = kind === 'wan' ? 'WAN 口' : 'LAN 网络';
+    info = ncIpText(ip) + (ip.device ? '\n接口：' + ip.device : '');
+    proto = ip.proto || 'dhcp'; ipaddr = ip.ipaddr || ''; netmask = ip.netmask || ''; gateway = ip.gateway || ''; dns = ip.dns || [];
+    ncEditCtx = { kind:kind };
+    $('#ncNetKeyField').style.display = 'none';
+  }else if(kind === 'sta'){
+    const ip = st.ip && st.ip.wwan ? st.ip.wwan : {};
+    const p = (st.profiles || []).find(x=>x.ssid === (data && data.ssid)) || {};
+    title = '当前 WiFi：' + ((data && data.ssid) || st.staSsid || '');
+    info = ncIpText(ip);
+    proto = (p.net && p.net.proto) || ip.proto || 'dhcp';
+    ipaddr = (p.net && p.net.ipaddr) || ip.ipaddr || '';
+    netmask = (p.net && p.net.netmask) || ip.netmask || '';
+    gateway = (p.net && p.net.gateway) || ip.gateway || '';
+    dns = (p.net && p.net.dns) || [];
+    ncEditCtx = { kind:'sta', ssid:(data && data.ssid) || st.staSsid || '' };
+    $('#ncNetKeyField').style.display = '';
+  }else{
+    const p = (st.profiles || []).find(x=>x.id === (data && data.id)) || {};
+    title = '已保存网络：' + (p.ssid || '');
+    info = '频段：' + (p.band === '5g' ? '5G' : '2.4G') + (p.hasKey ? ' · 已保存密码' : ' · 开放网络');
+    proto = (p.net && p.net.proto) || 'dhcp';
+    ipaddr = (p.net && p.net.ipaddr) || ''; netmask = (p.net && p.net.netmask) || ''; gateway = (p.net && p.net.gateway) || ''; dns = (p.net && p.net.dns) || [];
+    ncEditCtx = { kind:'profile', id:(data && data.id) || '' };
+    $('#ncNetKeyField').style.display = '';
+  }
+  $('#ncNetEditTitle').textContent = title;
+  $('#ncNetInfo').textContent = info;
+  $('#ncNetKey').value = '';
+  $('#ncNetKey').type = 'password';
+  $('#ncNetProto').value = proto;
+  $('#ncNetIp').value = ipaddr;
+  $('#ncNetMask').value = netmask;
+  $('#ncNetGw').value = gateway;
+  $('#ncNetDns').value = (dns || []).join(' ');
+  ncToggleIpFields();
+  $('#ncNetModal').classList.add('show');
+}
+function ncNetPayload(){
+  const net = { proto:$('#ncNetProto').value };
+  if(net.proto === 'static'){
+    net.ipaddr = $('#ncNetIp').value.trim();
+    net.netmask = $('#ncNetMask').value.trim();
+    net.gateway = $('#ncNetGw').value.trim();
+    net.dns = $('#ncNetDns').value.trim().split(/\s+/).filter(Boolean);
+    if(!net.ipaddr){ toast('静态 IP 不能为空', true); return null; }
+    /* LAN 不允许带网关/DNS，避免默认路由抢走有线/无线/4G 优先级 */
+    if(ncEditCtx && ncEditCtx.kind === 'wired'){ delete net.gateway; delete net.dns; }
+  }
+  const key = $('#ncNetKey').value;
+  return { net:net, key:key };
+}
+async function ncSaveNet(){
+  if(!ncEditCtx){ toast('请先选择要修改的网络', true); return; }
+  const p = ncNetPayload(); if(!p) return;
+  let body;
+  if(ncEditCtx.kind === 'wired') body = { act:'save_lan', net:p.net };
+  else if(ncEditCtx.kind === 'wan') body = { act:'save_wan', net:p.net };
+  else if(ncEditCtx.kind === 'sta') body = { act:'save_sta_net', ssid:ncEditCtx.ssid, net:p.net, key:p.key };
+  else body = { act:'save_profile_net', id:ncEditCtx.id, net:p.net, key:p.key };
+  try{
+    const j = await netWifiPost(body);
+    toast(j.message || '网络配置已保存');
+    ncCloseNetModal();
+    await ncRefreshStatus();
+  }catch(e){}
 }
 async function renderNetCfg(){
   if(!netWifiInit){ await initNetWifiCap(); netWifiInit = true; }
   if(!netSupported){ toast('当前设备不支持网络配置', true); return; }
+  /* 默认页签：有有线网络时进“有线网络”，否则进“WiFi连接” */
+  const cap = window._netCap || {};
+  /* 先取状态再切页签，避免自动扫描时能力信息还没到位 */
   const j = await ncRefreshStatus();
   if(!j) return;
-  const staPanel = $('#netpanel-sta'), apPanel = $('#netpanel-ap');
-  if(staPanel) staPanel.style.display = netMode === 'sta' ? '' : 'none';
-  if(apPanel) apPanel.style.display = netMode === 'ap' ? '' : 'none';
-  $('#ncJoinCard').style.display = 'none';
-  if(netMode === 'sta' && !$('#nc-sta-list tbody').textContent.includes('正在扫描')) await ncDoScan();
+  ncSetMode(cap.wired === false ? 'sta' : 'wired');
 }
 document.addEventListener('click', async e=>{
+  const tab = e.target.closest && e.target.closest('.nc-mode-tabs [data-nc-mode]');
+  if(tab){
+    ncSetMode(tab.dataset.ncMode);
+    if(ncMode === 'sta') await ncRefreshStatus();
+    return;
+  }
   const eye = e.target.closest && e.target.closest('#view-netcfg .pw-eye');
   if(eye){ const inp = eye.parentElement.querySelector('input'); if(!inp) return;
-    const show = inp.type === 'password'; inp.type = show ? 'text' : 'password'; eye.textContent = show ? '隐藏' : '显示'; return; }
+    const show = inp.type === 'password'; inp.type = show ? 'text' : 'password';
+    eye.title = show ? '隐藏密码' : '显示密码'; eye.classList.toggle('on', show);
+    eye.setAttribute('aria-label', eye.title); return; }
+  const edit = e.target.closest && e.target.closest('.nc-edit-net');
+  if(edit){ ncOpenEdit(edit.dataset.kind, edit.dataset); return; }
   const net = e.target.closest && e.target.closest('#nc-sta-list .nc-net');
-  if(net){ ncShowJoin(net.dataset.ssid, net.dataset.band); return; }
+  if(net){
+    const ssid = net.dataset.ssid || '';
+    const bands = (net.dataset.bands || '').split(',').filter(Boolean);
+    /* 已保存的网络：直接询问是否连接，不进入配置弹窗 */
+    const profiles = (window._netStatus && window._netStatus.profiles) || [];
+    const saved = profiles.filter(p=>p.ssid === ssid);
+    if(saved.length){
+      /* 优先选扫描列表里信号更强的频段，其次用第一个已保存 profile */
+      const band = bands.find(b=>saved.some(p=>p.band === b)) || saved[0].band || '2g';
+      const bandTxt = band === '5g' ? '5G' : '2.4G';
+      if(await uiConfirm('「'+ssid+'」已保存，是否连接该网络（'+bandTxt+'）？', { title:'连接 WiFi', okText:'连接' })){
+        try{ const j = await netWifiPost({ act:'connect_saved', ssid, band }); toast(j.message || '正在连接'); await ncRefreshStatus(); }catch(err){}
+      }
+      return;
+    }
+    ncShowJoin(ssid, bands); return;
+  }
   const forget = e.target.closest && e.target.closest('#nc-saved-list .nc-forget');
   if(forget){
     const ssid = forget.dataset.ssid;
@@ -3074,11 +3687,20 @@ document.addEventListener('click', async e=>{
     }
     return;
   }
-  if(e.target.closest && e.target.closest('#ncJoinCancel')){ $('#ncJoinCard').style.display = 'none'; return; }
+  if(e.target.closest && e.target.closest('#ncJoinCancel')){ ncCloseJoinModal(); return; }
+  if(e.target.closest && e.target.closest('#ncNetCancel')){ ncCloseNetModal(); return; }
+  if(e.target.closest && e.target.closest('#ncNetSave')){ await ncSaveNet(); return; }
+  if(e.target.id === 'ncNetModal' || e.target.id === 'ncJoinModal'){
+    if(e.target.id === 'ncNetModal') ncCloseNetModal(); else ncCloseJoinModal();
+  }
 });
 Array.from(document.querySelectorAll('input[name="nc-ap-band"]')).forEach(r=>r.addEventListener('change',()=>{
-  if(r.checked) ncSetBandOptions(window._netCap || {});
+  if(r.checked){
+    const old = $('#nc-ap-width') ? $('#nc-ap-width').value : '';
+    ncSetBandOptions(window._netCap || {}, old);
+  }
 }));
+$('#ncNetProto')?.addEventListener('change', ncToggleIpFields);
 $('#nc-ap-save')?.addEventListener('click', async ()=>{
   const band = (document.querySelector('input[name="nc-ap-band"]:checked:not(:disabled)')?.value) || '2g';
   const body = { act:'save_ap', band, htmode:$('#nc-ap-width').value, ssid:$('#nc-ap-ssid').value.trim(), key:$('#nc-ap-key').value, enabled:$('#nc-ap-enabled').checked };
@@ -3086,11 +3708,29 @@ $('#nc-ap-save')?.addEventListener('click', async ()=>{
   try{ const j = await netWifiPost(body); toast(j.message||'热点配置已保存'); await ncRefreshStatus(); }catch(e){}
 });
 $('#nc-sta-scan')?.addEventListener('click', ()=>ncDoScan());
+$('#nc-lte-save')?.addEventListener('click', async ()=>{
+  const body = { act:'save_4g', enabled:!!($('#nc-lte-enabled')||{}).checked };
+  try{ const j = await netWifiPost(body); toast(j.message||'4G 设置已保存'); await ncRefreshStatus(); }catch(e){}
+});
 $('#ncJoinSave')?.addEventListener('click', async ()=>{
   const ssid = ($('#ncJoinSsid').dataset.ssid || $('#ncJoinSsid').textContent || '').trim();
   if(!ssid){ toast('请先选择一个网络', true); return; }
-  const body = { act:'save_sta', ssid, key:$('#ncJoinKey').value, band:$('#ncJoinBand').value === '5G' ? '5g' : '2g' };
-  try{ const j = await netWifiPost(body); toast(j.message||'WiFi 已保存，正在连接'); $('#ncJoinCard').style.display = 'none'; await ncRefreshStatus(); }catch(e){}
+  const checked = document.querySelector('#ncJoinBandChoice input[name="ncJoinBand"]:checked:not(:disabled)');
+  const choice = checked ? checked.value : '';
+  if(!choice){ toast('请选择要保存的频段', true); return; }
+  const key = $('#ncJoinKey').value;
+  try{
+    if(choice === 'both'){
+      await netWifiPost({ act:'save_sta', ssid, key, band:'2g' });
+      const j = await netWifiPost({ act:'save_sta', ssid, key, band:'5g' });
+      toast(j.message || '两个频段已保存，择优连接');
+    }else{
+      const j = await netWifiPost({ act:'save_sta', ssid, key, band:choice });
+      toast(j.message || 'WiFi 已保存，正在连接');
+    }
+    ncCloseJoinModal();
+    await ncRefreshStatus();
+  }catch(e){}
 });
 
 /* ---- 电台信息 ---- */
@@ -4468,6 +5108,36 @@ function gwIdOptions(cur){
   /* 不在已保存列表里的旧 ID 不再显示为“当前”，而是回落到（未选择），保存时即清空 */
   return opts;
 }
+/* 把新增的 kv token 插到段内最后一个 kv 之后、段尾注释/空行之前。
+   注释（如 # DMR+）写在下一段标题之前，parseSections 会把它归到上一段末尾；
+   若用 push 追加，新键就会落到注释下面，导致保存后 ini 顺序错乱。 */
+function insertKv(tokens, token){
+  let lastKv = -1;
+  tokens.forEach((t, i)=>{ if(t.type === 'kv') lastKv = i; });
+  tokens.splice(lastKv + 1, 0, token);
+  return lastKv + 1;
+}
+/* 规整旧配置里错位的行：下一段的标题注释（如 # DMR+）若夹在本段 kv 中间、
+   后面又跟了 kv，就把这个注释块整体移到段尾。这样保存一次后旧文件恢复整齐，
+   也不影响段内中间注释（后面不是 kv 的注释不处理）。仅在渲染前调用，索引稳定。 */
+function normalizeSection(tokens){
+  let guard = 0;
+  while(guard++ < 100){
+    let done = true;
+    for(let i = 0; i < tokens.length; i++){
+      if(tokens[i].type !== 'comment') continue;
+      let j = i;
+      while(j < tokens.length && (tokens[j].type === 'comment' || tokens[j].type === 'blank')) j++;
+      if(j >= tokens.length) break;             /* 注释块已在段尾，正常 */
+      if(tokens[j].type !== 'kv'){ i = j - 1; continue; }
+      const block = tokens.splice(i, j - i);    /* 注释块后面还有 kv → 移到段尾 */
+      tokens.push(...block);
+      done = false;
+      break;
+    }
+    if(done) break;
+  }
+}
 /* 每个 [DMR Network N] 都补一个 Id 字段，默认选中基本信息里第 N 个已保存的 DMR ID */
 function gwInjectIds(secs){
   if(cfgCurrent !== 'DMRGateway.ini') return;
@@ -4477,10 +5147,7 @@ function gwInjectIds(secs){
     if(s.tokens.some(t=>t.type==='kv' && t.key==='Id')) return;
     const it = gwDmrIds[+m[1]-1];
     const val = (it && it.id) ? it.id + (it.essid || '') : '';
-    /* Id 必须插在最后一个 kv 之后、尾部注释之前，否则会落到下一个 section 的标题注释下面 */
-    let lastKv = -1;
-    s.tokens.forEach((t, i)=>{ if(t.type === 'kv') lastKv = i; });
-    s.tokens.splice(lastKv + 1, 0, { type:'kv', key:'Id', value: val, _raw:'', _hasEq:true, _gw:true });
+    insertKv(s.tokens, { type:'kv', key:'Id', value: val, _raw:'', _hasEq:true, _gw:true });
   });
 }
 /* DMR Network 的显示顺序：ID 紧随「启用」，密码紧随 ID（只影响页面显示，保存时仍按文件原顺序写回） */
@@ -4520,6 +5187,8 @@ function gwNormalizeRewrite(secs){
 }
 function renderSections(content){
   const secs = parseSections(content);
+  /* DMRGateway：规整旧配置里被注释切断的行序，再登记缓存，保证 data-tok 索引与写回一致 */
+  if(cfgCurrent === 'DMRGateway.ini') secs.forEach(s=>normalizeSection(s.tokens));
   gwNormalizeRewrite(secs);
   gwInjectIds(secs);
   window._cfgSecCache = {};
@@ -4555,9 +5224,9 @@ function renderSections(content){
     if(cfgCurrent === 'DMRGateway.ini' && /^DMR Network\s+\d+$/.test(s.name)){
       /* 段里一条 TG 改写都没有时补一条空行方便添加；已有的行（含删除后剩下的）原样保留 */
       if(!s.tokens.some(t=>t.type === 'kv' && /^TGRewrite\d+$/.test(t.key)))
-        s.tokens.push({ type:'kv', key:'TGRewrite0', value:'' });
+        insertKv(s.tokens, { type:'kv', key:'TGRewrite0', value:'' });
       if(!s.tokens.some(t=>t.type === 'kv' && /^PCRewrite\d+$/.test(t.key)))
-        s.tokens.push({ type:'kv', key:'PCRewrite0', value:'' });
+        insertKv(s.tokens, { type:'kv', key:'PCRewrite0', value:'' });
     }
     /* 呼叫直通：按时隙合并 PassAllPC/TG（序号 0 = 时隙 1，1 = 时隙 2；兼容不带序号的旧写法） */
     if(/^DMR Network\s+\d+$/.test(s.name)){
@@ -4579,8 +5248,8 @@ function renderSections(content){
         { type:'kv', key:'__PASSALL0__', value: on[0] ? '1' : '' },
         { type:'kv', key:'__PASSALL1__', value: on[1] ? '1' : '' }
       ];
-      if(first >= 0) s.tokens.splice(first, 0, add[0], add[1]);
-      else s.tokens.push(add[0], add[1]);
+      insertKv(s.tokens, add[0]);
+      insertKv(s.tokens, add[1]);
     }
     const toks = gwViewTokens(s.name, s.tokens);
     const isDmrNetSec = (cfgCurrent === 'DMRGateway.ini' && /^DMR Network\s+\d+$/.test(s.name));
@@ -5225,8 +5894,7 @@ function gwSetRewriteRows(cache, domVals, secName, want, managedSets){
   let nextNum = 0;
   idxs.forEach(x=>{ nextNum = Math.max(nextNum, +x.t.key.replace('TGRewrite','') + 1); });
   for(let k=idxs.length; k<want.length; k++){
-    const idx = s.tokens.length;
-    s.tokens.push({ type:'kv', key:'TGRewrite' + (nextNum++), value:want[k], _raw:'', _hasEq:true });
+    const idx = insertKv(s.tokens, { type:'kv', key:'TGRewrite' + (nextNum++), value:want[k], _raw:'', _hasEq:true });
     domVals[secName + '\u0000' + idx] = want[k];
   }
 }
@@ -5256,7 +5924,17 @@ function rebuildContent(keepEmpty){
   });
   gwApplyRewriteMode(cache, domVals);
   return Object.keys(cache).map(name=>{
-    const lines = cache[name].tokens.map((t,i)=>{
+    /* 收敛段尾空行：末尾连续的 blank 最多保留一个（用于段间分隔），
+       避免反复保存后空行越积越多。段尾注释（如 # DMR+）属于下一段的标题，
+       其前面的空行同样最多保留一个。用 origIdx 记录原始下标，保证 domVals 取值不错位。 */
+    const indexed = cache[name].tokens.map((t, i)=>({ t, i }));
+    while(indexed.length >= 2 && indexed[indexed.length-1].t.type === 'blank' && indexed[indexed.length-2].t.type === 'blank') indexed.pop();
+    for(let j = indexed.length - 1; j > 0; j--){
+      if(indexed[j].t.type === 'comment' && indexed[j-1].t.type === 'blank' && indexed[j-2] && indexed[j-2].t.type === 'blank'){
+        indexed.splice(j-1, 1);
+      }
+    }
+    const lines = indexed.map(({ t, i })=>{
       if(t.type==='kv'){
         const k = name + '\u0000' + i;
         let v = (k in domVals) ? domVals[k] : t.value;
@@ -5761,7 +6439,7 @@ function stopCalMon(){
   if(sw) sw.checked = false;
   setCalBadge('已停止', 'off');
 }
-const UI_VER = '20261124z662';
+const UI_VER = '20261124z681';
 /* 界面显示的版本号：V0.<构建序号>，小数位最多 4 位；稳定前主版本保持 0 */
 function dashVer(){ return 'V0.662'; }
 /* forceMs：指定固定刷新周期（自动校准用 3000ms），省略则跟随下拉框 */
@@ -5849,20 +6527,25 @@ function drawCalChart(){
   maxV = Math.ceil(maxV / 5) * 5;
   const lo = -0.5, hi = maxV;
   const yOf = v => padT + ih * (1 - (v - lo) / (hi - lo));
-  ctx.font = '11px ' + getComputedStyle(document.body).getPropertyValue('--mono');
+  const cs = getComputedStyle(document.body);
+  const cvv = k => cs.getPropertyValue(k).trim();
+  const cFaint = cvv('--faint') || '#7c8894';
+  const cCyan = cvv('--cyan') || '#38bdf8';
+  const cCyanRgb = cvv('--cyan-rgb') || '56,189,248';
+  ctx.font = '11px ' + cvv('--mono');
   ctx.lineWidth = 1;
   for(let i=0;i<=4;i++){
     const val = maxV * (4 - i) / 4;
     const y = yOf(val);
-    ctx.strokeStyle = 'rgba(124,136,148,.18)';
+    ctx.strokeStyle = 'rgba(' + (cvv('--neutral-rgb')||'139,152,165') + ',.22)';
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
-    ctx.fillStyle = '#7c8894';
+    ctx.fillStyle = cFaint;
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.fillText(val.toFixed(0) + '%', padL - 6, y);
   }
   const n = calMon.samples.length;
   if(!n){
-    ctx.fillStyle = '#7c8894'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = cFaint; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(calAuto.on ? '采样中 · 等待误码率数据' : '暂无数据', padL + iw/2, padT + ih/2);
     return;
   }
@@ -5875,23 +6558,23 @@ function drawCalChart(){
   for(let i=0;i<n;i++){ const p = pt(i); ctx.lineTo(p[0], p[1]); }
   ctx.lineTo(pt(n-1)[0], padT + ih);
   ctx.closePath();
-  ctx.fillStyle = 'rgba(56,189,248,.14)';
+  ctx.fillStyle = 'rgba(' + cCyanRgb + ',.16)';
   ctx.fill();
   ctx.beginPath();
   for(let i=0;i<n;i++){ const p = pt(i); i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]); }
-  ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.strokeStyle = cCyan; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
   /* 采样点较少时画出每个点，恒为 0.0% 时也能看出是一条有数据的线 */
   if(n <= 40){
-    ctx.fillStyle = 'rgba(56,189,248,.75)';
+    ctx.fillStyle = 'rgba(' + cCyanRgb + ',.75)';
     for(let i=0;i<n;i++){ const p = pt(i); ctx.beginPath(); ctx.arc(p[0], p[1], 2.2, 0, Math.PI*2); ctx.fill(); }
   }
   const last = pt(n-1);
   ctx.beginPath(); ctx.arc(last[0], last[1], 3.5, 0, Math.PI*2);
-  ctx.fillStyle = '#38bdf8'; ctx.fill();
+  ctx.fillStyle = cCyan; ctx.fill();
   ctx.restore();
   /* 末端标注当前值，曲线贴着 0% 时也能一眼看出在刷新 */
-  ctx.font = '11px ' + getComputedStyle(document.body).getPropertyValue('--mono');
-  ctx.fillStyle = '#38bdf8';
+  ctx.font = '11px ' + cvv('--mono');
+  ctx.fillStyle = cCyan;
   ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
   ctx.fillText(calMon.samples[n-1].v.toFixed(1) + '%', Math.min(last[0], w - padR - 2), Math.max(last[1] - 5, padT + 10));
 }
@@ -6751,6 +7434,18 @@ async function renderSystem(){
     </div>
     ${lteCard}
     <div class="card" style="margin-top:14px">
+      <h2 style="font-size:17px;margin-bottom:8px">外观</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="color:var(--muted);font-size:14px">界面主题</span>
+        <div class="theme-seg" id="themeSeg">
+          <button type="button" data-theme-mode="auto">跟随系统</button>
+          <button type="button" data-theme-mode="light">浅色</button>
+          <button type="button" data-theme-mode="dark">深色</button>
+        </div>
+      </div>
+      <p style="color:var(--faint);font-size:13px;margin-top:10px">仅保存在本机浏览器，不影响设备配置；全系机型通用。</p>
+    </div>
+    <div class="card" style="margin-top:14px">
       <h2 style="font-size:17px;margin-bottom:8px">系统操作</h2>
       <p style="color:var(--muted);font-size:14px;margin-bottom:12px">重启后设备会断开约 30–60 秒，期间通联中断，页面会在设备恢复后重新可用。</p>
       <div class="sys-ops" style="display:flex;align-items:stretch;gap:10px;flex-wrap:wrap">
@@ -6760,6 +7455,19 @@ async function renderSystem(){
         <button class="btn danger" id="sys-reboot">重启设备</button>
       </div>
     </div>`;
+  /* 外观：三态选择，偏好存 localStorage，全系机型可用 */
+  const seg = $('#themeSeg');
+  if(seg){
+    const mark = ()=>{
+      const cur = (window.dashTheme && window.dashTheme.mode) || 'auto';
+      seg.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b.dataset.themeMode===cur));
+    };
+    mark();
+    seg.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{
+      if(window.dashTheme) window.dashTheme.set(b.dataset.themeMode);
+      mark();
+    }));
+  }
   $('#sys-luci').addEventListener('click', async (ev)=>{
     ev.preventDefault();
     /* 先开空白标签页，避免请求返回后再 window.open 被浏览器拦截 */

@@ -132,6 +132,10 @@ for opt in \
 	CONFIG_PACKAGE_kmod-usb-serial-ftdi=y \
 	CONFIG_PACKAGE_kmod-usb-serial-pl2303=y \
 	CONFIG_PACKAGE_kmod-usb-acm=y \
+	CONFIG_PACKAGE_kmod-usb-net=y \
+	CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y \
+	CONFIG_PACKAGE_kmod-usb-net-rndis=y \
+	CONFIG_PACKAGE_usb-modeswitch=y \
 	CONFIG_PACKAGE_kmod-i2c-core=y \
 	CONFIG_PACKAGE_kmod-i2c-mt7628=y \
 	CONFIG_PACKAGE_i2c-tools=y \

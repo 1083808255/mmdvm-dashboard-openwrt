@@ -2,19 +2,34 @@
 # HLK-7628N 网络默认值：
 #   - 单网口全部作为 LAN，192.168.7.1/24
 #   - LAN 只提供 IPv4 DHCP（100~200，租期 12h），不提供 IPv6
-#   - WiFi STA(wwan) 作为 WAN：IPv4 DHCP + DHCPv6 自动获取
+#   - 上行只有两条：WiFi STA(wwan) 与 4G(wwan4g)
+#   - 本机型无有线 WAN，network.wan 明确删除
 [ -f /etc/config/network ] || exit 0
 
-# 上游 WiFi 作为 WAN
+# 上游 WiFi 作为 WAN：设备名用 ifname 而不是 phy0-sta0（后者随驱动/命名策略变化）
 uci set network.wwan='interface'
 uci set network.wwan.proto='dhcp'
-uci set network.wwan.device='phy0-sta0'
+uci set network.wwan.device='mmdvmsta'
+# 上行优先级：WiFi(20) 优先于 4G(30)；本机型没有有线，10 这一档空缺
+uci set network.wwan.metric='20'
 uci -q delete network.wwan6
 uci set network.wwan6='interface'
 uci set network.wwan6.proto='dhcpv6'
 uci set network.wwan6.device='@wwan'
 uci set network.wwan6.reqaddress='try'
 uci set network.wwan6.reqprefix='auto'
+
+# 4G 数据旁路（Air780E 走 USB 网卡，设备名由 hotplug 自动绑定，这里只建接口）
+# 注意：4G 不算“上游”——它不参与“能否关闭热点”的判定，只负责给 LAN 客户端出网
+# auto 缺省 0：模块没插时不拉起接口（否则 netifd 会持续报 NO_DEVICE）；
+# 模块插入后由 hotplug 置 1，拔掉再置回 0。已存在的值不覆盖，避免把热插拔结果冲掉
+if [ -z "$(uci -q get network.wwan4g)" ]; then
+	uci set network.wwan4g='interface'
+	uci set network.wwan4g.proto='dhcp'
+fi
+[ -z "$(uci -q get network.wwan4g.proto)" ] && uci set network.wwan4g.proto='dhcp'
+uci set network.wwan4g.metric='30'
+[ -z "$(uci -q get network.wwan4g.auto)" ] && uci set network.wwan4g.auto='0'
 
 # LAN：固定地址、去掉所有 IPv6 相关配置；单网口方案不存在 WAN 口
 [ -n "$(uci -q get network.lan)" ] || uci set network.lan='interface'
@@ -26,6 +41,9 @@ uci -q delete network.lan.ip6hint
 uci -q delete network.lan.ip6ifaceid
 uci -q delete network.lan.ip6class
 uci -q delete network.globals.ula_prefix
+# LAN 不得带 gateway/dns，否则会插一条 metric 0 的默认路由，抢走 WiFi/4G 的上行
+uci -q delete network.lan.gateway
+uci -q delete network.lan.dns
 uci -q delete network.wan
 uci -q delete network.wan6
 uci commit network
@@ -42,13 +60,13 @@ uci set dhcp.lan.ra='disabled'
 uci set dhcp.lan.ndp='disabled'
 uci commit dhcp
 
-# 防火墙：wwan / wwan6 划入 wan 区，启用 NAT
+# 防火墙：wwan / wwan6 / wwan4g 划入 wan 区，启用 NAT
 . /lib/functions.sh
 _wan_zone() {
 	local name
 	config_get name "$1" name
 	[ "$name" = "wan" ] || return 0
-	uci set firewall."$1".network='wwan wwan6'
+	uci set firewall."$1".network='wwan wwan6 wwan4g'
 	uci set firewall."$1".masq='1'
 	uci set firewall."$1".mtu_fix='1'
 }

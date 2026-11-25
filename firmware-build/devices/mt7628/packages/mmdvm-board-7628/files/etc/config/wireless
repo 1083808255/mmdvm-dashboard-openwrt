@@ -7,8 +7,10 @@ config wifi-device 'radio0'
 	option country 'CN'
 	option disabled '0'
 
-config wifi-iface 'mmdvm_ap'
+# AP：段名/ifname 与 api.uc、wifi-guard、wifi-select 保持统一（mmdvm_ap_2g / mmdvm-ap2）
+config wifi-iface 'mmdvm_ap_2g'
 	option device 'radio0'
+	option ifname 'mmdvm-ap2'
 	option mode 'ap'
 	option ssid 'MMDVM-OpenWrt'
 	option encryption 'none'
@@ -16,8 +18,9 @@ config wifi-iface 'mmdvm_ap'
 	option disabled '0'
 
 # 上游 WiFi（STA）：默认停用，刷机后填入 SSID/密码并把 disabled 改为 0
-config wifi-iface 'wwan_sta'
+config wifi-iface 'mmdvm_sta'
 	option device 'radio0'
+	option ifname 'mmdvmsta'
 	option mode 'sta'
 	option network 'wwan'
 	option ssid 'UPSTREAM_SSID'

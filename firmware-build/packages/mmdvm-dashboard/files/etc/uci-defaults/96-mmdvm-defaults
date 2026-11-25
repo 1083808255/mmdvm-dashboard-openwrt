@@ -38,18 +38,21 @@ for i in $(uci show wireless 2>/dev/null | sed -n "s/^wireless\.\([^.=]*\)=wifi-
 done
 
 # 一个 AP 都没有：在 2.4G 射频上新建开放 AP
+# 段名必须用 mmdvm_ap_2g（api.uc / wifi-guard / wifi-select 只认这个），
+# 用旧名 mmdvm_ap 会造出一个没人管理的 AP，面板里也看不到
 if [ -z "$have_ap" ]; then
 	uci set wireless.$radio.disabled='0'
 	uci set wireless.$radio.channel='auto'
 	[ -z "$(uci -q get wireless.$radio.htmode)" ] && uci set wireless.$radio.htmode='HT20'
 	[ -z "$(uci -q get wireless.$radio.country)" ] && uci set wireless.$radio.country='CN'
-	uci set wireless.mmdvm_ap='wifi-iface'
-	uci set wireless.mmdvm_ap.device="$radio"
-	uci set wireless.mmdvm_ap.mode='ap'
-	uci set wireless.mmdvm_ap.ssid="$HOSTNM"
-	uci set wireless.mmdvm_ap.encryption='none'
-	uci set wireless.mmdvm_ap.network='lan'
-	uci set wireless.mmdvm_ap.disabled='0'
+	uci set wireless.mmdvm_ap_2g='wifi-iface'
+	uci set wireless.mmdvm_ap_2g.device="$radio"
+	uci set wireless.mmdvm_ap_2g.ifname='mmdvm-ap2'
+	uci set wireless.mmdvm_ap_2g.mode='ap'
+	uci set wireless.mmdvm_ap_2g.ssid="$HOSTNM"
+	uci set wireless.mmdvm_ap_2g.encryption='none'
+	uci set wireless.mmdvm_ap_2g.network='lan'
+	uci set wireless.mmdvm_ap_2g.disabled='0'
 fi
 
 uci commit wireless

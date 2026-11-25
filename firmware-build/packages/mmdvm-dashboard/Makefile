@@ -59,6 +59,7 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/init.d/mmdvm-wifi-guard $(1)/etc/init.d/mmdvm-wifi-guard
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/85-mmdvm-wifi-base $(1)/etc/uci-defaults/85-mmdvm-wifi-base
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/88-mmdvm-firewall-forward $(1)/etc/uci-defaults/88-mmdvm-firewall-forward
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/89-mmdvm-dashboard-bc $(1)/etc/uci-defaults/89-mmdvm-dashboard-bc
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/90-mmdvm-dashboard $(1)/etc/uci-defaults/90-mmdvm-dashboard
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/91-mmdvm-log-clean $(1)/etc/uci-defaults/91-mmdvm-log-clean
@@ -70,6 +71,8 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/97-mmdvm-ids-sync $(1)/etc/uci-defaults/97-mmdvm-ids-sync
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/98-mmdvm-cn-sync $(1)/etc/uci-defaults/98-mmdvm-cn-sync
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/uci-defaults/99-mmdvm-ids-lite $(1)/etc/uci-defaults/99-mmdvm-ids-lite
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/net
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/etc/hotplug.d/net/40-mmdvm-4g $(1)/etc/hotplug.d/net/40-mmdvm-4g
 endef
 
 $(eval $(call BuildPackage,mmdvm-dashboard))

@@ -1,0 +1,20 @@
+#!/bin/sh
+# 全系默认放开防火墙转发：保留防火墙服务与 NAT(masq)，仅把转发策略改为全部接受
+# 仅调整 defaults 与各 zone 的 forward，不改 input/output，也不动 masq/mtu_fix
+[ -f /etc/config/firewall ] || exit 0
+
+uci set firewall.@defaults[0].forward='ACCEPT'
+for z in $(uci show firewall 2>/dev/null | sed -n 's/^firewall\.\([^.=]*\)=zone$/\1/p'); do
+	uci set "firewall.$z.forward=ACCEPT"
+done
+
+# 关闭 fullcone：该内核的 nft_fullcone 只生成 "meta nfproto ipv4 fullcone"，
+# 不执行 SNAT，导致 LAN 客户端转发出去后源地址没转换、回程包收不到（表现为"没网"）。
+# 用标准 masquerade 才能正常上网。
+# 仅当固件本身支持该选项时才写，否则 fw4 每次重载都会告警 unknown option
+[ -n "$(uci -q get firewall.@defaults[0].fullcone)" ] && uci set firewall.@defaults[0].fullcone='0'
+uci commit firewall
+
+# 配置改动后重载防火墙使转发策略立即生效
+/etc/init.d/firewall reload >/dev/null 2>&1
+exit 0

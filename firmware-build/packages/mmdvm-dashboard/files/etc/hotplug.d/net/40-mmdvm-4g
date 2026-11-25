@@ -1,0 +1,49 @@
+#!/bin/sh
+# 4G 数据接口自动绑定：Air780E 走 USB 网卡（RNDIS/ECM），枚举名随模块固件变化
+# （usb0 / eth1 / wwan0 都可能），因此不写死设备名，由 hotplug 识别后写入 network.wwan4g
+# 排除本机固定接口：LAN 桥、AP、STA、回环
+[ -f /etc/config/network ] || exit 0
+
+# hotplug-call 只导出 DEVICENAME（由 DEVPATH 末段得出），net 事件另有 INTERFACE；
+# 没有 DEVNAME 这个变量，写 $DEVNAME 会让本脚本永远空转
+DEV="$DEVICENAME"
+[ -n "$DEV" ] || DEV="$INTERFACE"
+[ -n "$DEV" ] || exit 0
+
+case "$DEV" in
+	br-lan|mmdvm-ap2|mmdvm-ap5|mmdvmsta|lo|eth0|ppp*|wlan*) exit 0 ;;
+esac
+
+# 只接管“没有有线 WAN”的机型（7628）：有 wan 口的设备上 USB 网卡
+# 可能正是用户插的上行网卡，不能被 4G 抢走
+[ -n "$(uci -q get network.wan)" ] && exit 0
+
+case "$ACTION" in
+	add)
+		# 用户在面板里停用过 4G（proto=none）时不要自动重新启用
+		[ "$(uci -q get network.wwan4g.proto)" = "none" ] && exit 0
+		# 已绑定且该设备仍然存在时不改；旧设备已消失（模块重新枚举成别的名字）则改绑
+		cur=$(uci -q get network.wwan4g.device)
+		[ -n "$cur" ] && [ "$cur" != "$DEV" ] && [ -e "/sys/class/net/$cur" ] && exit 0
+		# 已作为其它接口设备的不要抢（例如用户手动配置的 usb 网卡）
+		for s in $(uci show network 2>/dev/null | sed -n "s/^network\.\([^.=]*\)=interface$/\1/p"); do
+			[ "$s" = "wwan4g" ] && continue
+			[ "$(uci -q get "network.$s.device")" = "$DEV" ] && exit 0
+		done
+		uci set network.wwan4g=interface
+		uci set network.wwan4g.proto=dhcp
+		uci set network.wwan4g.metric=30
+		uci set network.wwan4g.auto=1
+		uci set network.wwan4g.device="$DEV"
+		uci commit network
+		ifup wwan4g >/dev/null 2>&1
+		;;
+	remove)
+		[ "$(uci -q get network.wwan4g.device)" = "$DEV" ] || exit 0
+		ifdown wwan4g >/dev/null 2>&1
+		# 模块拔掉后关掉 auto，避免下次开机 netifd 对着不存在的设备反复报 NO_DEVICE
+		uci set network.wwan4g.auto=0
+		uci commit network
+		;;
+esac
+exit 0

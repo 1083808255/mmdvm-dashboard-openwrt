@@ -46,6 +46,8 @@ dev="$r2"; [ "$band" = "5g" ] && [ -n "$r5" ] && dev="$r5"
 [ -n "$dev" ] || exit 0
 
 uci set wireless.mmdvm_sta.device="$dev"
+uci set wireless.mmdvm_sta.network=wwan
+uci set wireless.mmdvm_sta.ifname=mmdvmsta
 uci set wireless.mmdvm_sta.ssid="$best"
 uci set wireless.mmdvm_sta.key="$key"
 if [ -n "$key" ]; then
@@ -54,6 +56,26 @@ else
 	uci set wireless.mmdvm_sta.encryption=none
 fi
 uci set wireless.mmdvm_sta.disabled=0
+uci set network.wwan=interface
+uci set network.wwan.proto=dhcp
+uci set network.wwan.device=mmdvmsta
+# 上行优先级 有线(10) > 无线(20) > 4G(30)：metric 相同会被无线抢走默认路由
+uci set network.wwan.metric=20
+uci commit network >/dev/null 2>&1
 uci commit wireless >/dev/null 2>&1
-wifi reload >/dev/null 2>&1
+# ath11k 上 wifi reload 不重建 netdev，必须 wifi down → 删残留 phy 配置 → wpad restart → wifi up
+# 2.4G 上 AP 与 STA 同 phy，AP 的 ACS 扫描会和 STA 扫描抢射频，首次 up 常失败需重试
+i=0
+while [ $i -lt 3 ]; do
+	wifi down >/dev/null 2>&1
+	sleep 3
+	rm -f /var/run/hostapd-phy*.conf 2>/dev/null
+	/etc/init.d/wpad restart >/dev/null 2>&1
+	sleep 4
+	wifi up >/dev/null 2>&1
+	sleep 12
+	[ -e /sys/class/net/mmdvmsta ] && break
+	i=$((i+1))
+done
+/etc/init.d/network reload >/dev/null 2>&1
 exit 0

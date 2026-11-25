@@ -1,16 +1,17 @@
 #!/bin/sh
-# AX5 专用无线基线（设备差异化：仅 redmi,ax5-jdcloud 执行）
-# 建立 2.4G/5G 二选一热点 + STA 接口 + mmdvmwifi 配置库
+# 无线基线（设备差异化）：redmi,ax5-jdcloud（双频）与 hilink,hlk-7628n（单 2.4G）
+# 建立热点 + STA 接口 + mmdvmwifi 配置库
 # 幂等：已有 mmdvmwifi.main 时只补缺项，不覆盖用户配置
 
-is_ax5() {
+# 支持托管的机型白名单：AX5 / HLK-7628N
+is_managed_wifi() {
 	for f in /tmp/sysinfo/board_name /tmp/sysinfo/model /etc/board.json /proc/device-tree/compatible; do
 		[ -r "$f" ] || continue
-		grep -qi 'ax5' "$f" 2>/dev/null && return 0
+		grep -qiE 'ax5|hlk-?7628' "$f" 2>/dev/null && return 0
 	done
 	return 1
 }
-is_ax5 || exit 0
+is_managed_wifi || exit 0
 
 # 确保无线配置存在；OpenWrt 默认先用 wifi detect 生成探测配置
 if [ ! -f /etc/config/wireless ]; then
@@ -64,12 +65,16 @@ uci -q get wireless.mmdvm_ap_2g >/dev/null || {
 	uci set wireless.mmdvm_ap_2g.encryption=none
 	uci set wireless.mmdvm_ap_2g.disabled=0
 }
+# 显式 ifname：同 radio 上 AP+STA 共存时自动命名会冲突，netdev 建不起来
+[ -z "$(uci -q get wireless.mmdvm_ap_2g.ifname)" ] && uci set wireless.mmdvm_ap_2g.ifname=mmdvm-ap2
 if [ -n "$r5" ]; then
 	if uci -q get wireless.mmdvm_ap_5g >/dev/null; then
 		[ "$(uci -q get wireless.mmdvm_ap_5g.device)" = "$r5" ] || uci set wireless.mmdvm_ap_5g.device="$r5"
+		[ -z "$(uci -q get wireless.mmdvm_ap_5g.ifname)" ] && uci set wireless.mmdvm_ap_5g.ifname=mmdvm-ap5
 	else
 		uci set wireless.mmdvm_ap_5g=wifi-iface
 		uci set wireless.mmdvm_ap_5g.device="$r5"
+		uci set wireless.mmdvm_ap_5g.ifname=mmdvm-ap5
 		uci set wireless.mmdvm_ap_5g.mode=ap
 		uci set wireless.mmdvm_ap_5g.network=lan
 		uci set wireless.mmdvm_ap_5g.ssid=MMDVM-OpenWrt
@@ -86,21 +91,41 @@ uci -q get network.wwan >/dev/null || {
 	uci set network.wwan=interface
 	uci set network.wwan.proto=dhcp
 }
-uci -q get wireless.mmdvm_sta >/dev/null || {
+[ -z "$(uci -q get network.wwan.proto)" ] && uci set network.wwan.proto=dhcp
+# wwan 显式绑定 mmdvmsta：netifd 跟随 wifi-iface 的 network= 时经常解析不到设备（NO_DEVICE）
+uci set network.wwan.device=mmdvmsta
+if uci -q get wireless.mmdvm_sta >/dev/null; then
+	[ -z "$(uci -q get wireless.mmdvm_sta.network)" ] && uci set wireless.mmdvm_sta.network=wwan
+	[ -z "$(uci -q get wireless.mmdvm_sta.ifname)" ] && uci set wireless.mmdvm_sta.ifname=mmdvmsta
+else
 	uci set wireless.mmdvm_sta=wifi-iface
 	uci set wireless.mmdvm_sta.device="$r2"
 	uci set wireless.mmdvm_sta.mode=sta
 	uci set wireless.mmdvm_sta.network=wwan
+	uci set wireless.mmdvm_sta.ifname=mmdvmsta
 	uci set wireless.mmdvm_sta.disabled=1
-}
-# 把 wwan 加入 wan 防火墙区（幂等）
+fi
+# 上行优先级：有线 > 无线 > 4G（metric 越小越优先）
+# 两条上行同时可用时，metric 相同的默认路由会被后起来的接口抢走
+# 7628 没有有线 WAN（30-mmdvm-network 已删除 network.wan），
+# 无条件写 network.wan.metric 会凭空造出一个无类型的 wan 段，必须先判断存在
+[ -n "$(uci -q get network.wan)" ] && uci set network.wan.metric=10
+uci set network.wwan.metric=20
+[ -n "$(uci -q get network.wwan4g)" ] && uci set network.wwan4g.metric=30
+# LAN 不得带 gateway/dns，否则会插一条走 LAN 的默认路由
+uci -q delete network.lan.gateway
+uci -q delete network.lan.dns
+
+# 把 wwan / wwan4g 加入 wan 防火墙区（幂等）
 for z in $(uci show firewall 2>/dev/null | sed -n 's/^firewall\.\([^.=]*\)=zone$/\1/p'); do
 	[ "$(uci -q get "firewall.$z.name")" = "wan" ] || continue
-	found=0
-	for n in $(uci -q get "firewall.$z.network" 2>/dev/null); do
-		[ "$n" = "wwan" ] && found=1
+	for add in wwan wwan4g; do
+		found=0
+		for n in $(uci -q get "firewall.$z.network" 2>/dev/null); do
+			[ "$n" = "$add" ] && found=1
+		done
+		[ "$found" = 0 ] && uci add_list "firewall.$z.network=$add"
 	done
-	[ "$found" = 0 ] && uci add_list "firewall.$z.network=wwan"
 	break
 done
 
@@ -116,6 +141,22 @@ if [ ! -f /etc/config/mmdvmwifi ]; then
 fi
 [ -z "$(uci -q get mmdvmwifi.main.ap_band)" ] && uci set mmdvmwifi.main.ap_band=2g
 [ -z "$(uci -q get mmdvmwifi.main.ap_enabled)" ] && uci set mmdvmwifi.main.ap_enabled=1
+
+# 已连接但没有 profile（从旧固件升级，STA 是手写段）时补一条：
+# 面板的“已保存 WiFi”“忘记网络”“网络配置”都按 profile 工作，
+# 缺了它当前网络在界面上就成了不可管理的状态
+if [ -z "$(uci show mmdvmwifi 2>/dev/null | sed -n 's/^mmdvmwifi\.\([^.=]*\)=wifi-profile$/\1/p')" ]; then
+	sta_ssid=$(uci -q get wireless.mmdvm_sta.ssid)
+	if [ -n "$sta_ssid" ]; then
+		sta_dev=$(uci -q get wireless.mmdvm_sta.device)
+		sta_band=$(uci -q get "wireless.$sta_dev.band")
+		[ "$sta_band" = "5g" ] || sta_band=2g
+		uci set mmdvmwifi.wp0=wifi-profile
+		uci set mmdvmwifi.wp0.ssid="$sta_ssid"
+		uci set mmdvmwifi.wp0.key="$(uci -q get wireless.mmdvm_sta.key)"
+		uci set mmdvmwifi.wp0.band="$sta_band"
+	fi
+fi
 uci commit mmdvmwifi >/dev/null 2>&1
 
 wifi reload >/dev/null 2>&1
@@ -123,7 +164,7 @@ wifi reload >/dev/null 2>&1
 # 开机 2 分钟保底：首次刷机立即置位，以后每次开机由 guard 的 boot() 自动置位
 echo 1 > /tmp/mmdvm-ap-force
 
-# 启用并立即启动保底守护（脚本内部再做 AX5 判定）
+# 启用并立即启动保底守护（脚本内部再做机型判定）
 if [ -x /etc/init.d/mmdvm-wifi-guard ]; then
 	/etc/init.d/mmdvm-wifi-guard enable >/dev/null 2>&1
 	/etc/init.d/mmdvm-wifi-guard start >/dev/null 2>&1
