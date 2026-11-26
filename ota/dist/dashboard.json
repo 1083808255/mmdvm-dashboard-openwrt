@@ -1,8 +1,8 @@
 {
-  "version": "V0.667",
-  "url": "https://gitee.com/xyinmaster/dashboard-ota/raw/main/dashboard-V0.667.tar.gz",
-  "sha256": "07535be293970d2d915672e4eb30dd649aa2b40867ae70743dc19e96b4411b0b",
-  "size": 191246,
+  "version": "V0.668",
+  "url": "https://gitee.com/xyinmaster/dashboard-ota/raw/main/dashboard-V0.668.tar.gz",
+  "sha256": "d997ce55619152b08fe8734d429f16b9622e2e87775038497584867014f44e39",
+  "size": 191249,
   "notes": "修复实时接口在高负载时兜底帧误报单工、导致通联界面时隙1偶发消失的问题；修复刷新误触发 WiFi 扫描；最近通联按结束时间排序并即时更新",
   "endpoints": ["auth","basic","calibration","configs","fw","lastheard","lhclear","live","livecfg","log","luci","ota","page","ports","services","status","system","tg","wifi","xlxhosts"]
 }
