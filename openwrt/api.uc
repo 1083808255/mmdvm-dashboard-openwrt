@@ -36,17 +36,33 @@ function sh(cmd) {
 	p.close();
 	return o ?? "";
 }
+/* shell 单引号转义：所有外部输入进 shell 前都必须经过这里。
+   放在基础工具区，确保 bmReq() 等较早定义的函数也能使用。 */
+function sq(s) {
+	let t = sprintf("%s", s), o = "";
+	for (let i = 0; i < length(t); i++) {
+		let ch = substr(t, i, 1);
+		o = o + ((ch == "'") ? "'\\''" : ch);
+	}
+	return "'" + o + "'";
+}
 function rnd(x) { return int(x + 0.5); }
 function words(s) {
 	let r = [];
 	for (let w in split(trim(s), " ")) if (length(w)) push(r, w);
 	return r;
 }
+/* 额外的 CGI 响应头（登录 cookie / 401 状态），由 out() 统一输出 */
+let RESP_HEADERS = "";
 function out(obj) {
-	print("Content-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\n\r\n");
+	print("Content-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\n" + RESP_HEADERS + "\r\n");
 	print(sprintf("%J", obj));
 }
 function fail(msg) { out({ ok: false, error: msg }); }
+function unauthorized() {
+	RESP_HEADERS = "Status: 401 Unauthorized\r\nX-Auth-Required: 1\r\n";
+	out({ ok: false, authRequired: true, error: "登录已失效，请重新输入密码" });
+}
 function ep() {
 	let s = getenv("SCRIPT_NAME") ?? "";
 	let a = split(s, "/");
@@ -64,13 +80,18 @@ function qs() {
 	}
 	return o;
 }
+/* 请求体只读一次并缓存：鉴权守卫要先判断 act，后面的业务处理器还会再取一次 */
+let BODY_CACHE = null, BODY_READ = false;
 function body() {
+	if (BODY_READ) return BODY_CACHE;
+	BODY_READ = true;
 	let b = FS.stdin.read("all") ?? "";
 	if (!length(trim(b))) return null;
 	/* 请求体不是合法 JSON 时返回 null，避免 ucode 抛错导致 502 */
 	let v = null;
 	try { v = json(b); } catch (e) { v = null; }
-	return (type(v) == "object") ? v : null;
+	BODY_CACHE = (type(v) == "object") ? v : null;
+	return BODY_CACHE;
 }
 function ini(file) {
 	let data = FS.readfile(file);
@@ -183,6 +204,20 @@ function memoPut(k, v) {
 	}
 	out[k] = { t: now, v: v };
 	writeCache(MEMO, out);
+}
+/* 写操作后清掉指定前缀的缓存，避免 TG 增删后 60 秒内仍显示旧列表 */
+function memoDrop(prefix) {
+	let d = FS.readfile(MEMO);
+	if (d == null) return;
+	let m = null;
+	try { m = json(d); } catch (e) { m = null; }
+	if (type(m) != "object" || m == null) return;
+	let kept = {}, n = 0;
+	for (let k in m) {
+		if (substr(k, 0, length(prefix)) == prefix) continue;
+		if (n < 40) { kept[k] = m[k]; n++; }
+	}
+	writeCache(MEMO, kept);
 }
 function hostname() {
 	/* 优先读内核 hostname，避免每次状态请求都 fork uci（uci 本身是脚本，开销较大） */
@@ -1226,9 +1261,11 @@ function cmdStatus() {
 	for (let n in nets) {
 		let addr = netAddr[n.name] ?? "";
 		if (!n.connected || !length(addr)) { n.ping = null; continue; }
+		/* 服务器地址来自可编辑的 INI，只放行域名/IP 字符并统一走 sq() */
+		if (match(addr, /^[A-Za-z0-9._:-]+$/) == null) { n.ping = null; continue; }
 		let c = pc[n.name];
 		if (forcePing || !c || pingNow - (c.t ?? 0) > 10) {
-			let po = sh("ping -c 1 -W 1 " + addr + " 2>/dev/null");
+			let po = sh("ping -c 1 -W 1 " + sq(addr) + " 2>/dev/null");
 			let ms = between(po, "time=", " ms");
 			c = { t: pingNow, ms: (ms != null ? int(ms) : null) };
 			pc[n.name] = c;
@@ -1724,15 +1761,16 @@ function cmdLastheard() {
 		if (type(v) == "object" && type(v.body) == "array") {
 			cachedBody = v.body;
 			cachedAge = time() - (v.t ?? 0);
-			/* 签名匹配（日志/库都没变）直接用；签名变了但结果在 5 秒内也复用，
+			/* 签名匹配（日志/库都没变）直接用；签名变了但结果在 15 秒内也复用，
 			   避免通话时日志变化导致每次都全量解析 + 查呼号库，逼近超时后堆积雪崩 */
-			if (v.sig == sig || cachedAge <= 5) { out(v.body); return; }
+			if (v.sig == sig || cachedAge <= 15) { out(v.body); return; }
 		}
 	}
-	/* 需要重算：先拿单飞锁，拿不到说明已有实例在跑，退回 20 秒内旧结果（没有则空列表），
+	/* 需要重算：先拿单飞锁，拿不到说明已有实例在跑。这里宁可返回旧列表也不能返回空列表——
+	   7628 单核全量解析要 10 秒左右，空列表会让前端把真实通联记录误判成「暂无」。
 	   绝不再启动第二个重算进程——lastheard 单次解析+查库最重，是堆积雪崩的主要来源 */
 	if (inFlight("lastheard", 8)) {
-		if (cachedBody != null && cachedAge <= 20) out(cachedBody);
+		if (cachedBody != null) out(cachedBody);
 		else out([]);
 		return;
 	}
@@ -1969,10 +2007,11 @@ function bmKey() { return trim(state().bmApiKey ?? ""); }
 function bmReq(method, path, payload) {
 	let key = bmKey();
 	let cmd = "/usr/bin/curl -s -m 8 -w '\\n%{http_code}' -H 'Accept: application/json'";
-	if (length(key)) cmd += " -H 'Authorization: Bearer " + key + "'";
-	if (method == "POST") cmd += " -X POST -H 'Content-Type: application/json' --data '" + payload + "'";
+	/* API Key / payload 是用户可控内容，必须整体走 sq()，不能手工拼单引号 */
+	if (length(key)) cmd += " -H " + sq("Authorization: Bearer " + key);
+	if (method == "POST") cmd += " -X POST -H 'Content-Type: application/json' --data " + sq(payload ?? "");
 	else if (method == "DELETE") cmd += " -X DELETE";
-	cmd += " '" + BM_API + path + "' 2>/dev/null";
+	cmd += " " + sq(BM_API + path) + " 2>/dev/null";
 	let raw = sh(cmd);
 	let i = rindex(raw, "\n");
 	let code = 0, body = raw;
@@ -2057,6 +2096,7 @@ function cmdTgPost() {
 			delete st.bmDeviceId;
 		}
 		saveState(st);
+		memoDrop("tg:");   /* Key / 设备 ID 变了，旧的 TG 查询结果立即失效 */
 		out({ ok: true });
 		return;
 	}
@@ -2071,7 +2111,7 @@ function cmdTgPost() {
 		if (rr.code == 0) fail("无法连接 BrandMeister（请检查网络）");
 		else if (rr.code == 401 || rr.code == 403) fail("API Key 无效或无权访问该设备");
 		else if (rr.code != 200) fail("BrandMeister 接口返回 " + rr.code);
-		else out({ ok: true });
+		else { memoDrop("tg:"); out({ ok: true }); }
 		return;
 	}
 	let tg = int(d.tg ?? 0), slot = int(d.slot ?? 0);
@@ -2086,7 +2126,7 @@ function cmdTgPost() {
 	if (r.code == 0) fail("无法连接 BrandMeister（请检查网络）");
 	else if (r.code == 401 || r.code == 403) fail("API Key 无效或无权访问该设备");
 	else if (r.code != 200) fail("BrandMeister 接口返回 " + r.code);
-	else out({ ok: true });
+	else { memoDrop("tg:"); out({ ok: true }); }
 }
 
 
@@ -2400,14 +2440,6 @@ const OTA_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/das
 const OTA_DEFAULT_ALT = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
 const DASH_ENDPOINTS = ["auth","basic","calibration","configs","fw","lastheard","lhclear","live","livecfg","log","luci","ota","page","ports","services","status","system","tg","wifi","xlxhosts"];
 
-function sq(s) {
-	let t = sprintf("%s", s), o = "";
-	for (let i = 0; i < length(t); i++) {
-		let ch = substr(t, i, 1);
-		o = o + ((ch == "'") ? "'\\''" : ch);
-	}
-	return "'" + o + "'";
-}
 function otaConf() {
 	let d = FS.readfile(OTA_CONF);
 	if (d == null) return {};
@@ -2895,12 +2927,52 @@ function rootHasPassword() {
 	}
 	return false;
 }
-function verifyRootPassword(pass) {
+/* 登录成功后返回 rpcd session token（仅十六进制串），失败返回空串。
+   用 %J 序列化避免密码里的特殊字符破坏 JSON；sq() 避免破坏 shell 命令。 */
+function rootLogin(pass) {
 	if (type(pass) != "string") pass = "";
-	/* 用 %J 序列化避免密码中的特殊字符破坏 JSON；sq() 避免破坏 shell 命令 */
 	let msg = sprintf("%J", { username: "root", password: pass, timeout: 30 });
 	let o = trim(sh("ubus call session login " + sq(msg) + " 2>/dev/null"));
-	return index(o, "ubus_rpc_session") >= 0;
+	let v = null;
+	try { v = json(o); } catch (e) { v = null; }
+	let t = "";
+	if (type(v) == "object" && v != null) t = trim(sprintf("%s", v.ubus_rpc_session ?? ""));
+	if (!length(t)) {
+		let m = match(o, /"ubus_rpc_session"\s*:\s*"([a-f0-9]+)"/);
+		if (m != null) t = m[1];
+	}
+	return (match(t, /^[a-f0-9]{16,64}$/) != null) ? t : "";
+}
+function verifyRootPassword(pass) { return length(rootLogin(pass)) > 0; }
+
+/* 写操作鉴权：root 没设密码时不设门；否则必须带有效的 ubus session cookie。
+   cookie 由 /api/auth 登录成功后下发，HttpOnly + SameSite=Strict，JS 读不到。 */
+const SESSION_COOKIE = "mmdvm_dash_session";
+function sessionToken() {
+	let c = getenv("HTTP_COOKIE") ?? "";
+	for (let kv in split(c, ";")) {
+		let p = trim(kv), i = index(p, "=");
+		if (i > 0 && trim(substr(p, 0, i)) == SESSION_COOKIE) return trim(substr(p, i + 1));
+	}
+	return "";
+}
+function validSession() {
+	let t = sessionToken();
+	if (match(t, /^[a-f0-9]{16,64}$/) == null) return false;
+	let o = trim(sh("ubus call session get " + sq(sprintf("%J", { ubus_rpc_session: t })) + " 2>/dev/null"));
+	let v = null;
+	try { v = json(o); } catch (e) { v = null; }
+	if (type(v) != "object" || v == null) return false;
+	/* rpcd 的 session get 把用户名放在 values 里，不能只读顶层字段 */
+	let u = sprintf("%s", v.username ?? "");
+	if (!length(u) && type(v.values) == "object" && v.values != null)
+		u = sprintf("%s", v.values.username ?? "");
+	return u == "root";
+}
+function requireWriteAuth() {
+	if (!rootHasPassword() || validSession()) return true;
+	unauthorized();
+	return false;
 }
 
 /* ---------- 网络配置（无线热点 + WiFi 连接 + 4G，设备差异化） ----------
@@ -3624,6 +3696,25 @@ function cmdWifiPost() {
 	fail("未知操作");
 }
 
+/* 部分只读操作历史上用 POST 传输参数（WiFi 扫描/状态），不应被写鉴权拦下。
+   这里只放行明确无副作用的 act，其余 POST 一律要求已解锁。 */
+function readOnlyPost() {
+	if (method != "POST") return false;
+	if (name == "wifi") {
+		let d = body() ?? {};
+		let act = sprintf("%s", d.act ?? "");
+		return (act == "get" || act == "status" || act == "scan");
+	}
+	if (name == "ota" || name == "fw") {
+		let act = qs().act ?? "info";
+		return (act == "info" || act == "check");
+	}
+	return false;
+}
+/* 服务端写操作鉴权：GET 只读接口保持开放；POST 仅放行上面的只读 act。
+   /api/auth 自己负责登录，不能先拦下来。 */
+if (name != "auth" && method != "GET" && !readOnlyPost() && !requireWriteAuth()) return;
+
 if (name == "wifi") {
 	if (method == "POST") cmdWifiPost(); else cmdWifiGet();
 /* 自动探测：I2C 总线（/dev/i2c-N）与串口（/dev/ttyUSB* 等） */
@@ -3710,7 +3801,8 @@ if (name == "wifi") {
 } else if (name == "lastheard") {
 	cmdLastheard();
 } else if (name == "lhclear") {
-	cmdLhClear();
+	/* 清除是写操作：只接受 POST，GET 不再产生副作用 */
+	if (method != "POST") fail("需要 POST"); else cmdLhClear();
 } else if (name == "tg") {
 	if (method == "POST") cmdTgPost();
 	else cmdTgGet();
@@ -3978,16 +4070,27 @@ if (name == "wifi") {
 		print(html);
 	}
 } else if (name == "auth") {
-	/* GET  → 是否需要密码（与 LuCI 的 root 密码同步）
-	   POST → 校验密码，成功 granted:true */
+	/* GET              → 是否需要密码（与 LuCI 的 root 密码同步）
+	   GET  ?act=logout → 销毁 rpcd session 并清除 cookie
+	   POST             → 校验密码，成功下发 HttpOnly session cookie */
 	if (method == "POST") {
 		let d = body() ?? {};
 		let pass = (type(d.password) == "string") ? d.password : "";
 		if (!rootHasPassword()) { out({ ok: true, granted: true, required: false }); return; }
-		if (verifyRootPassword(pass)) out({ ok: true, granted: true, required: true });
-		else out({ ok: false, granted: false, error: "密码错误" });
+		let tok = rootLogin(pass);
+		if (length(tok)) {
+			RESP_HEADERS = "Set-Cookie: " + SESSION_COOKIE + "=" + tok +
+				"; Path=/; HttpOnly; SameSite=Strict; Max-Age=1800\r\n";
+			out({ ok: true, granted: true, required: true });
+		} else out({ ok: false, granted: false, error: "密码错误" });
+	} else if ((qs().act ?? "") == "logout") {
+		let t = sessionToken();
+		if (match(t, /^[a-f0-9]{16,64}$/) != null)
+			sh("ubus call session destroy " + sq(sprintf("%J", { ubus_rpc_session: t })) + " 2>/dev/null");
+		RESP_HEADERS = "Set-Cookie: " + SESSION_COOKIE + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0\r\n";
+		out({ ok: true });
 	} else {
-		out({ ok: true, required: rootHasPassword() });
+		out({ ok: true, required: rootHasPassword(), unlocked: rootHasPassword() ? validSession() : true });
 	}
 } else {
 	fail("未知接口");

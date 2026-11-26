@@ -50,7 +50,7 @@ cp "$SRC/openwrt/mmdvm-ids-lite" "$BIN/mmdvm-ids-lite"
 cp "$SRC/openwrt/mmdvm-radiowo-sync" "$BIN/mmdvm-radiowo-sync"
 cp "$SRC/openwrt/mmdvm-bg4esi-sync" "$BIN/mmdvm-bg4esi-sync"
 cp "$SRC/openwrt/mmdvm-log-clean" "$BIN/mmdvm-log-clean"
-cp "$SRC/firmware-build/devices/x86/packages/mmdvm-dashboard/files/usr/bin/mmdvm-dashboard-bc-guard" "$BIN/mmdvm-dashboard-bc-guard"
+cp "$SRC/firmware-build/packages/mmdvm-dashboard/files/usr/bin/mmdvm-dashboard-bc-guard" "$BIN/mmdvm-dashboard-bc-guard"
 chmod 0755 "$BIN/mmdvm-ids-sync" "$BIN/mmdvm-ids-lite" "$BIN/mmdvm-radiowo-sync" "$BIN/mmdvm-bg4esi-sync" "$BIN/mmdvm-log-clean" "$BIN/mmdvm-dashboard-bc-guard"
 cp "$SRC/openwrt/mmdvm-radiowo.init" "$INIT/mmdvm-radiowo"
 cp "$SRC/openwrt/mmdvm-bg4esi.init" "$INIT/mmdvm-bg4esi"
@@ -58,6 +58,7 @@ cp "$SRC/openwrt/mmdvm-ids.init" "$INIT/mmdvm-ids"
 cp "$SRC/openwrt/mmdvm-ch341.init" "$INIT/mmdvm-ch341"
 chmod 0755 "$INIT/mmdvm-radiowo" "$INIT/mmdvm-bg4esi" "$INIT/mmdvm-ids" "$INIT/mmdvm-ch341"
 "$INIT/mmdvm-ids" enable >/dev/null 2>&1
+"$INIT/mmdvm-ids" start >/dev/null 2>&1 || true
 "$INIT/mmdvm-ch341" enable >/dev/null 2>&1
 
 # ID→呼号库：每天 03:37 从 RadioID 同步一次，运行时只查本地文件
@@ -85,7 +86,7 @@ BC_CRON='*/5 * * * * /usr/bin/mmdvm-dashboard-bc-guard'
 grep -qF "$BC_CRON" /etc/crontabs/root 2>/dev/null || echo "$BC_CRON" >> /etc/crontabs/root
 
 # LuCI 按需启动：进入路由配置时才拉起 uhttpd 主实例，空闲 10 分钟自动停止
-LUCI_BIN="$SRC/firmware-build/devices/x86/packages/mmdvm-dashboard/files/usr/bin/mmdvm-luci"
+LUCI_BIN="$SRC/firmware-build/packages/mmdvm-dashboard/files/usr/bin/mmdvm-luci"
 if [ -f "$LUCI_BIN" ]; then
 	cp "$LUCI_BIN" "$BIN/mmdvm-luci"
 	chmod 0755 "$BIN/mmdvm-luci"
@@ -153,6 +154,8 @@ fi
 
 /etc/init.d/uhttpd restart
 /etc/init.d/mmdvm-radiowo enable
+/etc/init.d/mmdvm-radiowo start >/dev/null 2>&1 || true
 /etc/init.d/mmdvm-bg4esi enable
+/etc/init.d/mmdvm-bg4esi start >/dev/null 2>&1 || true
 
 echo "安装完成：http://<设备IP>/"

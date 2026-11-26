@@ -22,8 +22,7 @@ fail() {
 command -v unzip >/dev/null 2>&1 || fail "unzip not available"
 command -v iconv >/dev/null 2>&1 || fail "iconv not available"
 
-# 更新前删除旧文件；空间不足时放弃本次更新
-rm -f "$OUT"
+# 转换并校验通过后才替换旧文件；空间不足/下载失败时保留已有通讯录
 avail=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
 if [ -n "$avail" ] && [ "$avail" -lt 8192 ]; then
 	fail "not enough space"

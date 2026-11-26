@@ -1,13 +1,11 @@
 #!/bin/sh
 # 每天从 RadioID 下载完整用户库，生成「ID<TAB>呼号」文件供仪表盘直接查询。
-# 更新前先删除旧文件；剩余空间不足时放弃全球库（不下载）。
+# 下载并校验通过后才替换旧文件；失败时保留旧库，避免设备断网后失去呼号查询。
 # 运行时不再联网查询任何 ID，文件里没有的就直接放弃（界面只显示 ID）。
 OUT=/etc/mmdvm/dashboard_ids.cache
 NEW=$OUT.new
 SRC=https://database.radioid.net/static/user.csv
 NEED_KB=8192
-
-rm -f "$OUT"
 
 avail=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
 if [ -n "$avail" ] && [ "$avail" -lt "$NEED_KB" ]; then

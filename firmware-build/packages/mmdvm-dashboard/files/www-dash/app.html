@@ -2592,6 +2592,18 @@ html[data-theme="dark"]{color-scheme:dark}
    MMDVM Dashboard - 单文件前端
    数据层：优先请求后端 /api/*，失败时回退到本地 MOCK（预览模式）
    ================================================================ */
+/* 统一带上同源 cookie；服务端写接口要求登录时会自动下发 HttpOnly session。
+   会话过期（401 / X-Auth-Required）时自动回到锁定状态，避免界面显示已解锁但写操作全部失败。 */
+const _rawFetch = window.fetch.bind(window);
+window.fetch = function(input, init){
+  const opts = Object.assign({ credentials: 'same-origin' }, init || {});
+  return _rawFetch(input, opts).then(r=>{
+    if(r && r.headers && r.headers.get('X-Auth-Required') === '1'){
+      try{ lockMenu(); toast('登录已失效，请重新输入密码', true); }catch(e){}
+    }
+    return r;
+  });
+};
 const MOCK = {
   status: {
     hostname: "MMDVM", ip: "192.168.8.9", model: "x86_64", online: true,
@@ -2789,24 +2801,33 @@ M: 2026-11-09 13:45:31.200 Mode set to Idle`
 
 /* ---------- 数据层：API 优先，失败回退 MOCK ---------- */
 let PREVIEW = false;
+/* 只要任一接口成功过，就认为设备在线；单次超时不能把整页切成预览模式。
+   静态预览（直接打开 index.html，file://）才始终使用内置演示数据。 */
+let BACKEND_OK = false;
+const STATIC_PREVIEW = !location.host || location.protocol === 'file:';
 async function api(path){
-  /* 8 秒超时：设备忙时请求可能长时间挂住，会让实时通联的轮询链条卡死在上一笔通话 */
+  /* 7628 单核解析 lastheard 首次可能要 10 秒左右，8 秒会把真实记录误判成超时；
+     其它接口仍用 8 秒，避免设备忙时轮询链条卡死 */
   const ctl = new AbortController();
-  const to = setTimeout(()=>ctl.abort(), 8000);
+  const to = setTimeout(()=>ctl.abort(), path.startsWith('/api/lastheard') ? 20000 : 8000);
   try{
     const r = await fetch(path, { headers:{ 'Accept':'application/json' }, cache:'no-store', signal: ctl.signal });
     if(!r.ok) throw new Error(r.status);
     const j = await r.json();
-    if(path.startsWith('/api/status')) { PREVIEW=false; renderNetworks(j.networks); }
+    BACKEND_OK = true;
+    PREVIEW = false;
+    if(path.startsWith('/api/status')) renderNetworks(j.networks);
     return j;
   }catch(e){
-    // PREVIEW 仅由 /api/status 探测结果决定，其他接口失败不污染全局状态
-    if(path.startsWith('/api/status')) { PREVIEW = true; renderNetworks(null); }
-    else console.warn('[api] 请求失败', path, e);
-    /* 预览模式才用假数据；实时通联在后端在线时返回 null，让调用方保留上一帧画面，
-       避免偶发请求失败时把假呼号显示出来、看起来像「切换错乱」 */
-    if(PREVIEW) return mockFor(path);
-    return path.startsWith('/api/live') ? null : mockFor(path);
+    /* 只有从未连上后端时，/api/status 失败才进入预览；设备已在线时单次超时不改全局状态 */
+    if(path.startsWith('/api/status')) {
+      if(!BACKEND_OK) PREVIEW = true;
+      renderNetworks(null);
+    } else console.warn('[api] 请求失败', path, e);
+    /* 通联数据绝不回退到 MOCK：设备上刷新时如果 /api/live 或 /api/lastheard 超时，
+       保留上一帧/上一份列表，而不是显示假呼号。静态预览仍保留演示数据。 */
+    if(!STATIC_PREVIEW && (path.startsWith('/api/live') || path.startsWith('/api/lastheard'))) return null;
+    return mockFor(path);
   }finally{
     clearTimeout(to);
   }
@@ -3131,6 +3152,11 @@ async function loadAuthStatus(){
     const r = await fetch('/api/auth', { cache:'no-store' });
     const j = await r.json();
     authRequired = !!(j && j.ok && j.required);
+    /* 服务端已有有效会话（例如刷新页面）时同步解锁状态 */
+    if(authRequired && j && j.unlocked === true){
+      menuUnlocked = true;
+      try{ sessionStorage.setItem('dash_menu_unlocked','1'); }catch(e){}
+    }
   }catch(e){ authRequired = false; }  /* 预览模式 / 无后端：不设密码门 */
 }
 function askPassword(){
@@ -3177,6 +3203,8 @@ function applyNavLockUI(){
 function lockMenu(){
   menuUnlocked = false;
   try{ sessionStorage.removeItem('dash_menu_unlocked'); }catch(e){}
+  /* 前端锁定的同时销毁服务端会话，避免残留 cookie 仍可调用写接口 */
+  try{ fetch('/api/auth?act=logout', { keepalive:true }).catch(()=>{}); }catch(e){}
   lastActivity = 0;
   closeSidebar();
   const pcPw = $('#pcAuthPw'); if(pcPw) pcPw.value = '';
@@ -6379,6 +6407,7 @@ function stopIdleTick(){ if(idleTimer){ clearInterval(idleTimer); idleTimer=null
 function fmtDur(s){ s=Math.floor(s); const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return m+':'+ss; }
 async function renderLastheardLog(){
   const lh = await api('/api/lastheard');
+  if(lh == null) return;   /* 请求失败时保留上一次列表，不显示预览记录 */
   const list = (lh||[]).slice(0, 50);
   const snap = JSON.stringify(list);
   if(snap === lhSnapshot) return;

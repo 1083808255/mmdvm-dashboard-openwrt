@@ -11,6 +11,8 @@ dashboard/*.png
 dashboard/backups/
 openwrt/backups/
 mmdvm-dashboard-optimization/
+.backup/
+.tmp-ota-peek/
 
 # 调试脚本
 openwrt/probe*.uc

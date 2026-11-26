@@ -9,12 +9,12 @@ LOCK="/tmp/mmdvm_radiowo.lock"
 
 [ -f "$LOCK" ] && exit 0
 touch "$LOCK"
+# 异常退出也清理锁，避免一次崩溃后永久不再同步
+trap 'rm -f "$LOCK" "$TMP"' EXIT HUP INT TERM
 
-# 更新前删除旧文件
-rm -f "$OUT"
+# 只有下载并校验通过才替换旧文件，断网时保留已有呼号库
 avail=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
 if [ -n "$avail" ] && [ "$avail" -lt 2048 ]; then
-	rm -f "$LOCK"
 	exit 0
 fi
 
@@ -22,9 +22,7 @@ wget -q -T 40 -O "$TMP" "$URL" 2>/dev/null
 if [ -s "$TMP" ] && head -1 "$TMP" | grep -q '^RADIO_ID,CALLSIGN'; then
 	mv "$TMP" "$OUT"
 	date +%s > "$TS"
-	rm -f "$LOCK"
 	exit 0
 fi
 
-rm -f "$TMP" "$LOCK"
 exit 1
