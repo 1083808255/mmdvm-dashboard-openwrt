@@ -3,6 +3,10 @@
 let FS = require("fs");
 
 const INI_DIR = "/etc/mmdvm/";
+/* 呼号/地址库路径需在使用它们的 lookupSig() 之前定义：ucode 函数捕获的是定义时可见的词法值 */
+const ID_CACHE = "/etc/mmdvm/dashboard_ids.cache";
+const RW_CSV   = "/etc/mmdvm/radiowo_user.csv";
+const BG_CSV   = "/etc/mmdvm/bg4esi.csv";
 const STATE   = "/etc/mmdvm/dashboard.json";
 /* 实时语音功能开关：{"enabled":true|false}，缺失时按机型取默认值 */
 const LIVECFG = "/etc/mmdvm/livecfg.json";
@@ -10,6 +14,11 @@ const QSO_CACHE = "/tmp/dashboard_qso.cache";
 const LH_CACHE  = "/tmp/dashboard_lh.cache";
 /* 最近通联持久化（overlay 分区，重启不丢）：按 DMR ID 聚合 */
 const LH_STORE    = "/root/dashboard-lh.json";
+/* 7628 上整份持久化状态有 130KB，每通联写一次要近 1 秒。
+   先写小增量到 overlay（重启也会回放），实时页面从 /tmp/dashboard_lh.cache 立即看到新记录；
+   整份状态最多每 30 秒刷回一次，避免每次通联都卡住 1Hz 实时接口。 */
+const LH_DELTA    = "/root/dashboard-lh-delta.json";
+const LH_FLUSH_SEC = 30;
 const LH_MAX_IDS  = 200;   /* 最多保留的 ID 数，超出淘汰最久未通联的 */
 const LH_MAX_HIST = 30;    /* 每个 ID 保留的历史条数 */
 const LH_GPS_TTL  = 1800;  /* 通联 GPS 图标最长保留 30 分钟 */
@@ -48,8 +57,10 @@ function sq(s) {
 }
 function rnd(x) { return int(x + 0.5); }
 /* 每个 CGI 进程一个唯一后缀：并发请求写 /tmp pattern 文件时不会互相覆盖。
-   uuid 来自内核，取不到时用 shell PID 兜底；只在进程启动时 fork 一次。 */
-const TMP_TOKEN = trim(sh("cat /proc/sys/kernel/random/uuid 2>/dev/null || echo $$"));
+   直接读 /proc/self/stat 取 PID，不再为每个请求 fork 一次 cat/uuid。 */
+let _selfStat = FS.readfile("/proc/self/stat") ?? "";
+let _selfParts = split(trim(_selfStat), " ");
+const TMP_TOKEN = _selfParts[0] ?? "0";
 function tmpPath(name) { return "/tmp/dashboard_" + name + "_" + TMP_TOKEN; }
 function words(s) {
 	let r = [];
@@ -198,6 +209,34 @@ function inFlight(name, stale) {
 /* 呼号/地址查询结果短缓存：同一批呼号的 grep / awk 结果 60 秒内不再重复 fork。
    这类数据一天内基本不变，实时性只影响新出现的呼号，60 秒足够 */
 const MEMO = "/tmp/dashboard_memo.json";
+/* 逐个键持久化查询缓存：呼号/地址库一天才变一次，但实时轮询里每换一个通联对象
+   就用新组合做 key 会让 memo 全部失效，7628 上每次都要 awk 整份 CSV（约 1.7 秒）。
+   这里按单个 ID / 呼号缓存命中，未查到也记空值，避免重复扫库。 */
+const LOOKUP_CACHE = "/tmp/dashboard_lookup.json";
+function lookupSig() {
+	return fileSig(INI_DIR + "DMRIds.dat") + "|" + fileSig(BG_CSV) + "|" +
+	       fileSig(RW_CSV) + "|" + fileSig(ID_CACHE);
+}
+function lookupLoad() {
+	let sig = lookupSig(), c = null;
+	try { c = json(FS.readfile(LOOKUP_CACHE) ?? ""); } catch (e) { c = null; }
+	if (type(c) != "object" || c == null || (c.sig ?? "") != sig || type(c.m) != "object")
+		c = { sig: sig, m: {} };
+	return c;
+}
+function lookupSave(c) {
+	let m = c.m, keys = [], now = time();
+	for (let k in m) push(keys, k);
+	if (length(keys) > 5000) {
+		for (let i = 0; i < length(keys); i++)
+			for (let j = i + 1; j < length(keys); j++)
+				if ((m[keys[j]].t ?? 0) < (m[keys[i]].t ?? 0)) {
+					let tmp = keys[i]; keys[i] = keys[j]; keys[j] = tmp;
+				}
+		for (let i = 0; i < length(keys) - 5000; i++) delete m[keys[i]];
+	}
+	writeCache(LOOKUP_CACHE, { sig: c.sig, m: m });
+}
 function keyOf(prefix, a, b) {
 	let s = prefix;
 	if (a != null) for (let x in a) s += x + ",";
@@ -584,7 +623,8 @@ function qsoCached() {
 	return { recs: c.recs, pend: (type(c.pend) == "object" && c.pend != null) ? c.pend : {},
 		rt: (type(c.rt) == "object" && c.rt != null) ? c.rt : {},
 		seen: (type(c.seen) == "object" && c.seen != null) ? c.seen : {},
-		cal: (type(c.cal) == "object" && c.cal != null) ? c.cal : { errs: 0, total: 0, frames: 0, jumps: 0, jsum: 0, ts: "" } };
+		cal: (type(c.cal) == "object" && c.cal != null) ? c.cal : { errs: 0, total: 0, frames: 0, jumps: 0, jsum: 0, ts: "" },
+		sig: c.sig ?? "", off: +c.off || 0 };
 }
 function emptyQso() {
 	return { recs: [], pend: {}, rt: {}, seen: {}, cal: { errs: 0, total: 0, frames: 0, jumps: 0, jsum: 0, ts: "" } };
@@ -620,9 +660,9 @@ function parseQso(logfile) {
 	/* GPS 暂存：语音头缺失时，GPS 到达时通话记录尚未生成，先按 alias 呼号暂存，
 	   等 end of voice 用真实呼号生成记录后再挂载，做到既不串台也不漏坐标 */
 	let pendGps = {};
-	if (!length(file)) return { recs: recs, pend: pend, rt: rt, cal: cal };
+	if (!length(file)) return { recs: recs, pend: pend, rt: rt, cal: cal, sig: "", off: 0 };
 	let st = FS.stat(file);
-	if (st == null) return { recs: recs, pend: pend, rt: rt, cal: cal };
+	if (st == null) return { recs: recs, pend: pend, rt: rt, cal: cal, sig: "", off: 0 };
 	let sig = file + "|" + st.size + "|" + st.mtime;
 	let c = null;
 	try {
@@ -633,7 +673,8 @@ function parseQso(logfile) {
 	if (type(c) == "object" && c != null && c.sig == sig && type(c.recs) == "array" && type(c.pend) == "object")
 		return { recs: c.recs, pend: c.pend, rt: (type(c.rt) == "object") ? c.rt : {},
 			cal: (type(c.cal) == "object" && c.cal != null) ? c.cal : cal,
-			seen: (type(c.seen) == "object" && c.seen != null) ? c.seen : {} };
+			seen: (type(c.seen) == "object" && c.seen != null) ? c.seen : {},
+			sig: c.sig, off: +c.off || 0 };
 	/* 增量解析：只读上次偏移之后的新内容。
 	   整份日志每小时上百 KB，发射时每 60ms 一行音频统计，若固定只读末尾窗口，
 	   长通话的 voice header 会被挤出窗口，导致「正在发射」被误判为空闲 */
@@ -685,7 +726,7 @@ function parseQso(logfile) {
 		data = "";
 	}
 	if (!length(data) && from <= 0) {
-		return { recs: recs, pend: pend, rt: rt, cal: cal };
+		return { recs: recs, pend: pend, rt: rt, cal: cal, sig: sig, off: base };
 	}
 	for (let line in split(data, "\n")) {
 		let slot = slotOf(line);
@@ -972,7 +1013,7 @@ function parseQso(logfile) {
 		recs = cut;
 	}
 	if (length(sig)) writeCache(QSO_CACHE, { sig: sig, file: file, off: base + consumed, recs: recs, pend: pend, rt: rt, seen: seen, cal: cal, calp: calp, gpsSlot: gpsSlot, gpsHdr: gpsHdr, gpsHex: gpsHex, gpsDirNow: gpsDirNow, hexOwn: hexOwn, hdrTs: hdrTs, hdrDir: hdrDir, aliasCall: aliasCall, aliasTs: aliasTs, pendGps: pendGps });
-	return { recs: recs, pend: pend, rt: rt, seen: seen, cal: cal };
+	return { recs: recs, pend: pend, rt: rt, seen: seen, cal: cal, sig: sig, off: base + consumed };
 }
 /* parseQso 的入口锁：live/lastheard/calibration 共用同一份日志解析，
    单核上必须串行；并发时直接返回上一轮缓存。
@@ -1031,34 +1072,34 @@ function idFor(calls) {
 }
 /* ID→呼号：只读每日同步的文件（mmdvm-ids-sync 生成），运行时不再联网查询；
    文件里没有的直接放弃，界面只显示 ID */
-const ID_CACHE = "/etc/mmdvm/dashboard_ids.cache";
 function resolveCalls(idlist) {
-	let res = {};
+	let res = {}, c = lookupLoad(), miss = [];
 	if (!length(idlist)) return res;
-	let mkey = keyOf("rid:", idlist, null);
-	let hit = memoGet(mkey, 300);
-	if (hit != null) return hit;
+	for (let id in idlist) {
+		let e = c.m["R|" + id];
+		if (e != null) { if (length(e.call ?? "")) res[id] = e.call; }
+		else push(miss, id);
+	}
+	if (!length(miss)) return res;
 	let want = {};
-	for (let id in idlist) want[id] = true;
+	for (let id in miss) want[id] = true;
 	let pat = tmpPath("idq");
 	let s = "";
-	for (let id in idlist) s += id + "\n";
+	for (let id in miss) s += id + "\n";
 	FS.writefile(pat, s);
 	/* 大文件按需 grep，避免每次请求把整份 ID 库读进内存 */
 	for (let l in split(sh("grep -F -f " + sq(pat) + " " + sq(ID_CACHE) + " 2>/dev/null"), "\n")) {
 		let p = split(trim(l), "\t");
 		if (length(p) >= 2 && want[p[0]] && p[1] != "-" && length(p[1])) res[p[0]] = p[1];
 	}
-	memoPut(mkey, res);
+	let now = time();
+	for (let id in miss) c.m["R|" + id] = { t: now, call: res[id] ?? "" };
+	lookupSave(c);
 	sh("rm -f " + sq(pat));
 	return res;
 }
 
-/* ---------- 中国呼号地址（radiowo 呼号库，86 开头 ID 使用） ---------- */
-const RW_CSV = "/etc/mmdvm/radiowo_user.csv";
-
-/* ---------- 中国呼号地址（BG4ESI 中文通讯录，46 开头 ID 使用） ---------- */
-const BG_CSV = "/etc/mmdvm/bg4esi.csv";
+/* ---------- 中国呼号地址（radiowo 86 / BG4ESI 46，路径见文件顶部） ---------- */
 function fmtAddr(state, city, remark) {
 	let a = trim(state ?? ""), b = trim(city ?? ""), c = trim(remark ?? "");
 	let s = a;
@@ -1071,23 +1112,36 @@ function fmtAddr(state, city, remark) {
 function csvLookup(csvPath, idlist, clist, stateCol, cityCol, remarkCol) {
 	let out = { call: {}, addrId: {}, addrCall: {}, call2id: {} };
 	if (!length(idlist) && !length(clist)) return out;
-	let ckey = keyOf("cv:" + csvPath + ":", idlist, clist);
-	let chit = memoGet(ckey, 60);
-	if (chit != null) return chit;
-	/* 先查 memo 再看文件：避免每次 /api/live 都把几 MB CSV 整份读进内存 */
+	/* 先按单个键查持久缓存：同一批 ID/呼号反复出现时不再 awk 整份 CSV */
+	let c = lookupLoad(), mid = [], mc = [], e;
+	for (let id in idlist) {
+		e = c.m["I|" + csvPath + "|" + id];
+		if (e != null) {
+			if (length(e.call ?? "")) { out.call[id] = e.call; out.call2id[e.call] = id; }
+			if (length(e.addr ?? "")) out.addrId[id] = e.addr;
+		} else push(mid, id);
+	}
+	for (let call in clist) {
+		e = c.m["C|" + csvPath + "|" + call];
+		if (e != null) {
+			if (length(e.id ?? "")) { out.call2id[call] = e.id; out.call[e.id] = call; }
+			if (length(e.addr ?? "")) out.addrCall[call] = e.addr;
+		} else push(mc, call);
+	}
+	if (!length(mid) && !length(mc)) return out;
 	let fst = FS.stat(csvPath);
 	if (fst == null || !(fst.size > 0)) return out;
 	let ip = tmpPath("csvids"), cp = tmpPath("csvcalls");
 	let files = "";
-	if (length(idlist)) {
+	if (length(mid)) {
 		let s = "";
-		for (let c in idlist) s += c + "\n";
+		for (let id in mid) s += id + "\n";
 		FS.writefile(ip, s);
 		files += sq(ip) + " ";
 	}
-	if (length(clist)) {
+	if (length(mc)) {
 		let s = "";
-		for (let c in clist) s += c + "\n";
+		for (let call in mc) s += call + "\n";
 		FS.writefile(cp, s);
 		files += sq(cp) + " ";
 	}
@@ -1098,15 +1152,42 @@ function csvLookup(csvPath, idlist, clist, stateCol, cityCol, remarkCol) {
 	          "  if (($1 in ids) && !($1 in seen)) { seen[$1]=1; printf \"C\\t%s\\t%s\\n\",$1,$2; printf \"D\\t%s\\t%s\\n\",$2,$1; printf \"A\\t%s\\t%s\\t%s\\t%s\\n\",$1,$sc,$cc,rm } " +
 	          "  if (($2 in calls) && !($2 in bseen)) { bseen[$2]=1; printf \"D\\t%s\\t%s\\n\",$2,$1; printf \"B\\t%s\\t%s\\t%s\\t%s\\n\",$2,$sc,$cc,rm } }' " +
 	          files + csvPath + " 2>/dev/null";
+	let idInfo = {}, callInfo = {};
 	for (let l in split(sh(cmd), "\n")) {
 		let p = split(l, "\t");
 		for (let i = 0; i < length(p); i++) p[i] = trim(p[i]);
-		if (p[0] == "C" && length(p) >= 3) out.call[p[1]] = p[2];
-		else if (p[0] == "D" && length(p) >= 3) out.call2id[p[1]] = p[2];
-		else if (p[0] == "A" && length(p) >= 5) out.addrId[p[1]] = fmtAddr(p[2], p[3], p[4]);
-		else if (p[0] == "B" && length(p) >= 5) out.addrCall[p[1]] = fmtAddr(p[2], p[3], p[4]);
+		if (p[0] == "C" && length(p) >= 3) {
+			out.call[p[1]] = p[2];
+			if (idInfo[p[1]] == null) idInfo[p[1]] = { call: "", addr: "" };
+			idInfo[p[1]].call = p[2];
+		} else if (p[0] == "D" && length(p) >= 3) {
+			out.call2id[p[1]] = p[2];
+			if (idInfo[p[2]] == null) idInfo[p[2]] = { call: "", addr: "" };
+			if (!length(idInfo[p[2]].call)) idInfo[p[2]].call = p[1];
+			if (callInfo[p[1]] == null) callInfo[p[1]] = { id: "", addr: "" };
+			if (!length(callInfo[p[1]].id)) callInfo[p[1]].id = p[2];
+		} else if (p[0] == "A" && length(p) >= 5) {
+			let a = fmtAddr(p[2], p[3], p[4]);
+			out.addrId[p[1]] = a;
+			if (idInfo[p[1]] == null) idInfo[p[1]] = { call: "", addr: "" };
+			idInfo[p[1]].addr = a;
+		} else if (p[0] == "B" && length(p) >= 5) {
+			let a = fmtAddr(p[2], p[3], p[4]);
+			out.addrCall[p[1]] = a;
+			if (callInfo[p[1]] == null) callInfo[p[1]] = { id: "", addr: "" };
+			callInfo[p[1]].addr = a;
+		}
 	}
-	memoPut(ckey, out);
+	let now = time();
+	for (let id in mid) {
+		let v = idInfo[id] ?? { call: "", addr: "" };
+		c.m["I|" + csvPath + "|" + id] = { t: now, call: v.call, addr: v.addr };
+	}
+	for (let call in mc) {
+		let v = callInfo[call] ?? { id: "", addr: "" };
+		c.m["C|" + csvPath + "|" + call] = { t: now, id: v.id, addr: v.addr };
+	}
+	lookupSave(c);
 	sh("rm -f " + sq(ip) + " " + sq(cp));
 	return out;
 }
@@ -1733,9 +1814,47 @@ function lhLoad() {
 	if (type(st) != "object" || st == null || type(st.ids) != "object" || st.ids == null)
 		st = { ver: 1, since: 0, ids: {} };
 	if (type(st.since) != "int") st.since = 0;
+	/* 叠加尚未刷回 flash 的增量：重启前最后几秒的通联也不会丢 */
+	let d = null;
+	try { d = json(FS.readfile(LH_DELTA) ?? ""); } catch (e2) { d = null; }
+	if (type(d) == "object" && d != null) {
+		if (type(d.ids) == "object" && d.ids != null)
+			for (let k in d.ids) st.ids[k] = d.ids[k];
+		if (type(d.seen) == "array" && length(d.seen)) {
+			if (type(st.seen) != "array") st.seen = [];
+			let have = {};
+			for (let s in st.seen) have[s] = 1;
+			for (let s in d.seen) if (!have[s]) { have[s] = 1; push(st.seen, s); }
+		}
+		if (+d.since > +st.since) st.since = +d.since;
+	}
 	return st;
 }
-function lhSave(st) { writeCache(LH_STORE, st); }
+function lhSave(st) {
+	writeCache(LH_STORE, st);
+	/* 完整状态刷回后留下空增量标记：接下来 LH_FLUSH_SEC 秒内的新记录只写小增量，
+	   不必每次通话都把 130KB 状态重写一遍。 */
+	writeCache(LH_DELTA, { t: time(), ids: {}, seen: [], since: +st.since || 0 });
+}
+/* 只把变动的 ID 与新签名写成小文件，整份状态按 LH_FLUSH_SEC 节流刷回 */
+function lhDeltaWrite(entries, sigs, st) {
+	let d = null;
+	try { d = json(FS.readfile(LH_DELTA) ?? ""); } catch (e) { d = null; }
+	if (type(d) != "object" || d == null || type(d.ids) != "object")
+		d = { t: time(), ids: {}, seen: [] };
+	if (type(d.seen) != "array") d.seen = [];
+	let have = {};
+	for (let s in d.seen) have[s] = 1;
+	for (let s in sigs) if (!have[s]) { have[s] = 1; push(d.seen, s); }
+	for (let k in entries) d.ids[k] = entries[k];
+	if (+st.since > (+d.since || 0)) d.since = +st.since;
+	writeCache(LH_DELTA, d);
+}
+function lhDeltaDue() {
+	let d = null;
+	try { d = json(FS.readfile(LH_DELTA) ?? ""); } catch (e) { d = null; }
+	return d == null || type(d.t) != "int" || time() - d.t >= LH_FLUSH_SEC;
+}
 
 /* 最近通联的排序/淘汰水位统一用「通话结束时间」，不能用开始时间：
    同一 ID 的长通话可能比后开始的短通话更晚结束，按开始时间会把长通话排到后面。
@@ -1829,13 +1948,15 @@ function lhTouch(st, key, id, call, q) {
 function lhTrim(st) {
 	let arr = [];
 	for (let k in st.ids) push(arr, k);
-	if (length(arr) <= LH_MAX_IDS) return;
+	let n = length(arr) - LH_MAX_IDS;
+	if (n <= 0) return 0;
 	for (let i = 0; i < length(arr); i++)
 		for (let j = i + 1; j < length(arr); j++)
 			if ((+st.ids[arr[j]].lastEnd || 0) < (+st.ids[arr[i]].lastEnd || 0)) {
 				let t = arr[i]; arr[i] = arr[j]; arr[j] = t;
 			}
-	for (let i = 0; i < length(arr) - LH_MAX_IDS; i++) delete st.ids[arr[i]];
+	for (let i = 0; i < n; i++) delete st.ids[arr[i]];
+	return n;
 }
 
 /* 历史缓存只按呼号库签名判断有效性；日志变化由 /api/live 增量入库后主动改写缓存，
@@ -1914,12 +2035,17 @@ function lhMigrate(st, c2id) {
    返回 { added, fresh }，fresh 是本次真正新增的记录，供实时接口直接更新展示缓存。 */
 function lhMergeRecs(st, recs, c2id) {
 	let added = false, fresh = [], seenChanged = false, seen = lhSeenSet(st);
+	let keys = [], keySet = {}, sigs = [];
 	for (let q in recs) {
 		let sig = lhRecSig(q), isNew = !seen[sig];
-		if (isNew) { lhSeenAdd(st, seen, sig); seenChanged = true; }
+		if (isNew) { lhSeenAdd(st, seen, sig); seenChanged = true; push(sigs, sig); }
 		let k = lhKeyFor(q, c2id);
 		let touched = isNew ? lhTouch(st, k.key, k.id, "", q) : false;
-		if (touched) { added = true; push(fresh, q); continue; }
+		if (touched) {
+			added = true; push(fresh, q);
+			if (!keySet[k.key]) { keySet[k.key] = 1; push(keys, k.key); }
+			continue;
+		}
 		/* GPS 可能在通话结束入库后才解析到：只回填当前这条同时间戳记录，
 		   不用旧记录的坐标覆盖更新的通联 */
 		if (q.gps != null && q.gps.lat && q.gps.lon) {
@@ -1935,6 +2061,7 @@ function lhMergeRecs(st, recs, c2id) {
 					e.gpsTs = qgts;
 					e.rec.gps = q.gps;
 					added = true;
+					if (!keySet[k.key]) { keySet[k.key] = 1; push(keys, k.key); }
 				}
 			}
 		}
@@ -1950,9 +2077,12 @@ function lhMergeRecs(st, recs, c2id) {
 		for (let h in hs) {
 			if (h != null && h.ts == qts && !h.d) { h.d = 1; hit = true; }
 		}
-		if (hit) added = true;
+		if (hit) {
+			added = true;
+			if (!keySet[k.key]) { keySet[k.key] = 1; push(keys, k.key); }
+		}
 	}
-	return { added: added, fresh: fresh, seenChanged: seenChanged };
+	return { added: added, fresh: fresh, seenChanged: seenChanged, keys: keys, sigs: sigs };
 }
 /* 单条展示行：实时增量入库与全量重算共用，保证两处字段完全一致 */
 function lhRowOf(q, e, ctx) {
@@ -2125,7 +2255,7 @@ function cmdLastheard() {
 
 /* 清除通联记录缓存：保留文件并写入 since 水位，避免日志重新解析后旧记录被再次灌入 */
 function cmdLhClear() {
-	writeCache(LH_STORE, { ver: 1, since: time(), ids: {} });
+	lhSave({ ver: 1, since: time(), ids: {} });
 	FS.writefile(LH_CACHE, "");
 	out({ ok: true });
 }
@@ -2315,9 +2445,12 @@ function cmdLive() {
 	let act = {}, startTs = {};
 	/* 通话一结束就把新记录并入持久化状态，并使用本轮已解析的呼号/地址直接补全展示缓存。
 	   前端随后发来的 /api/lastheard?fresh=1 会立即命中，不再等一次全量重算。
-	   全量重算正在跑时跳过，避免两边同时写缓存。 */
+	   日志解析游标没动（空闲时）就直接跳过，避免每秒都读 130KB 历史状态；
+	   全量重算正在跑时也跳过，避免两边同时写缓存。 */
+	let qsig = q.sig ?? "", qoff = +q.off || 0;
+	let prev = staleGet(LIVE_CACHE, 3600);
 	let lhIng = null;
-	if (!lockHeld("lastheard", 30)) {
+	if (!(prev != null && prev.lhSig == qsig && prev.lhOff == qoff) && !lockHeld("lastheard", 30)) {
 		let st = lhLoad();
 		let endsFixed = lhEnsureEnds(st);
 		let seenSig = lhSeenSet(st), need = [];
@@ -2331,7 +2464,17 @@ function cmdLive() {
 			let c2id = length(nc) ? idFor(nc) : {};
 			let merged = lhMigrate(st, c2id);
 			let mres = lhMergeRecs(st, need, c2id);
-			if (mres.added || mres.seenChanged || endsFixed || merged) { lhTrim(st); lhSave(st); }
+			if (mres.added || mres.seenChanged || endsFixed || merged) {
+				let trimmed = lhTrim(st);
+				/* 结构迁移或淘汰时整份刷回；普通新记录先写小增量，
+				   整份状态最多每 LH_FLUSH_SEC 秒写一次，避免 7628 上每通联都卡近 1 秒 */
+				if (endsFixed || merged || trimmed > 0 || lhDeltaDue()) lhSave(st);
+				else {
+					let entries = {};
+					for (let k in mres.keys) if (st.ids[k] != null) entries[k] = st.ids[k];
+					lhDeltaWrite(entries, mres.sigs, st);
+				}
+			}
 			lhIng = { st: st, need: need, c2id: c2id, mres: mres };
 		}
 	}
@@ -2503,7 +2646,8 @@ function cmdLive() {
 			writeCache(LH_CACHE, { sig: lhSig(file), dbSig: lhDbSig(), live: 1, t: time(), body: mergedBody });
 		}
 	}
-	let body = { duplex: duplex, mode: length(modes) ? modes[0] : "DMR", slots: slots };
+	let body = { duplex: duplex, mode: length(modes) ? modes[0] : "DMR", slots: slots,
+		lhSig: qsig, lhOff: qoff };
 	shortPut(LIVE_CACHE, body, null);
 	inFlightDone("live");
 	return body;
