@@ -2424,14 +2424,8 @@ function cmdLive() {
 	if (cached != null) return cached;
 	/* 1 秒轮询下，单次解析一旦跨秒就会被第二个 CGI 重复执行。拿不到锁时直接返回
 	   上一帧（30 秒内），绝不并发重算；首次没有缓存才返回空闲帧。 */
-	let gotLiveLock = !inFlight("live", 30);
-	if (!gotLiveLock) {
-		let old = staleGet(LIVE_CACHE, 30);
-		if (old != null) return old;
-		return { duplex: false, mode: "DMR", slots: {
-			"1": { active: false }, "2": { active: false }
-		} };
-	}
+	/* MMDVM.ini 解析放在锁判断之前：锁冲突兜底帧也要带真实的 duplex/mode，
+	   否则前端会按单工渲染、错误隐藏时隙1（弱机上锁冲突时偶发）。 */
 	let m = ini(INI_DIR + "MMDVM.ini");
 	let duplex = (m["General"] ?? {}).Duplex == "1";
 	let modes = [];
@@ -2439,6 +2433,14 @@ function cmdLive() {
 	if ((m["System Fusion"] ?? {}).Enable == "1") push(modes, "YSF");
 	if ((m["P25"] ?? {}).Enable == "1") push(modes, "P25");
 	if ((m["NXDN"] ?? {}).Enable == "1") push(modes, "NXDN");
+	let gotLiveLock = !inFlight("live", 30);
+	if (!gotLiveLock) {
+		let old = staleGet(LIVE_CACHE, 30);
+		if (old != null) return old;
+		return { duplex: duplex, mode: modes[0] ?? "DMR", slots: {
+			"1": { active: false }, "2": { active: false }
+		} };
+	}
 	let q = parseQsoSafe(file);
 	let now = time();
 	let slots = { "1": { active: false }, "2": { active: false } };
