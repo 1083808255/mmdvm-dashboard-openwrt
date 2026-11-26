@@ -10,6 +10,9 @@ const BG_CSV   = "/etc/mmdvm/bg4esi.csv";
 const STATE   = "/etc/mmdvm/dashboard.json";
 /* 实时语音功能开关：{"enabled":true|false}，缺失时按机型取默认值 */
 const LIVECFG = "/etc/mmdvm/livecfg.json";
+/* 机型常量：构建时由 make-dashboard-model.sh 注入（hlk7628 / ax5 / r3g / n1 / x86），
+   源码直跑默认 x86。后端按该常量裁剪机型专属接口，不再运行时识别 board_name。 */
+const API_MODEL = 'x86';
 const QSO_CACHE = "/tmp/dashboard_qso.cache";
 const LH_CACHE  = "/tmp/dashboard_lh.cache";
 /* 最近通联持久化（overlay 分区，重启不丢）：按 DMR ID 聚合 */
@@ -2830,14 +2833,11 @@ function otaConf() {
 	try { v = json(d); } catch (e) { v = null; }
 	return (type(v) == "object" && v != null) ? v : {};
 }
-/* 机型专用清单：仪表盘已按机型编译（菜单显隐为编译期常量），
-   OTA 必须按 board_name 选择对应清单，避免给不匹配机型推错的前端。
-   hlk-7628n → dashboard-hlk7628.json；ax5 → dashboard-ax5.json；其余通用 dashboard.json */
+/* 机型专用清单：仪表盘与后端均按机型编译（API_MODEL 构建期注入），
+   OTA 按机型选择对应清单，避免给不匹配机型推错的前端。
+   ax5 → dashboard-ax5.json；hlk7628 → dashboard-hlk7628.json；其余通用 dashboard.json */
 function otaModelName() {
-	let b = lc(trim(FS.readfile("/tmp/sysinfo/board_name") ?? ""));
-	if (index(b, "ax5") >= 0) return "ax5";
-	if (index(b, "hlk") >= 0) return "hlk7628";
-	return "";
+	return (API_MODEL == "ax5" || API_MODEL == "hlk7628") ? API_MODEL : "";
 }
 function otaSource() {
 	let u = trim(otaConf().url ?? "") || OTA_DEFAULT_SRC;
@@ -3435,21 +3435,16 @@ const WIFI_SCAN_TTL   = 30;
    写操作在 cmdWifiPost() 里主动清掉，避免返回旧配置。 */
 const WIFI_STATE_CACHE = "/tmp/dashboard_wifistate.json";
 
-/* 支持网络托管的机型白名单：AX5 / HLK-7628N */
+/* 支持网络托管的机型：由构建期注入的 API_MODEL 决定（ax5 / hlk7628），不再运行时识别 */
 function wifiManaged() {
-	for (let bp in [ "/tmp/sysinfo/board_name", "/tmp/sysinfo/model",
-	                 "/etc/board.json", "/proc/device-tree/compatible" ]) {
-		let bd = null;
-		try { bd = FS.readfile(bp); } catch (e) { bd = null; }
-		if (bd == null) continue;
-		let s = lc(sprintf("%s", bd));
-		if (index(s, "ax5") >= 0 || index(s, "hlk7628") >= 0 || index(s, "hlk-7628") >= 0) return true;
-	}
-	return false;
+	return (API_MODEL == "ax5" || API_MODEL == "hlk7628");
 }
 /* 兼容旧名：guard / 旧前端仍按这个语义调用 */
 function wifiIsAx5() { return wifiManaged(); }
 function wifiCap() {
+	/* 非网络托管机型：直接返回不支持，不做任何 uci 扫描 */
+	if (!wifiManaged())
+		return { supported: false, bands: [], widths: {}, wired: false, lte: false, country: "CN" };
 	let has5 = length(uciOpt("wireless", "mmdvm_ap_5g", "device")) > 0;
 	let bands = has5 ? [ "2g", "5g" ] : [ "2g" ];
 	let widths = { "2g": [ "20MHz", "40MHz" ] };
@@ -4280,32 +4275,22 @@ if (name == "wifi") {
 	if (method == "POST") cmdTgPost();
 	else cmdTgGet();
 } else if (name == "livecfg") {
-	/* 实时语音开关只对 7628（单核性能不足）提供；其它机型固定开启。
-	   机型识别依次看 board_name / model / board.json / device-tree compatible，
-	   避免 /tmp/sysinfo 尚未生成或内容异常时误判为非 7628 而隐藏开关入口 */
-	let board = trim(FS.readfile("/tmp/sysinfo/board_name") ?? "");
-	let is7628 = false;
-	for (let bp in [ "/tmp/sysinfo/board_name", "/tmp/sysinfo/model",
-	                 "/etc/board.json", "/proc/device-tree/compatible" ]) {
-		let bd = null;
-		try { bd = FS.readfile(bp); } catch (e) { bd = null; }
-		if (bd != null && index(sprintf("%s", bd), "7628") >= 0) { is7628 = true; break; }
-	}
-	if (!is7628) {
-		out({ ok: true, enabled: true, board: board, lowPower: false });
+	/* 实时语音开关只在 hlk7628 固件里生效（单核性能不足）；其它机型固定开启、无开关 */
+	if (API_MODEL != "hlk7628") {
+		out({ ok: true, enabled: true, lowPower: false });
 	} else if (method == "POST") {
 		let b = body() ?? {};
 		let en = (b.enabled == true || b.enabled == 1 || b.enabled == "1");
 		FS.writefile(LIVECFG, sprintf("%J", { enabled: en }) + "\n");
 		sh("/etc/init.d/dmrstreamd " + (en ? "start" : "stop") + " >/dev/null 2>&1");
-		out({ ok: true, enabled: en, board: board });
+		out({ ok: true, enabled: en });
 	} else {
 		let d = null;
 		try { d = json(FS.readfile(LIVECFG) ?? ""); } catch (e) { d = null; }
 		let en = (type(d) == "object" && d != null && d.enabled != null)
 			? (d.enabled == true || d.enabled == 1 || d.enabled == "1")
 			: false;
-		out({ ok: true, enabled: en, board: board, lowPower: true });
+		out({ ok: true, enabled: en, lowPower: true });
 	}
 } else if (name == "live") {
 	out(cmdLive());
