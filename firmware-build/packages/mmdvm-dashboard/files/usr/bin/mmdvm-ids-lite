@@ -5,9 +5,15 @@
 # 完整库展开约 58MB 堆内存，精简库约 3MB，硬件屏（Nextion/OLED）仍能显示呼号。
 CACHE=/etc/mmdvm/dashboard_ids.cache
 OUT=/etc/mmdvm/DMRIds.lite
+TMP="$OUT.tmp.$$"
 IDS=/tmp/mmdvm_ids_seen.$$
+LOCK=/tmp/mmdvm-ids-lite.lock
 
 [ -s "$CACHE" ] || exit 0
+
+# 原子锁：避免 ids-sync 与 cron 同时刷新精简库
+mkdir "$LOCK.d" 2>/dev/null || exit 0
+trap 'rm -f "$IDS" "$TMP"; rmdir "$LOCK.d" 2>/dev/null' EXIT HUP INT TERM
 
 : > "$IDS"
 for f in /var/log/mmdvm/MMDVM-*.log; do
@@ -20,13 +26,27 @@ grep -hoE '"id": ?"[0-9]+"' /tmp/dashboard_lh.cache /tmp/dashboard_qso.cache 2>/
 	| grep -oE '[0-9]+' >> "$IDS"
 sort -u "$IDS" -o "$IDS"
 
+# 同目录临时文件 + mv 原子替换，避免跨文件系统
+: > "$TMP"
 awk -F'\t' 'NR==FNR{ids[$1]=1;next} (($1 ~ /^(46|86)/) || ($1 in ids)) {print}' \
-	"$IDS" "$CACHE" > "$OUT.tmp" 2>/dev/null
+	"$IDS" "$CACHE" >> "$TMP" 2>/dev/null || :
 
-n=$(wc -l < "$OUT.tmp" 2>/dev/null || echo 0)
+n=$(wc -l < "$TMP" 2>/dev/null || echo 0)
 if [ "$n" -gt 1000 ]; then
-	mv "$OUT.tmp" "$OUT"
+	# 新库行数/体积明显低于旧库（不足 70%）时保留旧库
+	if [ -s "$OUT" ]; then
+		old_lines=$(wc -l < "$OUT" 2>/dev/null || echo 0)
+		old_bytes=$(wc -c < "$OUT" 2>/dev/null || echo 0)
+		new_bytes=$(wc -c < "$TMP" 2>/dev/null || echo 0)
+		if [ "$n" -lt "$((old_lines * 7 / 10))" ] || [ "$new_bytes" -lt "$((old_bytes * 7 / 10))" ]; then
+			logger -t mmdvm-ids-lite "精简 ID 库明显缩水（$n 条 / $new_bytes 字节，旧库 $old_lines 条 / $old_bytes 字节），保留旧库"
+			rm -f "$TMP" "$IDS"
+			exit 0
+		fi
+	fi
+	mv -f "$TMP" "$OUT" || logger -t mmdvm-ids-lite "精简 ID 库替换失败，保留旧库"
 else
-	rm -f "$OUT.tmp"
+	rm -f "$TMP"
 fi
 rm -f "$IDS"
+exit 0

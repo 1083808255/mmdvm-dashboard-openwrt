@@ -1,0 +1,10 @@
+{
+  "version": "V0.660",
+  "versionName": "V0.660",
+  "board": "hilink,hlk-7628n",
+  "target": "ramips/mt76x8",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/openwrt-ramips-mt76x8-hilink_hlk-7628n-squashfs-sysupgrade.bin",
+  "sha256": "09092196a0d2d3a4a7f27c54e4d0b2ddedbc7ce70a4b51fd0473adce9befa08c",
+  "size": 10289957,
+  "notes": "HLK-7628N 整机固件 V0.660"
+}

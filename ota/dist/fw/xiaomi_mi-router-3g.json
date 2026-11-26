@@ -1,0 +1,10 @@
+{
+  "version": "V0.660",
+  "versionName": "V0.660",
+  "board": "xiaomi,mi-router-3g",
+  "target": "ramips/mt7621",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/openwrt-ramips-mt7621-xiaomi_mi-router-3g-squashfs-sysupgrade.bin",
+  "sha256": "912cb461a79c3b36b67c7ac84f3de9d7cf39e962befa1edcbd7dc1eb9f77dacb",
+  "size": 11019386,
+  "notes": "R3G 整机固件 V0.660"
+}

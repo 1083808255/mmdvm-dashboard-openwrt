@@ -5,17 +5,19 @@ URL="https://gitee.com/ytqkl/mmdvm-CNcontact/raw/main/stripped.zip"
 OUT="/etc/mmdvm/bg4esi.csv"
 TS="/etc/mmdvm/bg4esi.ts"
 LOCK="/tmp/mmdvm_bg4esi.lock"
-TMPDIR=$(mktemp -d)
+TMP="$OUT.tmp.$$"
 
-# 同一时间只允许一个实例：接口轮询会反复触发同步，没有锁会堆积大量 wget
-[ -f "$LOCK" ] && exit 0
-touch "$LOCK"
-trap "rm -rf $TMPDIR; rm -f $LOCK" EXIT
+# 同一时间只允许一个实例：接口轮询会反复触发同步，没有锁会堆积大量 wget。
+# 原子锁 + trap 清理（所有变量加引号，避免残留锁目录）。
+mkdir "$LOCK.d" 2>/dev/null || exit 0
+TMPDIR=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMPDIR"; rm -f "$TMP"; rmdir "$LOCK.d" 2>/dev/null' EXIT HUP INT TERM
 
 # 失败也写时间戳，让调用方按 TTL 退避，避免每次请求都重试
 fail() {
-	date +%s > "$TS"
+	date +%s > "$TS" 2>/dev/null || :
 	echo "$*" >&2
+	logger -t mmdvm-bg4esi-sync "$*" 2>/dev/null || :
 	exit 1
 }
 
@@ -28,17 +30,43 @@ if [ -n "$avail" ] && [ "$avail" -lt 8192 ]; then
 	fail "not enough space"
 fi
 
-cd "$TMPDIR"
-wget -q -T 40 -O stripped.zip "$URL" 2>/dev/null || fail "download failed"
-unzip -q -o stripped.zip 2>/dev/null || fail "unzip failed"
+ZIP="$TMPDIR/stripped.zip"
+wget -q -T 40 -O "$ZIP" "$URL" 2>/dev/null || fail "download failed"
+
+# 只读取归档内指定成员，绝不把归档条目解压到磁盘（避免 zip-slip）。
+# 先列出成员名再做安全校验，最后用 unzip -p 指定成员输出。
+members=$(unzip -Z1 "$ZIP" 2>/dev/null || unzip -Z "$ZIP" 2>/dev/null || :)
+member=$(printf '%s\n' "$members" | awk '/(^|\/)stripped\.csv$/ { print; exit }')
+# 极简 unzip 不支持列成员选项时，退回归档根目录的常见成员名
+[ -n "$member" ] || member="stripped.csv"
+case "$member" in
+	/*|*..*) fail "unsafe archive member: $member" ;;
+esac
+unzip -p "$ZIP" "$member" > "$TMPDIR/raw.csv" 2>/dev/null || fail "unzip failed"
+[ -s "$TMPDIR/raw.csv" ] || fail "empty archive member"
 
 # stripped.csv 是 GB18030 编码，转 UTF-8 后只保留 46 开头的行
-iconv -f GB18030 -t UTF-8 stripped.csv 2>/dev/null | awk -F, 'NR==1 || $1 ~ /^46/' > bg4esi.csv
-[ -s bg4esi.csv ] || fail "convert failed"
-mv bg4esi.csv "$OUT"
+iconv -f GB18030 -t UTF-8 "$TMPDIR/raw.csv" > "$TMPDIR/utf8.csv" 2>/dev/null || fail "iconv failed"
+awk -F, 'NR==1 || $1 ~ /^46/' "$TMPDIR/utf8.csv" > "$TMP" || fail "filter failed"
+[ -s "$TMP" ] || fail "convert failed"
+
+# 新库行数/体积明显低于旧库（不足 70%）时视为残缺数据，保留旧库
+if [ -s "$OUT" ]; then
+	old_lines=$(wc -l < "$OUT" 2>/dev/null || echo 0)
+	old_bytes=$(wc -c < "$OUT" 2>/dev/null || echo 0)
+	new_lines=$(wc -l < "$TMP" 2>/dev/null || echo 0)
+	new_bytes=$(wc -c < "$TMP" 2>/dev/null || echo 0)
+	if [ "$new_lines" -lt "$((old_lines * 7 / 10))" ] || [ "$new_bytes" -lt "$((old_bytes * 7 / 10))" ]; then
+		fail "data shrunk ($new_lines lines / $new_bytes bytes, old $old_lines lines / $old_bytes bytes)"
+	fi
+fi
+
+# 同目录临时文件 + mv 原子替换
+mv -f "$TMP" "$OUT" || fail "replace failed"
 
 # 更新时间戳
 date +%s > "$TS"
 
 LINES=$(wc -l < "$OUT")
 echo "done: $LINES lines"
+exit 0

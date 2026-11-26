@@ -1,22 +1,45 @@
 #!/bin/sh
 # 仪表盘 API 字节码守护：
 # - api.uc 被换回源码（手动覆盖 / 旧安装包）时自动重编；
-# - ucode 升级后旧字节码不兼容时自动重编；
-# - 编译失败则保留源码继续用，不影响功能。
+# - ucode 升级后旧字节码不兼容时自动重编（从已安装的 api.uc.src 恢复源码）；
+# - 编译失败则保留原文件并写日志告警，不影响功能。
 P=/www-dash/api/api.uc
 SRC=/www-dash/api/api.uc.src
+BC="$P.bc"
+UC=/usr/bin/ucode
 [ -f "$P" ] || exit 0
-[ -x /usr/bin/ucode ] || exit 0
+[ -x "$UC" ] || exit 0
 
-if head -c 64 "$P" | grep -q ucb; then
-	# 已是字节码：解释器没升级就结束
-	[ "$P" -nt /usr/bin/ucode ] && exit 0
+# ucode 预编译字节码的 magic 为 1b 75 63 62（ESC + "ucb"）：
+# 必须精确匹配文件头 4 字节，不能用 head -c 64 | grep -q ucb 的宽松匹配。
+is_bc=0
+if command -v od >/dev/null 2>&1; then
+	magic=$(od -An -tx1 -N4 "$P" 2>/dev/null | tr -d ' \t\n')
+	[ "$magic" = "1b756362" ] && is_bc=1
 else
-	# 源码状态：先留一份源码再编译
-	cp -f "$P" "$SRC" 2>/dev/null
+	# 极简固件没有 od 时，用固定字符串精确比对前 4 字节（长度相同即完全相等）
+	head -c 4 "$P" 2>/dev/null | grep -qF "$(printf '\033ucb')" && is_bc=1
 fi
-[ -f "$SRC" ] || exit 0
-ucode -c -s -o "$P.bc" "$SRC" 2>/dev/null || exit 0
-chmod 755 "$P.bc"
-mv -f "$P.bc" "$P"
+if [ "$is_bc" -eq 1 ]; then
+	# 已是字节码：解释器没升级就结束
+	[ "$P" -nt "$UC" ] && exit 0
+	# ucode 已更新：下面从安装时保留的 api.uc.src 重新编译
+else
+	# 源码状态：先把当前源码保存到 api.uc.src，再编译
+	cp -f "$P" "$SRC" 2>/dev/null || exit 0
+fi
+
+[ -f "$SRC" ] || {
+	logger -p daemon.warn -t mmdvm-dashboard-bc-guard "源码 api.uc.src 缺失，跳过字节码重编" 2>/dev/null || :
+	exit 0
+}
+
+if ucode -c -s -o "$BC" "$SRC" 2>/dev/null; then
+	chmod 0755 "$BC"
+	mv -f "$BC" "$P"
+else
+	rm -f "$BC"
+	logger -p daemon.warn -t mmdvm-dashboard-bc-guard "字节码编译失败，保留原 api.uc" 2>/dev/null || :
+	exit 0
+fi
 exit 0

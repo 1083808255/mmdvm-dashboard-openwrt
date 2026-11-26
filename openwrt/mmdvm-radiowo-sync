@@ -4,13 +4,14 @@
 URL="https://www.radiowo.com/id_library/user.csv"
 OUT="/etc/mmdvm/radiowo_user.csv"
 TS="/etc/mmdvm/radiowo_user.ts"
-TMP="/tmp/radiowo_user.csv"
+TMP="$OUT.tmp.$$"
 LOCK="/tmp/mmdvm_radiowo.lock"
 
-[ -f "$LOCK" ] && exit 0
-touch "$LOCK"
-# 异常退出也清理锁，避免一次崩溃后永久不再同步
-trap 'rm -f "$LOCK" "$TMP"' EXIT HUP INT TERM
+# 上次异常退出可能留下临时文件，开始前先清理
+rm -f "$TMP" "$OUT.tmp" 2>/dev/null
+# 原子锁：mkdir 只有一个进程能成功；异常退出时 trap 清理（变量均加引号）
+mkdir "$LOCK.d" 2>/dev/null || exit 0
+trap 'rm -f "$TMP"; rmdir "$LOCK.d" 2>/dev/null' EXIT HUP INT TERM
 
 # 只有下载并校验通过才替换旧文件，断网时保留已有呼号库
 avail=$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')
@@ -18,11 +19,29 @@ if [ -n "$avail" ] && [ "$avail" -lt 2048 ]; then
 	exit 0
 fi
 
-wget -q -T 40 -O "$TMP" "$URL" 2>/dev/null
+# 下载先写临时文件并检查退出码，失败保留旧库
+if ! wget -q -T 40 -O "$TMP" "$URL" 2>/dev/null; then
+	logger -t mmdvm-radiowo-sync "呼号库下载失败，保留旧库"
+	exit 1
+fi
 if [ -s "$TMP" ] && head -1 "$TMP" | grep -q '^RADIO_ID,CALLSIGN'; then
-	mv "$TMP" "$OUT"
-	date +%s > "$TS"
-	exit 0
+	n=$(wc -l < "$TMP" 2>/dev/null || echo 0)
+	if [ "$n" -gt 0 ] && [ -s "$OUT" ]; then
+		old_lines=$(wc -l < "$OUT" 2>/dev/null || echo 0)
+		old_bytes=$(wc -c < "$OUT" 2>/dev/null || echo 0)
+		new_bytes=$(wc -c < "$TMP" 2>/dev/null || echo 0)
+		if [ "$n" -lt "$((old_lines * 7 / 10))" ] || [ "$new_bytes" -lt "$((old_bytes * 7 / 10))" ]; then
+			logger -t mmdvm-radiowo-sync "呼号库明显缩水（$n 行 / $new_bytes 字节，旧库 $old_lines 行 / $old_bytes 字节），保留旧库"
+			exit 1
+		fi
+	fi
+	if mv -f "$TMP" "$OUT"; then
+		date +%s > "$TS"
+		exit 0
+	fi
+	logger -t mmdvm-radiowo-sync "呼号库替换失败，保留旧库"
+	exit 1
 fi
 
+logger -t mmdvm-radiowo-sync "呼号库数据异常，保留旧库"
 exit 1

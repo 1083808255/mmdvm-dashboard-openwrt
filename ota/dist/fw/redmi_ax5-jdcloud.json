@@ -1,0 +1,10 @@
+{
+  "version": "V0.661",
+  "versionName": "V0.661",
+  "board": "redmi,ax5-jdcloud",
+  "target": "qualcommax/ipq60xx",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.661/openwrt-qualcommax-ipq60xx-redmi_ax5-jdcloud-squashfs-sysupgrade.bin",
+  "sha256": "e5efe13909a527e19b7387542da49849849d4a78e827f01c1738ab68d38b68a8",
+  "size": 33997629,
+  "notes": "红米 AX5 京东云版整机固件 V0.661"
+}

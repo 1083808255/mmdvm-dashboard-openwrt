@@ -47,6 +47,10 @@ function sq(s) {
 	return "'" + o + "'";
 }
 function rnd(x) { return int(x + 0.5); }
+/* 每个 CGI 进程一个唯一后缀：并发请求写 /tmp pattern 文件时不会互相覆盖。
+   uuid 来自内核，取不到时用 shell PID 兜底；只在进程启动时 fork 一次。 */
+const TMP_TOKEN = trim(sh("cat /proc/sys/kernel/random/uuid 2>/dev/null || echo $$"));
+function tmpPath(name) { return "/tmp/dashboard_" + name + "_" + TMP_TOKEN; }
 function words(s) {
 	let r = [];
 	for (let w in split(trim(s), " ")) if (length(w)) push(r, w);
@@ -167,12 +171,23 @@ function staleGet(path, maxAge) {
 /* 单飞锁：同名端点已有实例在跑（锁未过期）时返回 true，调用方应直接退回缓存，
    绝不再启动第二个重算进程——这是防止「某次慢请求超时后进程不退出、轮询继续发、
    单核进程越积越多」雪崩的最后一道闸。锁用时间戳，进程崩溃后最多 stale 秒自动释放。 */
+function lockDir(name) { return "/tmp/dashboard_" + name + ".lockd"; }
+function inFlightDone(name) { sh("rm -rf " + sq(lockDir(name))); }
+/* 原子锁：mkdir 只有一个进程能成功，避免 read-then-write 的竞态。
+   锁目录里的时间戳只作进程崩溃后的兜底；正常完成时由调用方 inFlightDone 立即释放。 */
 function inFlight(name, stale) {
-	let f = "/tmp/dashboard_" + name + ".flt";
-	let d = FS.readfile(f);
-	if (d != null && (time() - int(d)) < stale) return true;
-	FS.writefile(f, sprintf("%d", time()));
-	return false;
+	let d = lockDir(name);
+	let now = sprintf("%d", time());
+	/* mkdir 与写时间戳放在同一条 shell 命令里：目录存在时 t 一定已经写好，
+	   不会让第二个进程在「刚 mkdir、还没写 t」的窗口里误判为过期锁。 */
+	let grab = "mkdir " + sq(d) + " 2>/dev/null && printf '%s' " + now + " > " + sq(d + "/t") + " && echo ok";
+	if (trim(sh(grab)) == "ok") return false;
+	/* 目录已存在：时间戳有效说明确实有实例在跑；过期则删除后重试一次，
+	   避免进程崩溃后锁永久卡死。 */
+	let t = trim(sh("cat " + sq(d + "/t") + " 2>/dev/null"));
+	if (length(t) && (time() - int(t)) < stale) return true;
+	sh("rm -rf " + sq(d));
+	return trim(sh(grab)) == "ok" ? false : true;
 }
 /* 呼号/地址查询结果短缓存：同一批呼号的 grep / awk 结果 60 秒内不再重复 fork。
    这类数据一天内基本不变，实时性只影响新出现的呼号，60 秒足够 */
@@ -186,7 +201,8 @@ function keyOf(prefix, a, b) {
 function memoGet(k, ttl) {
 	let d = FS.readfile(MEMO);
 	if (d == null) return null;
-	let m = json(d);
+	let m = null;
+	try { m = json(d); } catch (e) { m = null; }
 	if (type(m) != "object" || m == null) return null;
 	let e = m[k];
 	if (e == null || type(e) != "object") return null;
@@ -550,6 +566,23 @@ function distKm(la1, lo1, la2, lo2) {
 	return 2 * 6371.0 * asinX(fsqrt(t));
 }
 
+/* 读取上一轮解析结果：拿不到解析锁时用它兜底，绝不让第二个 CGI 重跑 parseQso */
+function qsoCached() {
+	let d = FS.readfile(QSO_CACHE);
+	if (d == null || substr(trim(d), 0, 1) != "{") return null;
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	/* writeCache(QSO_CACHE, obj) 直接落 obj 本身，不是 shortPut 的 {t,body} 外壳 */
+	if (type(v) != "object" || v == null || type(v.recs) != "array") return null;
+	let c = v;
+	return { recs: c.recs, pend: (type(c.pend) == "object" && c.pend != null) ? c.pend : {},
+		rt: (type(c.rt) == "object" && c.rt != null) ? c.rt : {},
+		seen: (type(c.seen) == "object" && c.seen != null) ? c.seen : {},
+		cal: (type(c.cal) == "object" && c.cal != null) ? c.cal : { errs: 0, total: 0, frames: 0, jumps: 0, jsum: 0, ts: "" } };
+}
+function emptyQso() {
+	return { recs: [], pend: {}, rt: {}, seen: {}, cal: { errs: 0, total: 0, frames: 0, jumps: 0, jsum: 0, ts: "" } };
+}
 function parseQso(logfile) {
 	let file = logfile ?? logFileFor("MMDVM");
 	let recs = [], pend = {}, rt = {};
@@ -935,6 +968,16 @@ function parseQso(logfile) {
 	if (length(sig)) writeCache(QSO_CACHE, { sig: sig, file: file, off: base + consumed, recs: recs, pend: pend, rt: rt, seen: seen, cal: cal, calp: calp, gpsSlot: gpsSlot, gpsHdr: gpsHdr, gpsHex: gpsHex, gpsDirNow: gpsDirNow, hexOwn: hexOwn, hdrTs: hdrTs, hdrDir: hdrDir, aliasCall: aliasCall, aliasTs: aliasTs, pendGps: pendGps });
 	return { recs: recs, pend: pend, rt: rt, seen: seen, cal: cal };
 }
+/* parseQso 的入口锁：live/lastheard/calibration 共用同一份日志解析，
+   单核上必须串行；并发时直接返回上一轮缓存。
+   注意：ucode 不提升函数声明，本函数必须定义在 parseQso 之后。 */
+function parseQsoSafe(file) {
+	let old = qsoCached();
+	if (inFlight("qso", 30)) return old ?? emptyQso();
+	let r = parseQso(file);
+	inFlightDone("qso");
+	return r;
+}
 
 /* ---------- 呼号 <-> DMR ID ---------- */
 /* 增量缓存：已解析过的呼号直接命中，避免每次请求都 grep 2.9MB 的 DMRIds.dat */
@@ -961,12 +1004,12 @@ function idFor(calls) {
 		else push(miss, cs);
 	}
 	if (length(miss) && length(files)) {
-		let pat = "/tmp/dashboard_calls";
+		let pat = tmpPath("calls");
 		let s = "";
 		for (let cs in miss) s += cs + "\n";
 		FS.writefile(pat, s);
 		/* DMRIds.dat / 精简库 / 完整库均为「ID<TAB>呼号」，个别版本为空格分隔，两种都兼容 */
-		let cmd = "grep -h -F -f " + pat + " " + join(" ", files) + " 2>/dev/null";
+		let cmd = "grep -h -F -f " + sq(pat) + " " + join(" ", files) + " 2>/dev/null";
 		for (let l in split(sh(cmd), "\n")) {
 			let p = split(trim(l), "\t");
 			if (length(p) < 2) p = split(trim(l), " ");
@@ -976,6 +1019,7 @@ function idFor(calls) {
 		for (let cs in miss) if (m[cs] == null) m[cs] = "";
 		c.m = m;
 		writeCache(IDNAME_CACHE, c);
+		sh("rm -f " + sq(pat));
 	}
 	return res;
 }
@@ -990,16 +1034,17 @@ function resolveCalls(idlist) {
 	if (hit != null) return hit;
 	let want = {};
 	for (let id in idlist) want[id] = true;
-	let pat = "/tmp/dashboard_idq";
+	let pat = tmpPath("idq");
 	let s = "";
 	for (let id in idlist) s += id + "\n";
 	FS.writefile(pat, s);
 	/* 大文件按需 grep，避免每次请求把整份 ID 库读进内存 */
-	for (let l in split(sh("grep -F -f " + pat + " " + ID_CACHE + " 2>/dev/null"), "\n")) {
+	for (let l in split(sh("grep -F -f " + sq(pat) + " " + sq(ID_CACHE) + " 2>/dev/null"), "\n")) {
 		let p = split(trim(l), "\t");
 		if (length(p) >= 2 && want[p[0]] && p[1] != "-" && length(p[1])) res[p[0]] = p[1];
 	}
 	memoPut(mkey, res);
+	sh("rm -f " + sq(pat));
 	return res;
 }
 
@@ -1020,25 +1065,27 @@ function fmtAddr(state, city, remark) {
 function csvLookup(csvPath, idlist, clist, stateCol, cityCol, remarkCol) {
 	let out = { call: {}, addrId: {}, addrCall: {}, call2id: {} };
 	if (!length(idlist) && !length(clist)) return out;
-	if (!length(trim(FS.readfile(csvPath) ?? ""))) return out;
 	let ckey = keyOf("cv:" + csvPath + ":", idlist, clist);
 	let chit = memoGet(ckey, 60);
 	if (chit != null) return chit;
-	let ip = "/tmp/dashboard_csvids", cp = "/tmp/dashboard_csvcalls";
+	/* 先查 memo 再看文件：避免每次 /api/live 都把几 MB CSV 整份读进内存 */
+	let fst = FS.stat(csvPath);
+	if (fst == null || !(fst.size > 0)) return out;
+	let ip = tmpPath("csvids"), cp = tmpPath("csvcalls");
 	let files = "";
 	if (length(idlist)) {
 		let s = "";
 		for (let c in idlist) s += c + "\n";
 		FS.writefile(ip, s);
-		files += ip + " ";
+		files += sq(ip) + " ";
 	}
 	if (length(clist)) {
 		let s = "";
 		for (let c in clist) s += c + "\n";
 		FS.writefile(cp, s);
-		files += cp + " ";
+		files += sq(cp) + " ";
 	}
-	let cmd = "awk -F, -v ip=" + ip + " -v cp=" + cp +
+	let cmd = "awk -F, -v ip=" + sq(ip) + " -v cp=" + sq(cp) +
 	          " -v sc=" + stateCol + " -v cc=" + cityCol + " -v rc=" + remarkCol + " " +
 	          "'FILENAME==ip{ids[$0]=1;next} FILENAME==cp{calls[$0]=1;next} " +
 	          "{ rm=(rc>0)?$rc:\"\"; " +
@@ -1054,6 +1101,7 @@ function csvLookup(csvPath, idlist, clist, stateCol, cityCol, remarkCol) {
 		else if (p[0] == "B" && length(p) >= 5) out.addrCall[p[1]] = fmtAddr(p[2], p[3], p[4]);
 	}
 	memoPut(ckey, out);
+	sh("rm -f " + sq(ip) + " " + sq(cp));
 	return out;
 }
 /* radiowo 格式: ID,CALLSIGN,NAME,CITY,STATE,COUNTRY,REMARKS → STATE=5,CITY=4,REMARKS=7 */
@@ -1096,6 +1144,7 @@ function cmdStatus() {
 	let lf = logFileFor("MMDVM");
 	/* ?ping=1：页面手动刷新时强制做一次 ping 测试，并跳过短缓存 */
 	let forcePing = (qs().ping == "1");
+	let gotStatusLock = false;
 	/* 短缓存：命中（1 秒内且日志未变）时直接返回。通话中日志每秒变化会让签名校验
 	   永久失效，再用宽松缓存兜底 5 秒，避免顶栏每 10 秒请求都全量解析上百 KB 日志，
 	   把单核拖到逼近前端超时；仍 miss 时若已有实例在跑就退回 20 秒内旧结果，防堆积 */
@@ -1103,7 +1152,8 @@ function cmdStatus() {
 		let cached = shortGet(STATUS_CACHE, SHORT_TTL, lf);
 		if (cached == null) cached = staleGet(STATUS_CACHE, 5);
 		if (cached != null) return cached;
-		if (inFlight("status", 8)) {
+		gotStatusLock = !inFlight("status", 15);
+		if (!gotStatusLock) {
 			let s = staleGet(STATUS_CACHE, 20);
 			if (s != null) return s;
 		}
@@ -1433,6 +1483,7 @@ function cmdStatus() {
 		}
 	};
 	shortPut(STATUS_CACHE, body, lf);
+	if (gotStatusLock) inFlightDone("status");
 	return body;
 }
 
@@ -1769,12 +1820,13 @@ function cmdLastheard() {
 	/* 需要重算：先拿单飞锁，拿不到说明已有实例在跑。这里宁可返回旧列表也不能返回空列表——
 	   7628 单核全量解析要 10 秒左右，空列表会让前端把真实通联记录误判成「暂无」。
 	   绝不再启动第二个重算进程——lastheard 单次解析+查库最重，是堆积雪崩的主要来源 */
-	if (inFlight("lastheard", 8)) {
+	let gotLhLock = !inFlight("lastheard", 30);
+	if (!gotLhLock) {
 		if (cachedBody != null) out(cachedBody);
-		else out([]);
+		else out({ ok: false, pending: true });
 		return;
 	}
-	let recs = parseQso().recs;
+	let recs = parseQsoSafe().recs;
 	/* 合并阶段只解析 ID：ID 记录用呼号本身，纯呼号记录才查 DMRIds.dat。
 	   地址/呼号全表扫描留到展示阶段，只对最终 50 条做，避免每次刷新都扫库 */
 	let st = lhLoad();
@@ -1964,6 +2016,7 @@ function cmdLastheard() {
 		});
 	}
 	writeCache(LH_CACHE, { sig: sig, t: time(), body: r });
+	inFlightDone("lastheard");
 	out(r);
 }
 
@@ -2136,6 +2189,16 @@ function cmdLive() {
 	   保证通联显示实时性；单次解析已是增量读取日志尾部 */
 	let cached = shortGet(LIVE_CACHE, 0, null);
 	if (cached != null) return cached;
+	/* 1 秒轮询下，单次解析一旦跨秒就会被第二个 CGI 重复执行。拿不到锁时直接返回
+	   上一帧（30 秒内），绝不并发重算；首次没有缓存才返回空闲帧。 */
+	let gotLiveLock = !inFlight("live", 30);
+	if (!gotLiveLock) {
+		let old = staleGet(LIVE_CACHE, 30);
+		if (old != null) return old;
+		return { duplex: false, mode: "DMR", slots: {
+			"1": { active: false }, "2": { active: false }
+		} };
+	}
 	let m = ini(INI_DIR + "MMDVM.ini");
 	let duplex = (m["General"] ?? {}).Duplex == "1";
 	let modes = [];
@@ -2143,7 +2206,7 @@ function cmdLive() {
 	if ((m["System Fusion"] ?? {}).Enable == "1") push(modes, "YSF");
 	if ((m["P25"] ?? {}).Enable == "1") push(modes, "P25");
 	if ((m["NXDN"] ?? {}).Enable == "1") push(modes, "NXDN");
-	let q = parseQso(file);
+	let q = parseQsoSafe(file);
 	let now = time();
 	let slots = { "1": { active: false }, "2": { active: false } };
 	let act = {}, startTs = {};
@@ -2274,6 +2337,7 @@ function cmdLive() {
 	}
 	let body = { duplex: duplex, mode: length(modes) ? modes[0] : "DMR", slots: slots };
 	shortPut(LIVE_CACHE, body, null);
+	inFlightDone("live");
 	return body;
 }
 
@@ -2290,10 +2354,14 @@ function cmdGeo() {
 function cmdCalGet() {
 	/* 诊断：记录最近一次轮询页面的 UI 版本，便于确认浏览器是否加载了新前端 */
 	let qv = qs();
-	if (qv.ui != null && length(qv.ui)) FS.writefile("/tmp/dashboard_ui.txt", qv.ui + " " + (qv.src ?? "-") + " " + time() + "\n");
+	if (qv.ui != null && length(qv.ui)) {
+		let tag = qv.ui + " " + (qv.src ?? "-");
+		if (trim(FS.readfile("/tmp/dashboard_ui.txt") ?? "") != tag)
+			FS.writefile("/tmp/dashboard_ui.txt", tag + " " + time() + "\n");
+	}
 	let m = ini(INI_DIR + "MMDVM.ini");
 	let mod = m["Modem"] ?? {}, inf = m["Info"] ?? {};
-	let q = parseQso();
+	let q = parseQsoSafe();
 	let recs = q.recs;
 	let last = length(recs) ? recs[length(recs) - 1] : null;
 	let rssi = null;
@@ -2435,6 +2503,7 @@ let pi = pathinfo();
 const OTA_CONF = "/etc/mmdvm/dashboard-ota.json";
 const OTA_DIR = "/tmp/dashboard-ota";
 const OTA_CACHE = "/tmp/dashboard-ota-cache.json";
+const OTA_FAIL_CACHE = "/tmp/dashboard-ota-fail.json";
 const OTA_DEFAULT_SRC = "https://gitee.com/xyinmaster/dashboard-ota/raw/main/dashboard.json";
 /* 备用清单：Gitee 不可达时回退到 GitHub API */
 const OTA_DEFAULT_ALT = "https://api.github.com/repos/1083808255/dashboard-ota/contents/dashboard.json";
@@ -2498,16 +2567,41 @@ function otaCacheGet(ttl, url) {
 function otaCachePut(url, m) {
 	FS.writefile(OTA_CACHE, sprintf("%J", { t: time(), url: url, m: m }) + "\n");
 }
-function otaManifest(url) {
+/* 失败负缓存：弱网/断网时不要每次检查都阻塞 20 秒×2 源去拉清单 */
+function otaFailGet(url, ttl) {
+	let d = FS.readfile(OTA_FAIL_CACHE);
+	if (d == null) return false;
+	let v = null;
+	try { v = json(d); } catch (e) { v = null; }
+	if (type(v) != "object" || v == null || v.url != url) return false;
+	return (time() - (+(v.t ?? 0))) <= ttl;
+}
+function otaFailPut(url) {
+	FS.writefile(OTA_FAIL_CACHE, sprintf("%J", { t: time(), url: url }) + "\n");
+}
+function otaFailClear() { sh("rm -f " + sq(OTA_FAIL_CACHE)); }
+function otaManifest(url, allowFailCache) {
 	let c = otaCacheGet(300, url);
 	if (c != null) return c;
+	let old = otaCacheGet(0, url);
+	let normal = (allowFailCache !== false);
+	if (normal && otaFailGet(url, 120)) return old;
+	/* 安装路径要拿最新清单，不能被正在进行的「检查」单飞挡回去；
+	   普通检查才复用单飞，避免多个页面同时触发公网请求。 */
+	let gotCheckLock = normal && !inFlight("otacheck", 45);
+	if (normal && !gotCheckLock) return old;
 	let m = otaFetch(url);
 	if (m == null && url == OTA_DEFAULT_SRC) m = otaFetch(OTA_DEFAULT_ALT);
-	let old = otaCacheGet(0, url);
 	let best = m;
 	if (best == null) best = old;
 	else if (old != null && otaNewer(trim(old.version ?? ""), trim(best.version ?? ""))) best = old;
-	if (m != null && best == m) otaCachePut(url, m);
+	if (m != null && best == m) {
+		otaCachePut(url, m);
+		otaFailClear();
+	} else if (m == null && old == null && normal) {
+		otaFailPut(url);
+	}
+	if (gotCheckLock) inFlightDone("otacheck");
 	return best;
 }
 /* 清单里的 url 可以是相对路径，按清单地址所在目录拼接 */
@@ -2561,31 +2655,36 @@ function otaPrune() {
 	let a = split(out, "\n");
 	for (let i = 5; i < length(a); i++) sh("rm -f " + sq(trim(a[i])));
 }
-/* 安装后自检：页面文件完整，新 API 能正常响应且版本号正确 */
+function otaInfoBody() {
+	let c = otaConf();
+	return { ok: true, current: dashVersion(), source: otaSource(), defaultSource: OTA_DEFAULT_SRC,
+		last: c.last ?? 0, lastVersion: c.lastVersion ?? "",
+		hasBackup: length(trim(sh("ls -1t /root/dashboard-backup-*.tar.gz 2>/dev/null | head -1"))) > 0 };
+}
+/* 安装后自检：页面文件完整，新 API 能正常响应且版本号正确。
+   旧实现通过 HTTP 请求本机 /api/ota?act=info，OTA 安装本身占一个 CGI 槽，
+   页面轮询占满 6 个槽时会误判失败并回滚；这里改为本地文件检查。 */
 function otaHealth(ver) {
 	let ast = FS.stat("/www-dash/app.html");
 	if (ast == null || ast.size < 10000) return false;
 	let html = FS.readfile("/www-dash/app.html");
 	if (html == null || index(html, "</html>") < 0) return false;
-	let f = OTA_DIR + "/health.json";
-	sh("rm -f " + sq(f));
-	sh("uclient-fetch -q -T 10 -O " + sq(f) + " 'http://127.0.0.1/api/ota?act=info' 2>/dev/null");
-	let d = FS.readfile(f);
-	if (d == null || !length(trim(d))) return false;
-	let j = null;
-	try { j = json(d); } catch (e) { j = null; }
-	if (type(j) != "object" || j == null || !(j.ok ?? false)) return false;
-	if (length(ver) && trim(j.current ?? "") != ver) return false;
+	let apiFile = "/www-dash/api/api.uc";
+	let ast2 = FS.stat(apiFile);
+	if (ast2 == null || !(ast2.size > 0)) return false;
+	/* 页面由 uhttpd 直接读文件，API 文件存在且版本正确即可证明安装完成 */
+	if (length(ver) && trim(FS.readfile("/www-dash/VERSION") ?? "") != ver) return false;
 	return true;
 }
+/* 安装/回滚会替换整个 /www-dash 并占用固定 /tmp/dashboard-ota 目录，
+   必须单飞；下面的 helper 保证所有返回路径都释放锁。 */
+function otaWriteFail(msg) { inFlightDone("otainstall"); return fail(msg); }
+function otaWriteOut(obj) { inFlightDone("otainstall"); return out(obj); }
 function cmdOta() {
 	let q = qs();
 	let act = q.act ?? "info";
 	if (act == "info") {
-		let c = otaConf();
-		out({ ok: true, current: dashVersion(), source: otaSource(), defaultSource: OTA_DEFAULT_SRC,
-			last: c.last ?? 0, lastVersion: c.lastVersion ?? "",
-			hasBackup: length(trim(sh("ls -1t /root/dashboard-backup-*.tar.gz 2>/dev/null | head -1"))) > 0 });
+		out(otaInfoBody());
 		return;
 	}
 	if (act == "seturl") {
@@ -2598,7 +2697,7 @@ function cmdOta() {
 	}
 	if (act == "check") {
 		let src = otaSource();
-		let m = otaManifest(src);
+		let m = otaManifest(src, true);
 		if (m == null) return fail("无法获取更新清单：" + src);
 		let cur = dashVersion();
 		let latest = trim(m.version ?? "");
@@ -2609,39 +2708,40 @@ function cmdOta() {
 	}
 	if (act == "install") {
 		if (method != "POST") return fail("需要 POST");
+		if (inFlight("otainstall", 180)) return fail("已有更新或回滚正在执行，请稍后重试");
 		let src = otaSource();
-		let m = otaManifest(src);
-		if (m == null) return fail("无法获取更新清单");
+		let m = otaManifest(src, false);
+		if (m == null) return otaWriteFail("无法获取更新清单");
 		let u = otaAbs(src, trim(m.url ?? ""));
-		if (!length(u)) return fail("更新清单缺少 url");
+		if (!length(u)) return otaWriteFail("更新清单缺少 url");
 		let sha = lc(trim(m.sha256 ?? ""));
-		if (!length(sha)) return fail("更新清单缺少 sha256");
+		if (!length(sha)) return otaWriteFail("更新清单缺少 sha256");
 		sh("rm -rf " + sq(OTA_DIR));
 		sh("mkdir -p " + sq(OTA_DIR));
 		let pkg = OTA_DIR + "/package.tar.gz";
 		sh("uclient-fetch -q -T 120 -O " + sq(pkg) + " " + sq(u) + " 2>/dev/null");
 		let st = FS.stat(pkg);
-		if (st == null || st.size == 0) return fail("更新包下载失败");
+		if (st == null || st.size == 0) return otaWriteFail("更新包下载失败");
 		let want = +m.size || 0;
-		if (want > 0 && st.size != want) return fail("更新包大小不匹配");
+		if (want > 0 && st.size != want) return otaWriteFail("更新包大小不匹配");
 		let got = lc(trim(split(trim(sh("sha256sum " + sq(pkg))), " ")[0]));
-		if (got != sha) return fail("sha256 校验失败");
+		if (got != sha) return otaWriteFail("sha256 校验失败");
 		/* 只允许更新这几类文件，拒绝包内的其它路径 */
 		let lines = split(trim(sh("tar -tzf " + sq(pkg) + " 2>/dev/null")), "\n");
-		if (!length(lines)) return fail("更新包损坏");
+		if (!length(lines)) return otaWriteFail("更新包损坏");
 		let okFiles = ["app.html", "index.html", "api/api.uc", "VERSION"];
 		for (let l in lines) {
 			let n = trim(replace(l, "./", ""));
 			if (!length(n) || substr(n, length(n) - 1, 1) == "/") continue;
 			let ok = false;
 			for (let a in okFiles) if (a == n) { ok = true; break; }
-			if (!ok) return fail("更新包包含非法文件：" + n);
+			if (!ok) return otaWriteFail("更新包包含非法文件：" + n);
 		}
 		let stage = OTA_DIR + "/stage";
 		sh("mkdir -p " + sq(stage) + " && tar -xzf " + sq(pkg) + " -C " + sq(stage) + " 2>/dev/null");
 		/* 安装前先检查新 api.uc 语法，避免把接口文件写坏 */
 		let chk = sh("ucode -c -o " + sq(OTA_DIR + "/syntax.ucb") + " " + sq(stage + "/api/api.uc") + " 2>&1; echo EXIT:$?");
-		if (index(chk, "EXIT:0") < 0) return fail("更新包内 api.uc 未通过语法检查，已中止安装");
+		if (index(chk, "EXIT:0") < 0) return otaWriteFail("更新包内 api.uc 未通过语法检查，已中止安装");
 		let bak = otaBackup();
 		let eps = (type(m.endpoints) == "array") ? m.endpoints : DASH_ENDPOINTS;
 		let nv = trim(m.version ?? "");
@@ -2654,27 +2754,28 @@ function cmdOta() {
 				sh("tar -xzf " + sq(bak) + " -C " + sq(rs) + " 2>/dev/null");
 				otaInstallFrom(rs, DASH_ENDPOINTS, "");
 				sh("rm -rf " + sq(OTA_DIR));
-				return fail("安装后自检失败，已自动回滚到上一版本");
+				return otaWriteFail("安装后自检失败，已自动回滚到上一版本");
 			}
 			sh("rm -rf " + sq(OTA_DIR));
-			return fail("安装后自检失败，且没有可用备份，请手动处理");
+			return otaWriteFail("安装后自检失败，且没有可用备份，请手动处理");
 		}
 		otaPrune();
 		let c = otaConf(); c.last = time(); c.lastVersion = nv;
 		FS.writefile(OTA_CONF, sprintf("%J", c) + "\n");
 		sh("rm -rf " + sq(OTA_DIR));
-		return out({ ok: true, version: nv, backup: length(bak) > 0, verified: true });
+		return otaWriteOut({ ok: true, version: nv, backup: length(bak) > 0, verified: true });
 	}
 	if (act == "rollback") {
 		if (method != "POST") return fail("需要 POST");
+		if (inFlight("otainstall", 180)) return fail("已有更新或回滚正在执行，请稍后重试");
 		let f = trim(sh("ls -1t /root/dashboard-backup-*.tar.gz 2>/dev/null | head -1"));
-		if (!length(f)) return fail("没有可回滚的备份");
+		if (!length(f)) return otaWriteFail("没有可回滚的备份");
 		let stage = OTA_DIR + "/rollback";
 		sh("rm -rf " + sq(OTA_DIR) + "; mkdir -p " + sq(stage));
 		sh("tar -xzf " + sq(f) + " -C " + sq(stage) + " 2>/dev/null");
 		otaInstallFrom(stage, DASH_ENDPOINTS, "");
 		sh("rm -rf " + sq(OTA_DIR));
-		return out({ ok: true, version: dashVersion(), from: f });
+		return otaWriteOut({ ok: true, version: dashVersion(), from: f });
 	}
 	return fail("未知操作");
 }
@@ -2760,10 +2861,6 @@ function fwStopSvc() {
 	sh("/etc/init.d/mmdvmhost stop >/dev/null 2>&1");
 	sh("/etc/init.d/dmrgateway stop >/dev/null 2>&1");
 }
-function fwStartSvc() {
-	sh("/etc/init.d/mmdvmhost start >/dev/null 2>&1");
-	sh("/etc/init.d/dmrgateway start >/dev/null 2>&1");
-}
 function fwFreeKb() {
 	let a = words(trim(sh("df -k /tmp 2>/dev/null | tail -1")));
 	return (length(a) >= 4) ? +a[3] : 0;
@@ -2792,7 +2889,7 @@ function fwStatus() {
 			s.phase = "error";
 			s.error = (rcVal != 0) ? "固件下载失败" : "固件校验失败";
 			fwStateWrite(s);
-			fwStartSvc();
+			/* 服务恢复由后台下载命令负责，这里不再重复 start */
 		}
 		phase = s.phase;
 	}
@@ -2800,6 +2897,8 @@ function fwStatus() {
 		version: trim(s.version ?? ""), versionName: trim(s.versionName ?? ""),
 		total: total, got: got, error: trim(s.error ?? ""), notes: trim(s.notes ?? "") };
 }
+/* 固件下载/刷写共用单飞锁；成功时由后台命令释放，失败路径在这里释放。 */
+function fwWriteFail(msg) { inFlightDone("fwwrite"); return fail(msg); }
 function cmdFw() {
 	let q = qs();
 	let act = q.act ?? "info";
@@ -2810,69 +2909,88 @@ function cmdFw() {
 			source: FW_DEFAULT_SRC + fwBoardKey(board) + ".json" });
 	}
 	if (act == "check") {
-		/* 5 分钟内复用上次结果，避免每次打开页面都去探测远端清单 */
+		/* 5 分钟内复用上次结果；失败也写入缓存，避免弱网下每次都最长等 32 秒 */
 		let ckey = board + "|" + cur;
 		let cd = FS.readfile(FWCHECK_CACHE);
+		let c = null;
 		if (cd != null) {
-			let c = null;
 			try { c = json(cd); } catch (e) { c = null; }
-			if (type(c) == "object" && c != null && c.key == ckey && time() - (c.t ?? 0) <= FWCHECK_TTL)
-				return out(c.body);
+			if (type(c) != "object" || c == null) c = null;
+		}
+		if (c != null && c.key == ckey && time() - (c.t ?? 0) <= FWCHECK_TTL && c.body != null)
+			return out(c.body);
+		/* 检查本身最长可能走 4 个公网源；未结束前直接返回旧结果或 pending，不并发 */
+		if (inFlight("fwcheck", 45)) {
+			if (c != null && c.key == ckey && c.body != null) return out(c.body);
+			return out({ ok: false, pending: true, error: "固件检查正在进行，请稍后重试" });
 		}
 		let m = fwManifest();
-		if (m == null) return fail("没有找到该机型的固件清单（" + board + "）");
-		let ver = trim(sprintf("%s", m.version ?? ""));
-		if (!length(ver)) return fail("固件清单缺少 version");
-		let mb = trim(m.board ?? "");
-		if (length(mb) && mb != board) return fail("固件机型不匹配：" + mb);
-		let mt = trim(m.target ?? "");
-		if (length(mt) && mt != fwTarget()) return fail("固件目标平台不匹配：" + mt);
-		let body = { ok: true, current: cur, latest: ver, versionName: trim(m.versionName ?? ver),
+		let err = "";
+		if (m == null) err = "没有找到该机型的固件清单（" + board + "）";
+		let ver = (m == null) ? "" : trim(sprintf("%s", m.version ?? ""));
+		if (!length(err) && !length(ver)) err = "固件清单缺少 version";
+		let mb = (m == null) ? "" : trim(m.board ?? "");
+		if (!length(err) && length(mb) && mb != board) err = "固件机型不匹配：" + mb;
+		let mt = (m == null) ? "" : trim(m.target ?? "");
+		if (!length(err) && length(mt) && mt != fwTarget()) err = "固件目标平台不匹配：" + mt;
+		let body;
+		if (length(err)) body = { ok: false, error: err };
+		else body = { ok: true, current: cur, latest: ver, versionName: trim(m.versionName ?? ver),
 			board: board, target: fwTarget(), size: +(m.size ?? 0), notes: trim(m.notes ?? ""),
 			updateAvailable: (cur == "unknown") || fwNewer(ver, cur) };
 		try { writeCache(FWCHECK_CACHE, { t: time(), key: ckey, body: body }); } catch (e) {}
+		inFlightDone("fwcheck");
 		return out(body);
 	}
 	if (act == "download") {
 		if (method != "POST") return fail("需要 POST");
+		if (inFlight("fwwrite", 360)) return fail("固件下载或升级正在进行，请稍后重试");
 		let m = fwManifest();
-		if (m == null) return fail("没有找到该机型的固件清单");
+		if (m == null) return fwWriteFail("没有找到该机型的固件清单");
 		let mb = trim(m.board ?? "");
-		if (length(mb) && mb != board) return fail("固件机型不匹配：" + mb);
+		if (length(mb) && mb != board) return fwWriteFail("固件机型不匹配：" + mb);
 		let mt = trim(m.target ?? "");
-		if (length(mt) && mt != fwTarget()) return fail("固件目标平台不匹配：" + mt);
+		if (length(mt) && mt != fwTarget()) return fwWriteFail("固件目标平台不匹配：" + mt);
 		let u = trim(m.url ?? "");
-		if (match(u, /^https?:\/\/[^ ]+$/) == null) return fail("固件地址无效");
+		if (match(u, /^https?:\/\/[^ ]+$/) == null) return fwWriteFail("固件地址无效");
 		let sha = lc(trim(m.sha256 ?? ""));
 		let size = +(m.size ?? 0);
-		if (!length(sha) || size <= 0) return fail("固件清单缺少 sha256/size");
-		if (fwFreeKb() < int(size / 1024) + 2048) return fail("内存空间不足，无法下载固件");
+		if (!length(sha) || size <= 0) return fwWriteFail("固件清单缺少 sha256/size");
+		if (fwFreeKb() < int(size / 1024) + 2048) return fwWriteFail("内存空间不足，无法下载固件");
 		sh("mkdir -p " + sq(FW_DIR));
 		sh("rm -f " + sq(FW_IMAGE) + " " + sq(FW_RC));
 		fwStateWrite({ phase: "downloading", total: size, sha: sha, version: trim(sprintf("%s", m.version ?? "")),
 			versionName: trim(m.versionName ?? ""), board: board, notes: trim(m.notes ?? ""),
 			url: u, started: time() });
 		fwStopSvc();
-		sh("(uclient-fetch -q -T 300 -O " + sq(FW_IMAGE) + " " + sq(u) + "; echo $? > " + sq(FW_RC) + ") >/dev/null 2>&1 &");
+		/* 下载结束无条件恢复电台服务：旧实现依赖前端继续轮询 status 才恢复，
+		   用户离开页面后设备会一直停在“服务已停止”。锁也由后台命令释放，
+		   避免用户离开页面后再次点击下载启动第二个 uclient-fetch。 */
+		sh("(uclient-fetch -q -T 300 -O " + sq(FW_IMAGE) + " " + sq(u) + "; echo $? > " + sq(FW_RC)
+			+ "; /etc/init.d/mmdvmhost start >/dev/null 2>&1; /etc/init.d/dmrgateway start >/dev/null 2>&1"
+			+ "; rm -rf " + sq(lockDir("fwwrite")) + ") >/dev/null 2>&1 &");
 		return out({ ok: true, phase: "downloading" });
 	}
 	if (act == "status") return out(fwStatus());
 	if (act == "install") {
 		if (method != "POST") return fail("需要 POST");
+		if (inFlight("fwwrite", 360)) return fail("固件下载或升级正在进行，请稍后重试");
 		let s = fwStateRead();
-		if (trim(s.phase ?? "") != "verified") return fail("固件尚未下载或未通过校验");
-		if (trim(s.board ?? "") != board) return fail("固件机型不匹配");
+		if (trim(s.phase ?? "") != "verified") return fwWriteFail("固件尚未下载或未通过校验");
+		if (trim(s.board ?? "") != board) return fwWriteFail("固件机型不匹配");
 		let st = FS.stat(FW_IMAGE);
-		if (st == null || st.size <= 0) return fail("固件文件不存在");
-		if (+(s.total ?? 0) > 0 && st.size != +s.total) return fail("固件大小不匹配");
+		if (st == null || st.size <= 0) return fwWriteFail("固件文件不存在");
+		if (+(s.total ?? 0) > 0 && st.size != +s.total) return fwWriteFail("固件大小不匹配");
 		let want = lc(trim(s.sha ?? ""));
 		let got = lc(trim(split(trim(sh("sha256sum " + sq(FW_IMAGE) + " 2>/dev/null")), " ")[0]));
-		if (!length(want) || got != want) return fail("固件 sha256 校验失败");
+		if (!length(want) || got != want) return fwWriteFail("固件 sha256 校验失败");
 		s.phase = "installing";
 		s.phaseAt = time();
 		fwStateWrite(s);
-		/* 延迟 2 秒再刷写，保证接口响应先返回；sysupgrade 默认保留配置 */
-		sh("(sleep 2; sysupgrade " + sq(FW_IMAGE) + ") > " + sq(FW_DIR + "/upgrade.log") + " 2>&1 &");
+		/* 延迟 2 秒再刷写，保证接口响应先返回；sysupgrade 默认保留配置。
+		   刷写失败时后台命令释放锁；成功会直接重启，/tmp 上的锁自然消失。 */
+		sh("(sleep 2; sysupgrade " + sq(FW_IMAGE) + "; rm -rf " + sq(lockDir("fwwrite"))
+			+ ") > " + sq(FW_DIR + "/upgrade.log") + " 2>&1 &");
 		return out({ ok: true, phase: "installing", version: trim(s.version ?? "") });
 	}
 	return fail("未知操作");
@@ -2983,6 +3101,9 @@ function requireWriteAuth() {
 const WIFI_SCAN_CACHE = "/tmp/mmdvm-wifi-scan.json";
 const WIFI_SCAN_TSV   = "/tmp/mmdvm-wifi-scan.tsv";
 const WIFI_SCAN_TTL   = 30;
+/* wifiState() 单次会 fork 20+ 个 ubus/ip/iw/uci；网络页 2 秒轮询时复用 2 秒，
+   写操作在 cmdWifiPost() 里主动清掉，避免返回旧配置。 */
+const WIFI_STATE_CACHE = "/tmp/dashboard_wifistate.json";
 
 /* 支持网络托管的机型白名单：AX5 / HLK-7628N */
 function wifiManaged() {
@@ -3202,8 +3323,9 @@ function staLink() {
 /* 4G 状态：接口运行信息 + Air780E 串口监视（/tmp/air780e.json，仅信号/注册/运营商）。
    4G 不是上游，这里只用于界面展示与“是否已出网”提示。
    注意：ucode 不会提升函数声明，本函数必须定义在调用方 wifiState() 之前。 */
-function lteState() {
-	let ifc = netIfInfo("wwan4g");
+function lteState(ifc) {
+	/* 允许调用方复用已经取过的接口状态，避免同一次 wifiState() 里重复 ubus/ip */
+	if (ifc == null) ifc = netIfInfo("wwan4g");
 	let dev = ifc.device ?? "";
 	/* 未绑定网卡时 netIfInfo 会用段名占位，界面显示“接口：wwan4g”会误导用户当成网卡名 */
 	if (dev == "wwan4g") dev = "";
@@ -3249,6 +3371,7 @@ function wifiState() {
 	let apHt = length(apRadio) ? uciOpt("wireless", apRadio, "htmode") : "";
 	let staDev = uciOpt("wireless", "mmdvm_sta", "device") || "";
 	let staBand = (staDev && uciOpt("wireless", staDev, "band") == "5g") ? "5g" : "2g";
+	let wwan4g = netIfInfo("wwan4g");
 	let widthMap = { "HT20": "20MHz", "HE20": "20MHz", "HT40": "40MHz", "HE40": "40MHz", "HE80": "80MHz" };
 	return {
 		apBand: apBand, apOn: apOn, apSsid: uciOpt("wireless", (apBand == "5g") ? "mmdvm_ap_5g" : "mmdvm_ap_2g", "ssid"),
@@ -3260,10 +3383,18 @@ function wifiState() {
 		rollbackPending: (FS.readfile("/tmp/mmdvm-wifi-pending") != null),
 		staBand: staBand,
 		staDev: staDev,
-		ip: { wwan: netIfInfo("wwan"), lan: netIfInfo("lan"), wan: netIfInfo("wan"), wwan4g: netIfInfo("wwan4g") },
-		lte: lteState(),
+		ip: { wwan: netIfInfo("wwan"), lan: netIfInfo("lan"), wan: netIfInfo("wan"), wwan4g: wwan4g },
+		lte: lteState(wwan4g),
 		profiles: wifiProfiles()
 	};
+}
+/* 高频 GET 复用 2 秒；写操作在 cmdWifiPost() 里主动清缓存 */
+function wifiStateCached() {
+	let c = shortGet(WIFI_STATE_CACHE, 2, null);
+	if (c != null) return c;
+	let s = wifiState();
+	shortPut(WIFI_STATE_CACHE, s, null);
+	return s;
 }
 function wifiBackup() {
 	/* 观察窗口内已有备份时不要覆盖，否则回滚点会被失败配置污染 */
@@ -3306,6 +3437,9 @@ function wifiConfirmSaved() {
    （wpa_supplicant: CTRL-EVENT-SCAN-FAILED ret=-16），首次 wifi up 常失败，
    再执行一次即成功，故按需要重试。放后台执行，避免 CGI 请求等几十秒被前端判超时 */
 function wifiRadioRestart(devs) {
+	/* 重载最长约 80 秒，连续点保存会启动多个 down/up 序列互相破坏无线状态。
+	   拿不到锁时直接跳过本次重载，后台任务结束会释放。 */
+	if (inFlight("wifireload", 90)) return false;
 	let c = "wifi down >/dev/null 2>&1; sleep 3; rm -f /var/run/hostapd-phy*.conf 2>/dev/null; "
 		+ "/etc/init.d/wpad restart >/dev/null 2>&1; sleep 4; "
 		+ "i=0; while [ $i -lt 3 ]; do "
@@ -3317,7 +3451,9 @@ function wifiRadioRestart(devs) {
 		+ "[ $i -lt 3 ] && { wifi down >/dev/null 2>&1; sleep 3; rm -f /var/run/hostapd-phy*.conf 2>/dev/null; "
 		+ "/etc/init.d/wpad restart >/dev/null 2>&1; sleep 4; }; "
 		+ "done; /etc/init.d/network reload >/dev/null 2>&1";
-	sh("( " + c + " ) >/dev/null 2>&1 &");
+	let release = "rm -rf " + sq(lockDir("wifireload"));
+	sh("( trap " + sq(release) + " EXIT INT TERM; " + c + " ) >/dev/null 2>&1 &");
+	return true;
 }
 function wifiReload(devs) {
 	wifiRadioRestart(devs);
@@ -3422,8 +3558,8 @@ function wifiDoScan() {
 }
 function wifiScanCached() {
 	let d = FS.readfile(WIFI_SCAN_CACHE);
+	let v = null;
 	if (d != null) {
-		let v = null;
 		try { v = json(d); } catch (e) { v = null; }
 		if (type(v) == "object" && v != null && (v.t ?? 0) <= time() && time() - (v.t ?? 0) <= WIFI_SCAN_TTL) {
 			/* 缓存命中时也要刷新 TSV，供 STA 择优脚本使用 */
@@ -3433,21 +3569,28 @@ function wifiScanCached() {
 			return v.networks ?? [];
 		}
 	}
-	return wifiDoScan();
+	/* 扫描可能持续十几秒，前端 8 秒 abort 后 CGI 仍在跑；必须单飞，
+	   否则用户/轮询会连续启动多个 iw scan，占满 uhttpd 槽位并抢单核。 */
+	if (inFlight("wifiscan", 45)) return (type(v) == "object" && v != null) ? (v.networks ?? []) : [];
+	let nets = wifiDoScan();
+	inFlightDone("wifiscan");
+	return nets;
 }
 function cmdWifiGet() {
-	out({ ok: true, capability: wifiCap(), status: wifiState() });
+	out({ ok: true, capability: wifiCap(), status: wifiStateCached() });
 }
 function cmdWifiPost() {
 	let d = body() ?? {};
 	let act = d.act ?? "";
 	if (!wifiIsAx5()) {
-		if (act == "get" || act == "status") { out({ ok: true, capability: wifiCap(), status: wifiState() }); return; }
+		if (act == "get" || act == "status") { out({ ok: true, capability: wifiCap(), status: wifiStateCached() }); return; }
 		fail("该设备不支持网络配置"); return;
 	}
 	if (act == "scan") {
 		out({ ok: true, networks: wifiScanCached() }); return;
 	}
+	/* 写操作前清掉 GET 短缓存，确保随后返回的是新配置状态 */
+	sh("rm -f " + sq(WIFI_STATE_CACHE));
 	if (act == "save_ap") {
 		/* 没有 5G AP 段（7628 单射频）时强制 2g：否则会把唯一热点关掉 */
 		let band = (d.band == "5g" && length(uciOpt("wireless", "mmdvm_ap_5g", "device"))) ? "5g" : "2g";

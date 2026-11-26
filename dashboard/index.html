@@ -2590,7 +2590,7 @@ html[data-theme="dark"]{color-scheme:dark}
 <script>
 /* ================================================================
    MMDVM Dashboard - 单文件前端
-   数据层：优先请求后端 /api/*，失败时回退到本地 MOCK（预览模式）
+   数据层：优先请求后端 /api/*；仅静态预览（file://）回退本地 MOCK
    ================================================================ */
 /* 统一带上同源 cookie；服务端写接口要求登录时会自动下发 HttpOnly session。
    会话过期（401 / X-Auth-Required）时自动回到锁定状态，避免界面显示已解锁但写操作全部失败。 */
@@ -2604,6 +2604,24 @@ window.fetch = function(input, init){
     return r;
   });
 };
+/* 统一超时请求：写操作/直接读取 JSON 时走这里，避免设备忙时请求无限挂起 */
+async function apiFetch(path, opts, timeoutMs){
+  const ctl = new AbortController();
+  const to = setTimeout(()=>ctl.abort(), timeoutMs || 8000);
+  try{
+    const r = await fetch(path, Object.assign({ cache:'no-store' }, opts || {}, { signal: ctl.signal }));
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  }finally{ clearTimeout(to); }
+}
+/* 需要自行判断 HTTP 状态（如 404）的接口用裸 Response，但仍带超时 */
+async function apiRequest(path, opts, timeoutMs){
+  const ctl = new AbortController();
+  const to = setTimeout(()=>ctl.abort(), timeoutMs || 8000);
+  try{
+    return await fetch(path, Object.assign({ cache:'no-store' }, opts || {}, { signal: ctl.signal }));
+  }finally{ clearTimeout(to); }
+}
 const MOCK = {
   status: {
     hostname: "MMDVM", ip: "192.168.8.9", model: "x86_64", online: true,
@@ -2739,20 +2757,6 @@ Port=3769
 Enable=0
 Port=7643` },
   },
-  files: [
-    { group:"语音包 (Voice)", items:[
-      { name:"audio/dmr", dir:true,  size:"12 语言", note:"DMR 语音" },
-      { name:"audio/p25", dir:true, size:"12 语言", note:"P25 语音" },
-      { name:"audio/nxdn", dir:true, size:"12 语言", note:"NXDN 语音" }
-    ]},
-    { group:"主机表 (Hosts)", items:[
-      { name:"XLXHosts.txt", size:"14.4 KB", note:"XLX 反射器列表", content:"# The format of this file is:\n# XLX Number;host;default\n000;45.3.166.116;4004\n001;185.203.118.135;4004\n002;140.82.62.162;4004\n..." },
-      { name:"YSFHosts.json", size:"3 B", note:"YSF 主机", content:"[]" },
-      { name:"P25Hosts.json", size:"3 B", note:"P25 主机", content:"[]" },
-      { name:"NXDNHosts.json", size:"3 B", note:"NXDN 主机", content:"[]" },
-      { name:"nxdn/NXDN.csv", size:"101.2 KB", note:"NXDN ID 表" }
-    ]}
-  ],
   system: {
     hostname:"MMDVM", ip:"192.168.8.9", model:"x86_64", firmware:"OpenWrt 23.05.5", kernel:"5.15.189",
     uptime:"53 分钟", load:[0.01,0.02,0.00],
@@ -2799,24 +2803,27 @@ I: 2026-11-09 13:45:31.200 DMRGateway is running
 M: 2026-11-09 13:45:31.200 Mode set to Idle`
 };
 
-/* ---------- 数据层：API 优先，失败回退 MOCK ---------- */
-let PREVIEW = false;
-/* 只要任一接口成功过，就认为设备在线；单次超时不能把整页切成预览模式。
-   静态预览（直接打开 index.html，file://）才始终使用内置演示数据。 */
-let BACKEND_OK = false;
+/* ---------- 数据层：API 优先；仅静态预览回退 MOCK ---------- */
 const STATIC_PREVIEW = !location.host || location.protocol === 'file:';
+let PREVIEW = STATIC_PREVIEW;
+/* 只要任一接口成功过，就认为设备在线；单次超时不能把整页切成预览模式。
+   静态预览（直接打开 index.html，file://）才使用内置演示数据。 */
+let BACKEND_OK = false;
 async function api(path){
   /* 7628 单核解析 lastheard 首次可能要 10 秒左右，8 秒会把真实记录误判成超时；
      其它接口仍用 8 秒，避免设备忙时轮询链条卡死 */
-  const ctl = new AbortController();
-  const to = setTimeout(()=>ctl.abort(), path.startsWith('/api/lastheard') ? 20000 : 8000);
+  const lastheard = path.startsWith('/api/lastheard');
   try{
-    const r = await fetch(path, { headers:{ 'Accept':'application/json' }, cache:'no-store', signal: ctl.signal });
+    const r = await apiRequest(path, { headers:{ 'Accept':'application/json' } }, lastheard ? 20000 : 8000);
     if(!r.ok) throw new Error(r.status);
     const j = await r.json();
+    /* 业务失败（{ok:false}）按失败处理；登录页自己直接 fetch /api/auth，不经过这里 */
+    if(j && j.ok === false) throw new Error(j.error || '业务失败');
     BACKEND_OK = true;
     PREVIEW = false;
     if(path.startsWith('/api/status')) renderNetworks(j.networks);
+    /* lastheard 仍在后台解析时不渲染空列表，保留上一帧 */
+    if(lastheard && j && j.pending === true) return null;
     return j;
   }catch(e){
     /* 只有从未连上后端时，/api/status 失败才进入预览；设备已在线时单次超时不改全局状态 */
@@ -2824,19 +2831,16 @@ async function api(path){
       if(!BACKEND_OK) PREVIEW = true;
       renderNetworks(null);
     } else console.warn('[api] 请求失败', path, e);
-    /* 通联数据绝不回退到 MOCK：设备上刷新时如果 /api/live 或 /api/lastheard 超时，
-       保留上一帧/上一份列表，而不是显示假呼号。静态预览仍保留演示数据。 */
-    if(!STATIC_PREVIEW && (path.startsWith('/api/live') || path.startsWith('/api/lastheard'))) return null;
+    /* 服务端页面绝不回退 MOCK：失败时返回 null，由调用方保留上一帧/显示读取失败。
+       静态预览（file://）才使用演示数据。 */
+    if(!STATIC_PREVIEW) return null;
     return mockFor(path);
-  }finally{
-    clearTimeout(to);
   }
 }
 function mockFor(path){
   if(path.startsWith('/api/status')) return MOCK.status;
   if(path.startsWith('/api/services')) return MOCK.services;
   if(path.startsWith('/api/configs')) return MOCK.configs;
-  if(path.startsWith('/api/files')) return MOCK.files;
   if(path.startsWith('/api/system')) return MOCK.system;
   if(path.startsWith('/api/lastheard')) return MOCK.lastheard;
   if(path.startsWith('/api/live')) return MOCK.live;
@@ -3103,9 +3107,10 @@ function route(){
   applyNavActive('#topnav', view, false);
   if(view!=='qso') stopLiveTick();
   if(view!=='qso') stopIdleTick();
-  if(view!=='qso') stopQsoTick();
-  if(view!=='cal'){ stopCalMon(); if(calAuto.on) calAuto.abort = true; }
-  if(view!=='tg') stopTgTick();
+  if(view!=='qso'){ stopQsoTick(); qsoGen++; }   /* 丢弃切页前的在途响应 */
+  if(view!=='cal'){ stopCalMon(); if(calAuto.on || calAuto.starting) abortAutoCal('离开校准页'); }
+  if(view==='tg') startTgTick(); else { stopTgTick(); tgGen++; }
+  if(view!=='radio'){ stopLog(); stopFwPoll(); }
   if(view!=='system') stopSysTick();
   if(renderers[view]) renderers[view]();
   if(view==='radio'){ renderLogTabs(); startLog(); }
@@ -3157,7 +3162,14 @@ async function loadAuthStatus(){
       menuUnlocked = true;
       try{ sessionStorage.setItem('dash_menu_unlocked','1'); }catch(e){}
     }
-  }catch(e){ authRequired = false; }  /* 预览模式 / 无后端：不设密码门 */
+  }catch(e){
+    /* 未知状态按锁定处理，避免探测失败/超时直接放行菜单；静态预览本来就没有后端可设门 */
+    authRequired = !STATIC_PREVIEW;
+  }finally{
+    /* 探测成功/失败都统一同步导航与路由；Promise.race 的超时不取消这里的事后纠错 */
+    applyNavLockUI();
+    route();
+  }
 }
 function askPassword(){
   return new Promise(resolve=>{
@@ -3176,7 +3188,7 @@ function askPassword(){
       err.textContent = '';
       ok.disabled = true; const old = ok.textContent; ok.textContent = '验证中…';
       try{
-        const r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: v }) });
+        const r = await apiRequest('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: v }) }, 8000);
         const j = await r.json();
         if(j && j.ok && j.granted){ finish(v); }
         else { err.textContent = (j && j.error) || '密码错误'; pw.value=''; pw.focus(); m.classList.remove('shake'); void m.offsetWidth; m.classList.add('shake'); }
@@ -3238,7 +3250,7 @@ async function tryPcUnlock(){
   const oldText = label ? label.textContent : '';
   if(label) label.textContent = '验证中…';
   try{
-    const r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: v }) });
+    const r = await apiRequest('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: v }) }, 8000);
     const j = await r.json();
     if(j && j.ok && j.granted){
       menuUnlocked = true;
@@ -3338,9 +3350,8 @@ async function netWifiGet(){ return await api('/api/wifi?act=get') || {}; }
 async function netWifiPost(body){
   try{
     if(!netSupported && body.act !== 'get' && body.act !== 'status') throw new Error('当前设备不支持网络配置');
-    const r = await fetch('/api/wifi', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
-    const j = await r.json().catch(()=>({ok:false, error:'HTTP '+r.status}));
-    if(!r.ok || j.ok === false) throw new Error(j.error || ('HTTP '+r.status));
+    const j = await apiFetch('/api/wifi', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) }, 8000);
+    if(!j || j.ok === false) throw new Error((j && j.error) || '操作失败');
     return j;
   }catch(e){ toast('操作失败：'+(e.message||e), true); throw e; }
 }
@@ -3789,7 +3800,7 @@ $('#ncJoinSave')?.addEventListener('click', async ()=>{
 
 /* ---- 电台信息 ---- */
 async function renderRadio(){
-  const s = await api('/api/status');
+  const s = await api('/api/status') || {};
   const m = s.mmdvm || {};
 
   const fRx = fmtFreq(m.rxFreq||0), fTx = fmtFreq(m.txFreq||0);
@@ -3869,7 +3880,7 @@ function openOtaModal(){
   $('#ota-m-install').disabled = true;
   m.classList.add('show');
   api('/api/ota?act=info').then(oi=>{
-    $('#ota-m-rollback').disabled = !oi.hasBackup;
+    $('#ota-m-rollback').disabled = !(oi && oi.hasBackup);
   }).catch(()=>{});
   api('/api/ota?act=check').then(j=>{
     if(!j || !j.ok){ otaModalMsg((j && j.error) || '检查失败', true); return; }
@@ -3881,7 +3892,7 @@ function openOtaModal(){
       otaModalMsg('已是最新版本 ' + j.current);
       $('#ota-m-install').disabled = true;
     }
-  }).catch(()=>otaModalMsg('检查失败', true));
+  }).catch(e=>otaModalMsg('检查失败' + ((e && e.message) ? '：' + e.message : ''), true));
 }
 function bindOtaModal(){
   const m = $('#otaModal');
@@ -3904,7 +3915,7 @@ function bindOtaModal(){
           $('#ota-m-install').disabled = true;
         }
       }
-    }catch(e){ otaModalMsg('检查失败', true); }
+    }catch(e){ otaModalMsg('检查失败' + ((e && e.message) ? '：' + e.message : ''), true); }
     b.disabled = false; b.textContent = old;
   });
   $('#ota-m-install').addEventListener('click', async ()=>{
@@ -3912,32 +3923,32 @@ function bindOtaModal(){
     const b = $('#ota-m-install'); b.disabled = true; b.textContent = '安装中…';
     $('#ota-m-check').disabled = true;
     otaModalMsg('正在安装，请勿关闭页面…');
+    let ok = false;
     try{
-      const j = await fetch('/api/ota?act=install', { method:'POST' }).then(r=>r.json());
-      if(j.ok){
+      const j = await apiFetch('/api/ota?act=install', { method:'POST' }, 12000);
+      if(j && j.ok){
+        ok = true;
         otaModalMsg('已更新到 ' + (j.version || '新版本') + '，页面即将刷新…');
         setTimeout(()=>location.reload(), 1200);
-      }else{
-        otaModalMsg(j.error || '安装失败', true);
-        b.disabled = false; b.textContent = '安装更新';
-        $('#ota-m-check').disabled = false;
-      }
-    }catch(e){
-      otaModalMsg('安装失败', true);
-      b.disabled = false; b.textContent = '安装更新';
-      $('#ota-m-check').disabled = false;
+      }else otaModalMsg((j && j.error) || '安装失败', true);
+    }catch(e){ otaModalMsg('安装失败：' + (e.message || e), true); }
+    finally{
+      if(!ok){ b.disabled = false; b.textContent = '安装更新'; $('#ota-m-check').disabled = false; }
     }
   });
   $('#ota-m-rollback').addEventListener('click', async ()=>{
     if(!(await uiConfirm('确定回滚到上一版本的仪表盘吗？', { title:'回滚仪表盘', okText:'回滚' }))) return;
     const b = $('#ota-m-rollback'); b.disabled = true;
+    let ok = false;
     try{
-      const j = await fetch('/api/ota?act=rollback', { method:'POST' }).then(r=>r.json());
-      if(j.ok){
+      const j = await apiFetch('/api/ota?act=rollback', { method:'POST' }, 12000);
+      if(j && j.ok){
+        ok = true;
         otaModalMsg('已回滚到 ' + (j.version || '上一版本') + '，页面即将刷新…');
         setTimeout(()=>location.reload(), 1200);
-      }else{ otaModalMsg(j.error || '回滚失败', true); b.disabled = false; }
-    }catch(e){ otaModalMsg('回滚失败', true); b.disabled = false; }
+      }else otaModalMsg((j && j.error) || '回滚失败', true);
+    }catch(e){ otaModalMsg('回滚失败：' + (e.message || e), true); }
+    finally{ if(!ok) b.disabled = false; }
   });
 }
 
@@ -3946,6 +3957,7 @@ async function renderServices(){
   const box = $('#svc-list');
   if(!box) return;
   const list = await api('/api/services');
+  if(!Array.isArray(list)){ box.innerHTML = '<div class="svc-item">服务列表读取失败</div>'; return; }
   box.innerHTML = list.map(s=>`
     <div class="svc-item">
       <div class="n">
@@ -3954,9 +3966,9 @@ async function renderServices(){
       </div>
       <div class="f">${esc(s.config||'—')}</div>
       <div class="btns">
-        <button class="btn sm ${s.running?'':'primary'}" data-act="start" data-svc="${s.key}" ${s.running?'disabled':''}>启动</button>
-        <button class="btn sm danger" data-act="stop" data-svc="${s.key}" ${s.running?'':'disabled'}>停止</button>
-        <button class="btn sm" data-act="restart" data-svc="${s.key}">重启</button>
+        <button class="btn sm ${s.running?'':'primary'}" data-act="start" data-svc="${esc(s.key)}" ${s.running?'disabled':''}>启动</button>
+        <button class="btn sm danger" data-act="stop" data-svc="${esc(s.key)}" ${s.running?'':'disabled'}>停止</button>
+        <button class="btn sm" data-act="restart" data-svc="${esc(s.key)}">重启</button>
       </div>
     </div>`).join('');
   $$('#svc-list [data-act]').forEach(b=>b.addEventListener('click', ()=> svcAction(b.dataset.act, b.dataset.svc)));
@@ -4125,7 +4137,7 @@ async function refreshPortLists(){
   const seq = ++PORT_SCAN_SEQ;
   try{
     const r = await api('/api/ports');
-    if(seq !== PORT_SCAN_SEQ) return;
+    if(seq !== PORT_SCAN_SEQ || !r) return;
     if(Array.isArray(r.serialPorts)) SERIAL_PORTS = r.serialPorts;
     if(Array.isArray(r.i2cBuses)) I2C_BUSES = r.i2cBuses;
   }catch(e){}
@@ -4263,7 +4275,7 @@ document.addEventListener('click', (e)=>{
   dd.classList.remove('show');
 });
 async function renderBasic(){
-  const s = await api('/api/status');
+  const s = await api('/api/status') || {};
   const m = s.mmdvm || {};
   SERIAL_PORTS = Array.isArray(m.serialPorts) ? m.serialPorts : [];
   $('#basic-callsign').value = m.callsign || '';
@@ -4378,7 +4390,7 @@ function dmrRowHtml(n, item, removable){
   return `<div class="dmr-id-row" data-n="${n}">
     <div class="dmr-col">
       ${lblId}
-      <input class="inp dmr-inp" type="text" inputmode="numeric" value="${id}" placeholder="DMR ID">
+      <input class="inp dmr-inp" type="text" inputmode="numeric" value="${esc(id)}" placeholder="DMR ID">
     </div>
     <div class="dmr-col">
       ${lblEs}
@@ -4599,7 +4611,7 @@ function fitPortBoxes(){
   el.addEventListener('input', fitPortBoxes);
   el.addEventListener('change', fitPortBoxes);
 });
-function saveBasic(){
+async function saveBasic(){
   if(PREVIEW){ toast('预览模式：基本信息已“保存”（后端就绪后生效）'); return; }
   let uartPort = $('#basic-uartport').value.trim();
   const screenTypeVal = $('#basic-screentype').value;
@@ -4609,7 +4621,8 @@ function saveBasic(){
   let screenAddr = screenIsI2C ? $('#basic-screenaddr').value.trim() : '';
   /* Duplex：RX/TX 同频为 0，异频为 1 */
   let duplex = (String($('#basic-rxfreq').value).trim() === String($('#basic-txfreq').value).trim()) ? '0' : '1';
-  fetch('/api/basic', {
+  try{
+  const j = await apiFetch('/api/basic', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       callsign: $('#basic-callsign').value,
@@ -4648,25 +4661,24 @@ function saveBasic(){
       i2cBus: i2cBus,
       screenAddr: screenAddr
     })
-  }).then(r=>r.json()).then(j=>{
-    if(!j.ok){ toast(j.error||'保存失败', true); return; }
+  }, 8000);
+    if(!j || j.ok === false){ toast((j && j.error)||'保存失败', true); return; }
     askRestart('mmdvmhost');
-  })
-    .catch(()=>toast('请求失败', true));
+  }catch(e){ toast('请求失败：' + (e.message || e), true); }
 }
 /* ESSID 后面的保存按钮：只保存 DMR ID 信息（仅记录，不写入配置文件） */
-function saveDmrIds(){
+async function saveDmrIds(){
   if(PREVIEW){ toast('预览模式：DMR ID 已“保存”（后端就绪后生效）'); return; }
-  fetch('/api/basic', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ dmrOnly: 1, dmrIds: readDmrRows() })
-  }).then(r=>r.json()).then(j=>{
-    if(!j.ok){ toast(j.error||'保存失败', true); return; }
+  try{
+    const j = await apiFetch('/api/basic', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ dmrOnly: 1, dmrIds: readDmrRows() })
+    }, 8000);
+    if(!j || j.ok === false){ toast((j && j.error)||'保存失败', true); return; }
     dmrSavedRows = readDmrRows();
     syncDmrSaveBtns();
     toast('已保存', false, 3000);
-  })
-    .catch(()=>toast('请求失败', true));
+  }catch(e){ toast('请求失败：' + (e.message || e), true); }
 }
 $('#basic-save').addEventListener('click', saveBasic);
 /* 工作模式切换：直连时不允许添加 DMR ID，仅显示第 1 个；切回网关恢复其余 */
@@ -4791,13 +4803,25 @@ $('#i2c-del-btn').addEventListener('click', ()=>{
 $('#svc-refresh').addEventListener('click', ()=> renderServices());
 
 /* ---- 日志 ---- */
-let logCurrent = 'MMDVMHost', logPaused = false, logTimer=null, logSince=0, logPoll=null;
+let logCurrent = 'MMDVMHost', logPaused = false, logTimer=null, logSince=0, logPoll=null, logTabsLoaded = false;
+function logOnPage(){ const v = $('#view-radio'); return !!(v && v.classList.contains('on')); }
 async function renderLogTabs(){
+  if(logTabsLoaded) return;   /* 页签只建一次，切页签不再重拉服务列表 */
   const svc = await api('/api/services');
-  const names = ['MMDVMHost', ...svc.filter(s=>s.key.endsWith('gateway')).map(s=>s.name)];
-  $('#logTabs').innerHTML = names.map(n=>`<button class="chip ${n===logCurrent?'active':''}" data-log="${n}">${n}</button>`).join('');
-  $$('#logTabs .chip').forEach(c=>c.addEventListener('click',()=>{ logCurrent=c.dataset.log; renderLogTabs(); clearLog(); startLog(); }));
+  if(!Array.isArray(svc)) return;   /* 读取失败时下次进页面再试，不缓存半套页签 */
+  const names = ['MMDVMHost', ...svc.filter(s=>s.key && s.key.endsWith('gateway')).map(s=>s.name)];
+  if(!names.includes(logCurrent)) logCurrent = names[0];
+  $('#logTabs').innerHTML = names.map(n=>`<button class="chip ${n===logCurrent?'active':''}" data-log="${esc(n)}">${esc(n)}</button>`).join('');
+  logTabsLoaded = true;
 }
+/* 事件委托：切页签只切 active 并重开当前日志，不重建 DOM */
+if($('#logTabs')) $('#logTabs').addEventListener('click', e=>{
+  const c = e.target && e.target.closest ? e.target.closest('.chip[data-log]') : null;
+  if(!c || c.dataset.log === logCurrent) return;
+  logCurrent = c.dataset.log;
+  $$('#logTabs .chip').forEach(x=>x.classList.toggle('active', x === c));
+  clearLog(); startLog();
+});
 /* 设备各服务日志写的是 UTC，展示时换成本机时区 */
 function localStamp(s){
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(\.\d+)?$/);
@@ -4825,35 +4849,36 @@ function logLine(raw){
   if(!logPaused && stick) box.scrollTop = box.scrollHeight;
 }
 function clearLog(){ $('#logbox').innerHTML=''; }
+function stopLog(){
+  if(logTimer){ clearInterval(logTimer); logTimer=null; }
+  if(logPoll){ clearInterval(logPoll); logPoll=null; }
+}
 function startLog(){
   if(logPaused) return;
   // 预览模式：模拟滚动日志
   clearLog();
-  if(logTimer) clearInterval(logTimer);
-  if(logPoll){ clearInterval(logPoll); logPoll=null; }
+  stopLog();
   if(PREVIEW){
     const lines = (LOG_MOCK[logCurrent]||'').split('\n');
     let i=0;
     logTimer = setInterval(()=>{
-      if(logPaused || document.hidden || $('#view-radio').classList.contains('on')===false){ return; }
+      if(logPaused || document.hidden || !logOnPage()) return;
       if(i<lines.length) logLine(lines[i++]);
-      else clearInterval(logTimer);
+      else { clearInterval(logTimer); logTimer=null; }
     }, 260);
   } else {
     logSince = 0;
-    const tick = () => {
-      if(logPaused) return;
-      fetch('/api/log?service='+encodeURIComponent(logCurrent)+'&since='+logSince, {cache:'no-store'})
-        .then(r=>r.json())
-        .then(j=>{
-          if(!j || !j.lines) return;
-          logSince = j.next || logSince;
-          j.lines.forEach(logLine);
-        })
-        .catch(()=>{});
+    const tick = async ()=>{
+      if(logPaused || document.hidden || !logOnPage()) return;
+      try{
+        const j = await apiFetch('/api/log?service='+encodeURIComponent(logCurrent)+'&since='+logSince, null, 5000);
+        if(!j || !j.lines || !logOnPage() || logPaused) return;
+        logSince = j.next || logSince;
+        j.lines.forEach(logLine);
+      }catch(e){}
     };
     tick();
-    logPoll = setInterval(()=>{ if(document.hidden) return; tick(); }, 2000);
+    logPoll = setInterval(tick, 2000);
   }
 }
 $('#logPause').addEventListener('click', function(){
@@ -4870,7 +4895,8 @@ async function renderAdv(){
   tabs.innerHTML = '<span style="color:var(--faint);font-size:13px">加载中…</span>';
   try{ advCfgs = await api('/api/configs'); }
   catch(e){ advCfgs = null; tabs.innerHTML = '<span style="color:var(--faint);font-size:13px">读取失败</span>'; return; }
-  const names = Object.keys(advCfgs || {});
+  if(!advCfgs){ tabs.innerHTML = '<span style="color:var(--faint);font-size:13px">读取失败</span>'; return; }
+  const names = Object.keys(advCfgs);
   if(!names.length){ tabs.innerHTML = '<span style="color:var(--faint);font-size:13px">未找到 INI 文件</span>'; return; }
   if(!names.includes(advCurrent)) advCurrent = names[0];
   renderAdvTabs(names);
@@ -4902,22 +4928,23 @@ function setAdvEditable(on){
   b.textContent = on ? '完成' : '编辑';
   b.classList.toggle('primary', on);
 }
-function saveAdvFile(){
+async function saveAdvFile(){
   const name = advCurrent, content = $('#adv-text').value, dirty = $('#adv-dirty');
   if(!name) return;
   if(PREVIEW){ toast(`预览模式：${name} 已“保存”`); dirty.style.display = 'none'; return; }
-  fetch('/api/configs?name='+encodeURIComponent(name), {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ content })
-  }).then(r=>r.json()).then(j=>{
-    if(j.ok){
+  try{
+    const j = await apiFetch('/api/configs?name='+encodeURIComponent(name), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ content })
+    }, 8000);
+    if(j && j.ok){
       if(advCfgs && advCfgs[name]) advCfgs[name].content = content;
       CFG_CACHE = null; prefetchCfgs();
       dirty.style.display = 'none';
       setAdvEditable(false);
       askRestart((advCfgs && advCfgs[name] && advCfgs[name].svc) || 'mmdvmhost');
-    } else toast(j.error || '保存失败', true);
-  }).catch(()=>toast('请求失败', true));
+    } else toast((j && j.error) || '保存失败', true);
+  }catch(e){ toast('请求失败：' + (e.message || e), true); }
 }
 $('#adv-text').addEventListener('input', ()=>{ $('#adv-dirty').style.display = 'inline-flex'; });
 $('#adv-edit').addEventListener('click', ()=>{
@@ -4933,21 +4960,25 @@ $('#adv-edit').addEventListener('click', ()=>{
 $('#adv-save').addEventListener('click', saveAdvFile);
 
 /* ---- 服务操作 ---- */
-function svcAction(act, key, quiet, auto){
+async function svcAction(act, key, quiet, auto){
   if(PREVIEW){ if(!quiet) toast(`预览模式：${act} ${key}（后端就绪后生效）`); return; }
-  fetch('/api/services?key='+encodeURIComponent(key)+'&act='+encodeURIComponent(act)+(auto?'&auto=1':''), { method:'POST' })
-    .then(r=>r.json()).then(j=>{ if(!quiet) toast(j.ok?`${act} 成功`:(j.error||'操作失败'), !j.ok); renderServices(); })
-    .catch(()=>{ if(!quiet) toast('请求失败', true); });
+  try{
+    const j = await apiFetch('/api/services?key='+encodeURIComponent(key)+'&act='+encodeURIComponent(act)+(auto?'&auto=1':''), { method:'POST' }, 8000);
+    if(!quiet) toast(j && j.ok ? `${act} 成功` : ((j && j.error)||'操作失败'), !(j && j.ok));
+  }catch(e){ if(!quiet) toast('请求失败：' + (e.message || e), true); }
+  finally{ renderServices(); }
 }
 
 /* ---- 配置编辑 ---- */
 let cfgCurrent = null, cfgOriginal = '', cfgDirty = false;
 async function renderConfig(){
   const svcList = await api('/api/services');
+  if(!Array.isArray(svcList) || !svcList.length) return;
   const svc = svcList.find(s=>s.key===cfgMode) || svcList[0];
   $('#cfg-head').textContent = svc.name + ' 配置';
 
   const cfgs = await api('/api/configs');
+  if(!cfgs) return;
   const name = Object.keys(cfgs).find(k=>cfgs[k].svc===cfgMode);
   if(name) openConfig(name);
   else { cfgCurrent=null; $('#cfg-editor').style.display='none'; }
@@ -4955,13 +4986,14 @@ async function renderConfig(){
 let CFG_CACHE = null;
 /* 启动时预取配置文件内容，进入「配置」页即可同步渲染 */
 function prefetchCfgs(){
-  api('/api/configs').then(c=>{ CFG_CACHE = c; }).catch(()=>{});
+  api('/api/configs').then(c=>{ if(c) CFG_CACHE = c; }).catch(()=>{});
 }
 async function openConfig(name){
   if(!CFG_CACHE){
     $('#cfgSections').innerHTML = '<div class="cfg-sec"><div class="cfg-sec-h">加载中…</div></div>';
     try{ CFG_CACHE = await api('/api/configs'); }catch(e){ return; }
   }
+  if(!CFG_CACHE) return;
   const c = CFG_CACHE[name]; if(!c) return;
   cfgCurrent = name; cfgOriginal = c.content; setDirty(false);
   window._cfgSecOpen = {};
@@ -5145,7 +5177,7 @@ async function loadGwDmrIds(name){
   if(name !== 'DMRGateway.ini') return;
   try{
     const s = await api('/api/status');
-    gwDmrIds = (s.mmdvm && s.mmdvm.dmrIds) || [];
+    gwDmrIds = (s && s.mmdvm && s.mmdvm.dmrIds) || [];
   }catch(e){ gwDmrIds = []; }
 }
 function isGwIdField(sec, key){
@@ -6024,18 +6056,19 @@ function rebuildContent(keepEmpty){
 }
 function setDirty(d){ cfgDirty=d; $('#cfgDirty').style.display = d?'inline-flex':'none'; }
 /* 整页一个保存按钮：保存后询问是否重启对应服务 */
-function saveCfgPage(){
+async function saveCfgPage(){
   const content = rebuildContent();
   if(PREVIEW){ toast(`预览模式：${cfgCurrent} 已“保存”`); setDirty(false); return; }
-  fetch('/api/configs?name='+encodeURIComponent(cfgCurrent), {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ content, restart:false })
-  }).then(r=>r.json()).then(j=>{
-    if(!j.ok){ toast(j.error||'保存失败', true); return; }
+  try{
+    const j = await apiFetch('/api/configs?name='+encodeURIComponent(cfgCurrent), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ content, restart:false })
+    }, 8000);
+    if(!j || j.ok === false){ toast((j && j.error)||'保存失败', true); return; }
     setDirty(false);
     CFG_CACHE = null; prefetchCfgs();
     askRestart(cfgMode);
-  }).catch(()=>toast('请求失败', true));
+  }catch(e){ toast('请求失败：' + (e.message || e), true); }
 }
 $('#cfg-save').addEventListener('click', saveCfgPage);
 
@@ -6228,6 +6261,7 @@ const liveCallKey = {};
 function stopQsoTick(){ if(qsoTimer){ clearTimeout(qsoTimer); qsoTimer=null; } }
 async function renderQso(){
   stopQsoTick();
+  qsoGen++;
   lhDirty = true;
   try { await qsoOnce(); } catch(e) { console.warn('[qso] 首次刷新失败', e); }
   scheduleQso();
@@ -6248,22 +6282,32 @@ function scheduleQso(){
     scheduleQso();
   }, qsoDelay());
 }
+let qsoInFlight = null, qsoGen = 0;
 async function qsoOnce(){
   if(document.hidden) return;
   if(!$('#view-qso').classList.contains('on')) return;
-  const x = await api('/api/live');
-  /* 请求失败（返回 null）时保留上一次画面，避免抖动成假数据 */
-  if(x) renderLive(x);
-  const now = Date.now();
-  /* 最近通联只在通联结束、首次进入或超 15s 时请求，避免每秒拉取 10KB 列表 */
-  if(lhDirty || now - lhLastFetch > 15000){
-    lhLastFetch = now; lhDirty = false;
-    await renderLastheardLog();
-  }
+  if(qsoInFlight) return qsoInFlight;   /* 定时/手动/切回前台共用同一个在途请求 */
+  const gen = qsoGen;
+  const job = (async ()=>{
+    const x = await api('/api/live');
+    if(gen !== qsoGen || document.hidden || !$('#view-qso').classList.contains('on')) return;
+    /* 请求失败（返回 null）时保留上一次画面，避免抖动成假数据 */
+    if(x) renderLive(x);
+    const now = Date.now();
+    /* 最近通联只在通联结束、首次进入或超 15s 时请求，避免每秒拉取 10KB 列表 */
+    if(lhDirty || now - lhLastFetch > 15000){
+      lhLastFetch = now; lhDirty = false;
+      if(gen !== qsoGen) return;
+      await renderLastheardLog();
+    }
+  })();
+  qsoInFlight = job;
+  try{ return await job; }
+  finally{ if(qsoInFlight === job) qsoInFlight = null; }
 }
 /* 从后台切回前台时立即刷新一次 */
 document.addEventListener('visibilitychange', ()=>{
-  if(document.hidden) return;
+  if(document.hidden){ qsoGen++; return; }
   /* 静态组页面：切回前台立即刷新一次 */
   if($('#view-tg') && $('#view-tg').classList.contains('on')){ renderTg(); return; }
   if(!$('#view-qso').classList.contains('on')) return;
@@ -6428,7 +6472,7 @@ async function renderLastheardLog(){
     const berCls = (isFinite(berNum) && berNum > 3) ? ' bad' : '';
     const g = (!isTx && r.gps && r.gps.lat != null && r.gps.lon != null) ? r.gps : null;
     const geoBtn = g
-      ? `<button class="lh-geo" data-lat="${(+g.lat).toFixed(6)}" data-lon="${(+g.lon).toFixed(6)}" data-addr="${esc(g.addr||'')}" data-dist="${g.dist==null?'':g.dist}" data-base="${g.base||''}" title="查看 GPS 定位">${pin}</button>`
+      ? `<button class="lh-geo" data-lat="${(+g.lat).toFixed(6)}" data-lon="${(+g.lon).toFixed(6)}" data-addr="${esc(g.addr||'')}" data-dist="${esc(g.dist==null?'':g.dist)}" data-base="${esc(g.base||'')}" title="查看 GPS 定位">${pin}</button>`
       : '';
     return `<div class="lh-item${isTx?' tx':''}">
       <div class="lh-flag">${flagForCallsign(call, id)}</div>
@@ -6494,9 +6538,9 @@ function stopCalMon(){
   if(sw) sw.checked = false;
   setCalBadge('已停止', 'off');
 }
-const UI_VER = '20261124z681';
+const UI_VER = '20261126a666';
 /* 界面显示的版本号：V0.<构建序号>，小数位最多 4 位；稳定前主版本保持 0 */
-function dashVer(){ return 'V0.665'; }
+function dashVer(){ return 'V0.666'; }
 /* forceMs：指定固定刷新周期（自动校准用 3000ms），省略则跟随下拉框 */
 function startCalMon(forceMs){
   stopCalTimer();
@@ -6512,10 +6556,14 @@ function startCalMon(forceMs){
   drawCalChart();
   calLoop();
 }
-function calLoop(){
-  if(!calMon.on) return;
-  calTick();
-  calTimer = setTimeout(calLoop, calMon.force || calIntervalMs());
+let calInFlight = false;
+async function calLoop(){
+  if(!calMon.on || calInFlight) return;
+  calInFlight = true;
+  try{ await calTick(); }
+  finally{ calInFlight = false; }
+  /* 等本次采样结束再排下一次，避免慢响应时多个 calTick 并行叠加 */
+  if(calMon.on) calTimer = setTimeout(calLoop, calMon.force || calIntervalMs());
 }
 async function calTick(){
   if(!calMon.on) return;
@@ -6635,6 +6683,7 @@ function drawCalChart(){
 }
 async function renderCal(){
   const c = await api('/api/calibration');
+  if(!c){ toast('校准参数读取失败', true); return; }
   $('#cal-frx').textContent = fmtFreq(c.rxFrequency||0);
   $('#cal-ftx').textContent = fmtFreq(c.txFrequency||0);
   $('#cal-rxoff').value = c.rxOffset||0;
@@ -6667,22 +6716,22 @@ function bindCal(){
   $('#cal-save').addEventListener('click', saveCal);
   $('#cal-auto').addEventListener('change', e=> onCalAutoToggle(e.target));
   $('#cal-auto-stop').addEventListener('click', cancelAutoCal);
+  window.addEventListener('pagehide', calKeepaliveRestore);
   window.addEventListener('beforeunload', e=>{
-    if(calAuto.on){ e.preventDefault(); e.returnValue = ''; }
+    if(calAuto.on){ calKeepaliveRestore(); e.preventDefault(); e.returnValue = ''; }
   });
 }
-function saveCal(){
+async function saveCal(){
   if(PREVIEW){ toast('预览模式：校准设置已“保存”（后端就绪后生效）'); return; }
   const body = {
     rxOffset: +$('#cal-rxoff').value, txOffset: +$('#cal-txoff').value,
     rxLevel: +$('#cal-rxlevel').value, txLevel: +$('#cal-txlevel').value, rfLevel: +$('#cal-rflevel').value
   };
-  fetch('/api/calibration', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-    .then(r=>r.json()).then(j=>{
-      if(!j.ok){ toast(j.error||'保存失败', true); return; }
-      askRestart('mmdvmhost');
-    })
-    .catch(()=>toast('请求失败', true));
+  try{
+    const j = await apiFetch('/api/calibration', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }, 8000);
+    if(!j || j.ok === false){ toast((j && j.error)||'保存失败', true); return; }
+    askRestart('mmdvmhost');
+  }catch(e){ toast('请求失败：' + (e.message || e), true); }
 }
 
 /* ---- 全自动校准（RX 频偏扫描，开关开启才运行，默认手动） ---- */
@@ -6698,7 +6747,40 @@ const CAL_IDLE_MS = 6000, CAL_START_TIMEOUT = 25000;
 const CAL_TOL = 0.3;
 /* 目标值与可接受上限：误码率 2% 以内即认为校准达标 */
 const CAL_GOAL = 2.0, CAL_OK = 2.0;
-let calAuto = { on:false, abort:false, results:[] };
+let calAuto = { on:false, starting:false, abort:false, results:[], orig:0, origTx:0, lv:null, restored:false };
+/* 统一恢复流程：中止/异常/离开页面都走这里，避免只设 abort 标记后没人写回频偏 */
+let calRestoreFn = null;
+async function restoreAutoCal(reason){
+  if(calAuto.restored || !calRestoreFn) return;
+  const job = calRestoreFn;
+  calRestoreFn = null;
+  await job(reason);
+}
+function abortAutoCal(reason){
+  if(calAuto.starting && !calAuto.on){
+    calAuto.starting = false;
+    if(umResolve) uiClose(false);   /* 还在起始确认框阶段，直接结束，无需恢复 */
+    return;
+  }
+  if(!calAuto.on || calAuto.restored) return;
+  calAuto.abort = true;
+  setAutoState('正在停止','warn');
+  setAutoDetail('正在恢复原 RX/TX 偏移…');
+  if(umResolve) uiClose(false);   /* 结束可能在等待的确认框，防止它之后继续写配置 */
+  if(calRestoreFn) restoreAutoCal(reason);
+}
+/* 页面关闭时无法等待请求完成，用 keepalive 尽力写回原值并重启 */
+function calKeepaliveRestore(){
+  if(!calAuto.on || calAuto.restored) return;
+  const body = Object.assign({}, calAuto.lv || {}, { rxOffset: calAuto.orig, txOffset: calAuto.origTx });
+  try{
+    fetch('/api/calibration', { method:'POST', keepalive:true, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).catch(()=>{});
+  }catch(e){}
+  try{ fetch('/api/services?key=mmdvmhost&act=restart', { method:'POST', keepalive:true }).catch(()=>{}); }catch(e){}
+  calAuto.restored = true;
+  calAuto.on = false;
+  calRestoreFn = null;
+}
 function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 function median(arr){
   if(!arr.length) return null;
@@ -6734,20 +6816,21 @@ function addAutoRow(r, text, kind){
   tr.scrollIntoView({ block:'nearest' });
 }
 function postCal(body){
-  return fetch('/api/calibration', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-    .then(r=>r.json());
+  return apiFetch('/api/calibration', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }, 8000);
 }
 async function restartMmdvm(){
-  try { await fetch('/api/services?key=mmdvmhost&act=restart', { method:'POST' }).then(r=>r.json()); } catch(e){}
+  try { await apiFetch('/api/services?key=mmdvmhost&act=restart', { method:'POST' }, 8000); } catch(e){}
 }
 async function waitMmdvmUp(timeoutMs){
   const t0 = Date.now();
   while(Date.now()-t0 < timeoutMs){
+    if(calAuto.abort) return false;
     try {
-      const list = await fetch('/api/services').then(r=>r.json());
-      const m = (list||[]).find(s=>s.key==='mmdvmhost');
+      const list = await apiFetch('/api/services', null, 5000);
+      const m = (Array.isArray(list) ? list : []).find(s=>s.key==='mmdvmhost');
       if(m && m.running) return true;
     } catch(e){}
+    if(calAuto.abort) return false;
     await sleep(1000);
   }
   return false;
@@ -6778,13 +6861,16 @@ async function calMeasure(off, lv, phase){
     '选择“确定”继续；选择“取消”将中止校准并恢复原频偏。',
     { title: '自动校准 - 测点确认', okText: '确定并重启' }
   );
-  if(!goOn){ calAuto.abort = true; return null; }
+  if(!goOn || calAuto.abort){ calAuto.abort = true; return null; }
   setAutoDetail(`RX 偏移 ${fmtOff(off)}：写入配置并重启 MMDVMHost…`);
   $('#cal-rxoff').value = off;
   try { await postCal(Object.assign({ rxOffset: off }, lv)); } catch(e){}
+  if(calAuto.abort) return null;
   await restartMmdvm();
+  if(calAuto.abort) return null;
   setAutoDetail(`RX 偏移 ${fmtOff(off)}：等待 MMDVMHost 启动…`);
   const up = await waitMmdvmUp(30000);
+  if(calAuto.abort) return null;
   if(!up){
     addAutoRow({ off: off, mean: null, med: null, total: 0, se: null, jumps: null }, '服务未正常启动，中止', 'bad');
     setAutoDetail('MMDVMHost 未在 30 秒内正常启动，校准中止');
@@ -6792,6 +6878,7 @@ async function calMeasure(off, lv, phase){
     return null;
   }
   await sleep(1000);
+  if(calAuto.abort) return null;
   setAutoState('等待 PTT','tag');
   setAutoDetail(`MMDVMHost 已正常运行。请按下 PTT 发射，然后点击“确定”开始采样（目标累计 ${CAL_TARGET_BITS} 比特）`);
   const startSampling = await uiConfirm(
@@ -6802,8 +6889,8 @@ async function calMeasure(off, lv, phase){
     '选择“取消”将中止校准并恢复原频偏。',
     { title: '请按下 PTT', okText: '开始采样' }
   );
-  if(!startSampling){ calAuto.abort = true; return null; }
-  if(!calMon.on) startCalMon(3000);   /* 兜底：确保采样期间折线图在工作 */
+  if(!startSampling || calAuto.abort){ calAuto.abort = true; return null; }
+  /* 采样读数直接驱动图表，不再另开 3 秒 calMon 轮询 */
   setAutoState('采样中','warn');
   /* api.uc 已在增量解析时逐突发累计，这里只做相邻快照差分：不漏帧、不重复计数 */
   const pcts = [];                        /* 仅用于显示中位数，不参与判优 */
@@ -6815,6 +6902,7 @@ async function calMeasure(off, lv, phase){
     if(el >= CAL_WIN_MS) break;
     let c = null;
     try { c = await api('/api/calibration?ui=' + UI_VER + '&src=sample'); } catch(e){ c = null; }
+    if(calAuto.abort) return null;
     if(c){
       const cur = { errs: +c.errs || 0, total: +c.total || 0, frames: +c.frames || 0,
         jumps: +c.jumps || 0, jsum: +c.jsum || 0 };
@@ -6863,16 +6951,52 @@ async function calMeasure(off, lv, phase){
 }
 async function runAutoCal(orig){
   calAuto.on = true; calAuto.abort = false; calAuto.results = [];
+  calAuto.restored = false;
   $('#cal-auto-panel').style.display = '';
   $('#cal-auto-table tbody').innerHTML = '';
-  setAutoHint('自动校准中：RX 频偏自动写入，图表每 3 秒刷新');
+  setAutoHint('自动校准中：RX 频偏自动写入，采样数据实时刷新图表');
   setCalEditing(false);
   setAutoState('准备中','tag');
   setAutoProgress(0);
-  /* 校准全程驱动折线图，固定 3 秒刷新一次，避免界面看起来卡住 */
-  startCalMon(3000);
+  /* 采样本身驱动折线图，不再并行跑 3 秒 calMon 轮询 */
+  stopCalMon();
+  calMon.samples = []; calMon.start = 0; calMon.force = 0;
+  resetBerGauge();
+  $('#cal-mon-time').textContent = '—';
+  setCalBadge('等待信号','tag');
+  drawCalChart();
   const lv = calLevels();
   const origTx = lv.txOffset;   /* 开始时的手动 TX 偏移，中止/取消时恢复 */
+  calAuto.orig = orig; calAuto.origTx = origTx; calAuto.lv = lv;
+  let finalized = false, resultMode = '';   /* 正常流程已写入最终结果时，不再走恢复 */
+  /* 任何中止/异常都通过这一个入口恢复原 RX/TX 并重启 */
+  calRestoreFn = async (reason)=>{
+    if(calAuto.restored) return;
+    calAuto.restored = true;
+    calAuto.abort = true;
+    $('#cal-rxoff').value = orig;
+    $('#cal-txoff').value = origTx;
+    setAutoState('正在恢复','warn');
+    setAutoDetail(`写入 RX 偏移 ${fmtOff(orig)}、TX 偏移 ${fmtOff(origTx)} 并重启 MMDVMHost…`);
+    try{ await apiFetch('/api/calibration', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(Object.assign({}, lv, { rxOffset: orig, txOffset: origTx })) }, 8000); }catch(e){}
+    await restartMmdvm();
+    calAuto.on = false;
+    $('#cal-auto').checked = false;
+    stopCalMon();
+    setCalEditing(true);
+    if(resultMode === 'noData'){
+      setAutoState('无有效数据','err');
+      setAutoDetail(`未获得有效测点（累计比特不足），已恢复原 RX 偏移 ${fmtOff(orig)}`);
+      setAutoHint('自动校准未获得有效样本：每个测点需持续发射到累计 20000 比特以上');
+      toast('自动校准失败：样本不足', true, 3000);
+    }else{
+      setAutoState(reason === '异常' ? '异常中止' : '已中止', reason === '异常' ? 'err' : 'off');
+      setAutoDetail(`已停止，并恢复原 RX 偏移 ${fmtOff(orig)}、TX 偏移 ${fmtOff(origTx)}`);
+      setAutoHint('已中止自动校准，当前为手动模式');
+      toast('自动校准已中止，已恢复原频偏', reason === '异常', 3000);
+    }
+  };
+  try{
   /* 以开始时的 RX 偏移为基准：±150、±300… 都是相对它的偏移量 */
   const base0 = orig;
   const measured = [];
@@ -6896,7 +7020,7 @@ async function runAutoCal(orig){
       if(mid === lo.off || mid === hi.off) break;
       setAutoProgress(35 + Math.min(it / 4, 1) * 40);
       const r = await test(mid, `${phase}：二分 ${fmtOff(lo.off)} ~ ${fmtOff(hi.off)}`);
-      if(!r || !r.valid) break;
+      if(calAuto.abort || !r || !r.valid) break;
       if(isbetter(r, hi)) hi = r; else lo = r;
       if(r.mean <= CAL_GOAL) break;
     }
@@ -6905,10 +7029,12 @@ async function runAutoCal(orig){
   /* 阶段 1：测量基准值，再用左右 ±150 Hz 判断正确方向 */
   setAutoDetail(`阶段 1/3：测量当前值 ${fmtOff(base0)} 与左右 ±${CAL_STEP} Hz`);
   let baseP = await test(base0, '阶段 1/3：当前值');
-  if(!calAuto.abort && (!baseP || !baseP.valid)){
+  if(calAuto.abort) return;
+  if(!baseP || !baseP.valid){
     /* 首个测点常因发射时间太短样本不足，重测一次，避免整轮直接判失败 */
     setAutoHint('首个测点样本不足，重测一次');
     baseP = await test(base0, '阶段 1/3：当前值（重测）');
+    if(calAuto.abort) return;
   }
   setAutoProgress(5);
   if(!calAuto.abort && baseP && baseP.valid && baseP.mean <= CAL_GOAL){
@@ -6916,7 +7042,9 @@ async function runAutoCal(orig){
     setAutoHint(`当前偏移 ${fmtOff(base0)} 均值 ${baseP.mean.toFixed(2)}%，已达 ${CAL_GOAL}% 目标，跳过搜索`);
   } else if(!calAuto.abort && baseP && baseP.valid){
     const pos = await test(base0 + CAL_STEP, `阶段 1/3：当前值 +${CAL_STEP} Hz`);
+    if(calAuto.abort) return;
     const neg = await test(base0 - CAL_STEP, `阶段 1/3：当前值 -${CAL_STEP} Hz`);
+    if(calAuto.abort) return;
     setAutoProgress(15);
     const cands = [pos, neg].filter(r => r && r.valid);
     const side = cands.length ? cands.reduce((a,b)=> b.mean < a.mean ? b : a) : null;
@@ -6926,7 +7054,8 @@ async function runAutoCal(orig){
       const opp = (dir > 0) ? neg : pos;
       const at = d => base0 + dir * d;
       const r100 = await test(at(100), `阶段 2/3：${dir>0?'正':'负'}方向 ${fmtOff(at(100))}`);
-      if(!calAuto.abort && r100 && r100.valid){
+      if(calAuto.abort) return;
+      if(r100 && r100.valid){
         if(isbetter(r100, side)){
           /* ±100 优于 ±150 → 正确值在基准值与 ±100 之间 */
           await refine(baseP, r100, '阶段 3/3');
@@ -6935,7 +7064,7 @@ async function runAutoCal(orig){
           let prev = side, d = 200;
           while(!calAuto.abort && d <= CAL_LIMIT){
             const r = await test(at(d), `阶段 2/3：${dir>0?'正':'负'}方向外扩至 ${fmtOff(at(d))}`);
-            if(!r || !r.valid) break;
+            if(calAuto.abort || !r || !r.valid) break;
             if(!isbetter(r, prev)){
               await refine(prev, r, '阶段 3/3');
               break;
@@ -6959,37 +7088,10 @@ async function runAutoCal(orig){
   let best = bestOf(validOf(measured));
   let finalOff = orig, finalTx = origTx;
   setAutoProgress(100);
-  const stopped = calAuto.abort;
-  if(stopped){
-    $('#cal-rxoff').value = orig;
-    setAutoState('正在恢复','warn');
-    setAutoDetail(`写入 RX 偏移 ${orig>0?'+':''}${orig} Hz 并重启 MMDVMHost…`);
-    try { await postCal(Object.assign({ rxOffset: orig }, lv)); } catch(e){}
-    await restartMmdvm();
-    calAuto.on = false;
-    $('#cal-auto').checked = false;
-    stopCalMon();
-    setCalEditing(true);
-    setAutoState('已中止','off');
-    setAutoDetail(`已停止，并恢复原 RX 偏移 ${orig>0?'+':''}${orig} Hz`);
-    setAutoHint('已中止自动校准，当前为手动模式');
-    toast('自动校准已中止，已恢复原频偏', false, 3000);
-    return;
-  }
-  calAuto.on = false;
-  setCalEditing(true);
+  if(calAuto.abort) return;   /* 统一交给 finally 恢复原频偏 */
   if(!best){
-    $('#cal-rxoff').value = orig;
-    setAutoState('正在恢复','warn');
-    setAutoDetail(`写入 RX 偏移 ${orig>0?'+':''}${orig} Hz 并重启 MMDVMHost…`);
-    try { await postCal(Object.assign({ rxOffset: orig }, lv)); } catch(e){}
-    await restartMmdvm();
-    $('#cal-auto').checked = false;
-    stopCalMon();
-    setAutoState('无有效数据','err');
-    setAutoDetail(`未获得有效测点（累计比特不足），已恢复原 RX 偏移 ${orig>0?'+':''}${orig} Hz`);
-    setAutoHint('自动校准未获得有效样本：每个测点需持续发射到累计 20000 比特以上');
-    toast('自动校准失败：样本不足', true, 3000);
+    /* 恢复动作统一放到 finally，这里只标记提示文案 */
+    resultMode = 'noData';
     return;
   }
   let apply = false, keep = false, flat = false, unstable = false, failAll = false, cancelled = false;
@@ -7004,9 +7106,12 @@ async function runAutoCal(orig){
     const cand = best.off;
     setAutoDetail(`阶段 4/4：按「候选 → 基准 → 候选」交错复测 ${fmtOff(cand)}`);
     const r1 = await test(cand, '阶段 4/4：复测候选（第 1 次）');
+    if(calAuto.abort) return;
     let rBase = null;
-    if(!calAuto.abort && cand !== base0) rBase = await test(base0, '阶段 4/4：交错复测当前值');
-    const r2 = (!calAuto.abort && cand !== base0) ? await test(cand, '阶段 4/4：复测候选（第 2 次）') : null;
+    if(cand !== base0) rBase = await test(base0, '阶段 4/4：交错复测当前值');
+    if(calAuto.abort) return;
+    const r2 = (cand !== base0) ? await test(cand, '阶段 4/4：复测候选（第 2 次）') : null;
+    if(calAuto.abort) return;
     if(cand === base0){
       m1 = baseP ? baseP.mean : null;     /* 搜索阶段的首次测量 */
       m2 = r1 ? r1.mean : null;           /* 本次复测 */
@@ -7056,6 +7161,7 @@ async function runAutoCal(orig){
       '选择“取消”则不写入，并恢复开始前的 RX/TX 偏移。',
       { title: '写入校准结果', okText: '写入并重启', cancelText: '取消保存' }
     );
+    if(calAuto.abort) return;
     if(!ok){ apply = false; cancelled = true; }
   }
   const writeOff = apply ? finalOff : orig;
@@ -7065,9 +7171,14 @@ async function runAutoCal(orig){
   setAutoState(apply ? '正在写入' : '正在恢复', 'warn');
   setAutoDetail(`写入 RX 偏移 ${writeOff>0?'+':''}${writeOff} Hz、TX 偏移 ${writeTx>0?'+':''}${writeTx} Hz 并重启 MMDVMHost…`);
   try { await postCal(Object.assign({}, lv, { rxOffset: writeOff, txOffset: writeTx })); } catch(e){}
+  if(calAuto.abort) return;
   await restartMmdvm();
+  if(calAuto.abort) return;
+  finalized = true;   /* 最终结果已写入，finally 不再重复恢复 */
+  calRestoreFn = null;
   $('#cal-auto').checked = false;
   stopCalMon();
+  setCalEditing(true);
   if(apply){
     setAutoState('已保存','ok');
     setAutoDetail(`RX/TX 偏移均写入 ${fmtOff(finalOff)}，两次均值 ${m1.toFixed(2)}% / ${m2.toFixed(2)}%`);
@@ -7101,17 +7212,29 @@ async function runAutoCal(orig){
     setAutoHint('复测波动过大，建议改善信号条件后重测；本次未写入任何频偏');
     toast('复测结果不稳，未写入', true, 4000);
   }
+  }catch(e){
+    calAuto.abort = true;
+    console.warn('[cal] 自动校准异常，正在恢复原频偏', e);
+  }finally{
+    if(!finalized) await restoreAutoCal('中止');
+    calRestoreFn = null;
+    calAuto.on = false;
+    $('#cal-auto').checked = false;
+    stopCalMon();
+    setCalEditing(true);
+  }
 }
 async function cancelAutoCal(){
-  if(!calAuto.on) return;
-  if(!(await uiConfirm('停止自动校准并恢复原频偏？\n\n当前档位结束后会自动写回开始前的 RX 偏移。', { title: '停止自动校准' }))) return;
-  calAuto.abort = true;
-  setAutoState('正在停止','warn');
-  setAutoDetail('等待当前档位结束，随后恢复原 RX 偏移…');
+  if(!calAuto.on || calAuto.restored) return;
+  if(!(await uiConfirm('停止自动校准并恢复原频偏？\n\n当前档位结束后会自动写回开始前的 RX/TX 偏移。', { title: '停止自动校准' }))) return;
+  if(!calAuto.on || calAuto.restored) return;
+  abortAutoCal('中止');
 }
 async function onCalAutoToggle(el){
   if(el.checked){
     if(PREVIEW){ el.checked = false; toast('预览模式无法执行自动校准', true); return; }
+    if(calAuto.on || calAuto.starting){ el.checked = false; toast('自动校准正在进行中', true); return; }
+    calAuto.starting = true;
     const ok = await uiConfirm(
       '开始全自动 RX 频偏校准？\n\n' +
       '• 阶段 1：测当前值、当前值 ±150 Hz，均值低的一侧即为正确方向；当前值 ≤0.5% 时跳过搜索\n' +
@@ -7124,7 +7247,8 @@ async function onCalAutoToggle(el){
       '确定开始？',
       { title: '全自动频偏校准', okText: '开始校准' }
     );
-    if(!ok){ el.checked = false; setAutoHint('已取消，当前为手动模式'); return; }
+    if(!ok){ calAuto.starting = false; el.checked = false; setAutoHint('已取消，当前为手动模式'); return; }
+    calAuto.starting = false;
     runAutoCal(+$('#cal-rxoff').value || 0);
   }else{
     if(calAuto.on) cancelAutoCal();
@@ -7134,7 +7258,7 @@ async function onCalAutoToggle(el){
 
 /* ---- 静态组（BrandMeister API） ---- */
 /* 停留在静态组页面时定时刷新，切走/切后台即停止 */
-let tgTimer = null;
+let tgTimer = null, tgInFlight = null, tgGen = 0;
 function stopTgTick(){ if(tgTimer){ clearInterval(tgTimer); tgTimer = null; } }
 function startTgTick(){
   stopTgTick();
@@ -7151,7 +7275,7 @@ async function loadTgDmrIds(force){
   if(tgDmrIds && !force) return tgDmrIds;
   try{
     const s = await api('/api/status');
-    tgDmrIds = (s.mmdvm && s.mmdvm.dmrIds) || [];
+    tgDmrIds = (s && s.mmdvm && s.mmdvm.dmrIds) || [];
   }catch(e){ tgDmrIds = []; }
   return tgDmrIds;
 }
@@ -7182,23 +7306,32 @@ function fillTgDevOptions(cur, override){
   sel.value = pick;
 }
 async function renderTg(){
-  startTgTick();
+  if(tgInFlight) return tgInFlight;   /* 定时/手动/写后刷新共用单飞 */
+  const gen = ++tgGen;
+  const job = (async ()=>{
   const hintEl = $('#tg-hint');
   const dynHintEl = $('#tg-dyn-hint');
   const l1 = $('#tg-list-1'), l2 = $('#tg-list-2');
   if(hintEl && !hintEl.innerHTML) hintEl.innerHTML = '<div class="tg-hint">正在从 BrandMeister 读取…</div>';
   if(dynHintEl && !dynHintEl.innerHTML) dynHintEl.innerHTML = '<div class="tg-hint">正在从 BrandMeister 读取…</div>';
-  let r = await api('/api/tg');
+  let r = null;
+  try{ r = await api('/api/tg'); }catch(e){ r = { ok:false, error:(e && e.message) || '读取失败' }; }
+  if(gen !== tgGen) return;
   await loadTgDmrIds();
+  if(gen !== tgGen) return;
   /* 基础配置只有一个 46 开头的 ID 时自动应用并保存，免去进 API 弹窗手动配置 */
   const ids46 = (tgDmrIds || []).filter(it=>it && it.id && String(it.id).indexOf('46') === 0);
   if(ids46.length === 1){
     const want = ids46[0].id + (ids46[0].essid || '');
     if(String((r && r.override) || '') !== want){
       const j = await tgPost({ act:'key', deviceId: want }, true);
-      if(j && j.ok) r = await api('/api/tg');
+      if(gen !== tgGen) return;
+      if(j && j.ok){
+        try{ r = await api('/api/tg'); }catch(e){ r = { ok:false, error:(e && e.message) || '读取失败' }; }
+      }
     }
   }
+  if(gen !== tgGen) return;
   tgDeviceId = (r && r.deviceId) || '';
   fillTgDevOptions(tgDeviceId, r && r.override);
   const keyInp = $('#tg-key');
@@ -7236,12 +7369,15 @@ async function renderTg(){
       ? items.map(t=>`<div class="tg-row"><span class="tg-num">TG ${esc(t.talkgroup)}</span></div>`).join('')
       : '<div class="tg-hint">暂无</div>';
   }
+  })();
+  tgInFlight = job;
+  try{ return await job; }
+  finally{ if(tgInFlight === job) tgInFlight = null; }
 }
 async function tgPost(body, quiet){
   let j = null;
   try{
-    const r = await fetch('/api/tg', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
-    j = await r.json();
+    j = await apiFetch('/api/tg', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) }, 8000);
   }catch(e){ j = null; }
   if(!j || !j.ok){
     if(!quiet) toast((j && j.error) || '操作失败', true);
@@ -7294,11 +7430,10 @@ function bindTg(){
     const xlxSave = $('#xlx-save');
     if(xlxSave) xlxSave.addEventListener('click', async ()=>{
       try{
-        const r = await fetch('/api/xlxhosts', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ content: $('#xlx-text').value }) });
-        const j = await r.json();
+        const j = await apiFetch('/api/xlxhosts', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ content: $('#xlx-text').value }) }, 8000);
         if(j && j.ok){ toast('XLXHosts.txt 已保存'); closeXlx(); }
         else toast((j && j.error) || '保存失败', true);
-      }catch(e){ toast('保存失败', true); }
+      }catch(e){ toast('保存失败：' + (e.message || e), true); }
     });
   }
   const save = $('#tg-keysave');
@@ -7333,12 +7468,13 @@ function bindTg(){
     if(!jobs.length){ toast('请先在时隙 1 或时隙 2 填写 TG 编号', true); return; }
     slotsSave.disabled = true;
     let okN = 0, err = '';
-    for(const j of jobs){
-      const res = await tgPost({ act:'add', tg:j.tg, slot:j.slot }, true);
-      if(res && res.ok){ okN++; j.inp.value = ''; }
-      else err = (res && res.error) || '添加失败';
-    }
-    slotsSave.disabled = false;
+    try{
+      for(const j of jobs){
+        const res = await tgPost({ act:'add', tg:j.tg, slot:j.slot }, true);
+        if(res && res.ok){ okN++; j.inp.value = ''; }
+        else err = (res && res.error) || '添加失败';
+      }
+    }finally{ slotsSave.disabled = false; }
     if(okN) toast(`已添加 ${okN} 个静态组`);
     else toast(err || '添加失败', true);
     renderTg();
@@ -7443,7 +7579,7 @@ async function refreshSysMeters(){
   sysBusy = false;
 }
 async function renderSystem(){
-  const s = await api('/api/system');
+  const s = await api('/api/system') || {};
   const load = (s.load||[]).join(' / ');
   const now = new Date().toLocaleString('zh-CN', {hour12:false});
   /* 完整内存 = 物理总量（含内核保留）；整块磁盘 = 整盘容量（含 boot 等分区） */
@@ -7470,9 +7606,9 @@ async function renderSystem(){
       <div class="sys-head">
         <h2 style="font-size:17px;margin:0">系统</h2>
         <div class="sys-meters">
-          <div class="sys-meter"><div class="mk">CPU</div><div class="mv">${esc(s.cpuPct+'%')}</div><div class="bar"><i style="width:${s.cpuPct}%"></i></div></div>
-          <div class="sys-meter"><div class="mk">内存</div><div class="mv">${esc(s.memUsed+' / '+(s.memFree??0)+' MB')}</div><div class="bar"><i style="width:${s.memPct}%"></i></div></div>
-          <div class="sys-meter"><div class="mk">根分区</div><div class="mv">${esc(s.diskUsed+' / '+(s.diskAvail??0)+' '+(s.diskUnit||'GB'))}</div><div class="bar"><i style="width:${s.diskPct}%"></i></div></div>
+          <div class="sys-meter"><div class="mk">CPU</div><div class="mv">${esc(s.cpuPct+'%')}</div><div class="bar"><i style="width:${esc(s.cpuPct)}%"></i></div></div>
+          <div class="sys-meter"><div class="mk">内存</div><div class="mv">${esc(s.memUsed+' / '+(s.memFree??0)+' MB')}</div><div class="bar"><i style="width:${esc(s.memPct)}%"></i></div></div>
+          <div class="sys-meter"><div class="mk">根分区</div><div class="mv">${esc(s.diskUsed+' / '+(s.diskAvail??0)+' '+(s.diskUnit||'GB'))}</div><div class="bar"><i style="width:${esc(s.diskPct)}%"></i></div></div>
         </div>
       </div>
       <table class="sys-table">
@@ -7531,8 +7667,7 @@ async function renderSystem(){
     if(PREVIEW){ if(w) w.close(); toast('预览模式：不会启动 LuCI'); return; }
     let url = fallback;
     try{
-      const r = await fetch('/api/luci');
-      const j = await r.json();
+      const j = await apiFetch('/api/luci', null, 8000);
       if(j && j.ok && j.url) url = j.url;
       else if(j && j.error){
         /* LuCI 未安装或主实例被关闭：明确提示，不再跳到打不开的地址 */
@@ -7551,24 +7686,25 @@ async function renderSystem(){
     const old = btn.textContent;
     btn.disabled = true; btn.textContent = '正在清除…';
     try{
-      const r = await fetch('/api/lhclear', { method:'POST' });
-      const j = await r.json();
+      const j = await apiFetch('/api/lhclear', { method:'POST' }, 8000);
       if(j && j.ok){
         /* 已持久化的记录被清空，本地快照同步失效，回到通联页会重新拉取 */
         lhSnapshot = ''; lhHistData = []; lhLastFetch = 0; lhDirty = true;
         toast('MMDVM 缓存已清除');
       }else toast((j && j.error) || '清除失败', true);
-    }catch(e){ toast('清除失败', true); }
-    btn.disabled = false; btn.textContent = old;
+    }catch(e){ toast('清除失败：' + (e.message || e), true); }
+    finally{ btn.disabled = false; btn.textContent = old; }
   });
   $('#sys-reboot').addEventListener('click', async ()=>{
     if(PREVIEW){ toast('预览模式：不会真正重启设备'); return; }
     if(!(await uiConfirm('确定要重启设备吗？当前通联会中断。', { title: '重启设备', okText: '重启设备' }))) return;
     const btn = $('#sys-reboot');
     btn.disabled = true; btn.textContent = '正在重启…';
-    fetch('/api/system?act=reboot', { method:'POST' })
-      .then(r=>r.json()).then(j=>{ toast(j.ok?'设备正在重启，请稍候…':(j.error||'重启失败'), !j.ok); })
-      .catch(()=>toast('设备正在重启，请稍候…'));
+    try{
+      const j = await apiFetch('/api/system?act=reboot', { method:'POST' }, 8000);
+      toast(j && j.ok ? '设备正在重启，请稍候…' : ((j && j.error) || '重启失败'), !(j && j.ok));
+    }catch(e){ toast('设备正在重启，请稍候…'); }
+    finally{ btn.disabled = false; btn.textContent = '重启设备'; }
   });
   /* 进入系统页后每 3 秒只刷新 CPU/内存/根分区，离开页面时在 route() 里停止 */
   stopSysTick();
@@ -7576,7 +7712,11 @@ async function renderSystem(){
 }
 
 /* ---------- 整机固件 OTA（全量升级） ---------- */
-let fwChecked = null, fwPollTimer = null;
+let fwChecked = null, fwPollTimer = null, fwPollBusy = false, fwPollSeq = 0, fwInitPending = null;
+function stopFwPoll(){
+  fwPollSeq++;   /* 让在途请求的回调失效，关闭弹窗/离开页面后不再排下一次 */
+  if(fwPollTimer){ clearTimeout(fwPollTimer); fwPollTimer=null; }
+}
 /* 电台信息页“MMDVM 固件”行：显示当前固件版本与更新状态 */
 function fwRow(ver, state, color){
   const v = $('#radio-fw-ver'), s = $('#radio-fw-state');
@@ -7621,25 +7761,30 @@ async function radioCheckFw(){
   else fwRow(cur, '已是最新', 'var(--muted)');
 }
 async function fwInit(){
-  if(PREVIEW){ fwMsg('预览模式：不检查固件更新'); return; }
-  try{
-    const r0 = await fetch('/api/fw?act=info');
-    if(r0.status === 404){ fwMsg('当前仪表盘版本过旧，没有固件更新接口，请先更新网页（仪表盘更新）。', true); return; }
-    const j = await r0.json();
-    if(!j || !j.ok){ fwMsg('固件信息不可用', true); return; }
-    fwRow(j.current === 'unknown' ? '未知（旧固件）' : j.current);
-    fwMsg('当前固件：' + (j.current === 'unknown' ? '未知（旧固件）' : j.current) + '\n设备型号：' + j.board);
-    const st = await api('/api/fw?act=status');
-    if(st && st.ok){
-      if(st.phase === 'downloading') fwStartPoll();
-      else if(st.phase === 'verified') fwShowReady(st);
-      else if(st.phase === 'installing') fwMsg('正在写入固件并重启，请稍候…');
-      else if(st.phase === 'error') fwMsg(st.error || '固件更新失败', true);
-    }
-    await radioCheckFw();
-    return st;
-  }catch(e){ fwMsg('固件信息读取失败', true); }
-  return null;
+  if(fwInitPending) return fwInitPending;   /* 进入电台页/打开弹窗可能连着触发，合并为一次 */
+  fwInitPending = (async()=>{
+    if(PREVIEW){ fwMsg('预览模式：不检查固件更新'); return null; }
+    try{
+      const r0 = await apiRequest('/api/fw?act=info');
+      if(r0.status === 404){ fwMsg('当前仪表盘版本过旧，没有固件更新接口，请先更新网页（仪表盘更新）。', true); return null; }
+      const j = await r0.json();
+      if(!j || !j.ok){ fwMsg('固件信息不可用', true); return null; }
+      fwRow(j.current === 'unknown' ? '未知（旧固件）' : j.current);
+      fwMsg('当前固件：' + (j.current === 'unknown' ? '未知（旧固件）' : j.current) + '\n设备型号：' + j.board);
+      const st = await api('/api/fw?act=status');
+      if(st && st.ok){
+        if(st.phase === 'downloading' && $('#fwModal').classList.contains('show')) fwStartPoll();
+        else if(st.phase === 'verified') fwShowReady(st);
+        else if(st.phase === 'installing'){ stopFwPoll(); fwMsg('正在写入固件并重启，请稍候…'); }
+        else if(st.phase === 'error'){ stopFwPoll(); fwMsg(st.error || '固件更新失败', true); }
+        else stopFwPoll();   /* idle / rebooting / 未知终态：不挂轮询 */
+      }
+      await radioCheckFw();
+      return st;
+    }catch(e){ fwMsg('固件信息读取失败', true); }
+    return null;
+  })();
+  try{ return await fwInitPending; } finally{ fwInitPending = null; }
 }
 /* 整机固件更新弹窗：入口为电台信息页“MMDVM 固件”行的更新按钮 */
 async function openFwModal(){
@@ -7654,8 +7799,9 @@ async function openFwModal(){
 function bindFwModal(){
   const m = $('#fwModal');
   if(!m) return;
-  $('#fw-close').addEventListener('click', ()=>m.classList.remove('show'));
-  m.addEventListener('click', e=>{ if(e.target === m) m.classList.remove('show'); });
+  const closeFw = ()=>{ m.classList.remove('show'); stopFwPoll(); };
+  $('#fw-close').addEventListener('click', closeFw);
+  m.addEventListener('click', e=>{ if(e.target === m) closeFw(); });
   $('#fw-check').addEventListener('click', fwCheck);
   $('#fw-action').addEventListener('click', fwAction);
 }
@@ -7665,11 +7811,10 @@ async function fwCheck(){
   const old = b ? b.textContent : '';
   if(b){ b.disabled = true; b.textContent = '检查中…'; }
   try{
-    const r0 = await fetch('/api/fw?act=check');
+    const r0 = await apiRequest('/api/fw?act=check');
     if(r0.status === 404){
       fwMsg('当前仪表盘版本过旧，没有固件更新接口，请先更新网页（仪表盘更新）。', true);
       if(act) act.disabled = true;
-      if(b){ b.disabled = false; b.textContent = old; }
       return;
     }
     const j = await r0.json();
@@ -7690,31 +7835,45 @@ async function fwCheck(){
       }
     }
   }catch(e){ fwMsg('检查失败', true); }
-  if(b){ b.disabled = false; b.textContent = old; }
+  finally{ if(b){ b.disabled = false; b.textContent = old; } }
 }
-async function fwStartPoll(){
-  if(fwPollTimer) clearInterval(fwPollTimer);
+function fwStartPoll(){
+  stopFwPoll();
+  const seq = fwPollSeq;
+  const canPoll = ()=> seq === fwPollSeq && !!$('#fwModal') && $('#fwModal').classList.contains('show');
+  /* chained setTimeout：只有上一次请求结束（含异常）才排下一次，天然单飞 */
   const tick = async ()=>{
+    fwPollTimer = null;
+    if(fwPollBusy || !canPoll()) return;
+    fwPollBusy = true;
+    let keep = false;
     try{
       const st = await api('/api/fw?act=status');
-      if(!st || !st.ok) return;
+      if(!canPoll()) return;
+      if(!st || st.ok === false){ fwPollTimer = null; return; }
       if(st.phase === 'downloading'){
+        keep = true;
         const pct = st.total ? Math.round(st.got * 100 / st.total) : 0;
         fwBarShow(pct);
         fwMsg('正在下载固件… ' + pct + '%（' + fwFmtSize(st.got) + ' / ' + fwFmtSize(st.total) + '）\n下载期间 MMDVM 服务已暂停，升级完成或失败后自动恢复。');
         const b = $('#fw-action'); if(b){ b.disabled = true; b.textContent = '下载中…'; }
       }else if(st.phase === 'verified'){
-        clearInterval(fwPollTimer); fwPollTimer = null;
-        fwShowReady(st);
+        fwPollTimer = null; fwShowReady(st);
       }else if(st.phase === 'error'){
-        clearInterval(fwPollTimer); fwPollTimer = null;
-        fwBarShow(null);
+        fwPollTimer = null; fwBarShow(null);
         fwMsg((st.error || '固件下载失败') + '\nMMDVM 服务已尝试恢复。', true);
         const b = $('#fw-action'); if(b){ b.disabled = false; b.textContent = '重试'; }
+      }else{
+        /* installing / idle / rebooting / 未知终态：停止轮询 */
+        fwPollTimer = null;
+        if(st.phase === 'installing') fwMsg('正在写入固件并重启，请稍候…');
       }
-    }catch(e){}
+    }catch(e){ fwPollTimer = null; }
+    finally{
+      fwPollBusy = false;
+      if(keep && canPoll() && !fwPollTimer) fwPollTimer = setTimeout(tick, 1000);
+    }
   };
-  fwPollTimer = setInterval(tick, 1000);
   tick();
 }
 async function fwAction(){
@@ -7723,32 +7882,36 @@ async function fwAction(){
   if(b.textContent === '确认升级'){
     if(!(await uiConfirm('开始写入固件并重启？请确保供电稳定，升级过程中不要断电，通联会中断 1–3 分钟。', { title: '整机固件升级', okText: '开始升级' }))) return;
     b.disabled = true; b.textContent = '正在升级…';
+    let started = false;
     try{
-      const r = await fetch('/api/fw?act=install', { method:'POST' });
-      const j = await r.json();
-      if(j && j.ok){
+      const j = await apiFetch('/api/fw?act=install', { method:'POST' }, 12000);
+      if(j && j.ok) started = true;
+      else fwMsg((j && j.error) || '升级失败', true);
+      if(started){
         fwMsg('固件写入中，设备即将重启…\n约 1–3 分钟后刷新本页即可看到新版本。');
         fwBarShow(100);
-      }else{
-        fwMsg((j && j.error) || '升级失败', true);
-        b.disabled = false; b.textContent = '确认升级';
+        stopFwPoll();
       }
     }catch(e){
+      /* 设备可能在响应前就重启，按已开始处理 */
+      started = true;
       fwMsg('固件写入中，设备即将重启…\n约 1–3 分钟后刷新本页即可看到新版本。');
       fwBarShow(100);
-    }
+      stopFwPoll();
+    }finally{ if(!started){ b.disabled = false; b.textContent = '确认升级'; } }
     return;
   }
   const m = fwChecked;
   if(!m || !m.updateAvailable){ toast('请先检查更新'); return; }
   if(!(await uiConfirm('将下载固件 ' + (m.versionName || m.latest) + '（' + fwFmtSize(m.size) + '），下载期间会暂停 MMDVM 服务，下载完成后还需确认才会写入。是否继续？', { title: '下载固件', okText: '开始下载' }))) return;
   b.disabled = true; b.textContent = '下载中…';
+  let started = false;
   try{
-    const r = await fetch('/api/fw?act=download', { method:'POST' });
-    const j = await r.json();
-    if(j && j.ok) fwStartPoll();
-    else{ fwMsg((j && j.error) || '下载启动失败', true); b.disabled = false; b.textContent = '重试'; }
-  }catch(e){ fwMsg('下载启动失败', true); b.disabled = false; b.textContent = '重试'; }
+    const j = await apiFetch('/api/fw?act=download', { method:'POST' }, 12000);
+    if(j && j.ok){ started = true; fwStartPoll(); }
+    else fwMsg((j && j.error) || '下载启动失败', true);
+  }catch(e){ fwMsg('下载启动失败', true); }
+  finally{ if(!started){ b.disabled = false; b.textContent = '重试'; } }
 }
 
 /* ---------- DMR 实时语音（WebSocket + Web Audio） ---------- */
@@ -7956,8 +8119,8 @@ function bindLiveCfg(){
     const st = $('#liveState');
     if(st) st.textContent = '正在' + (en ? '开启' : '关闭') + '…';
     try{
-      const r = await fetch('/api/livecfg', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled: en }) });
-      const j = await r.json();
+      const j = await apiFetch('/api/livecfg', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled: en }) }, 8000);
+      if(!j || j.ok === false) throw new Error((j && j.error) || '设置失败');
       liveCfg.enabled = !!j.enabled;
       liveCfg.loaded = true;
       applyLiveUi();
@@ -8136,7 +8299,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   /* 先探测设备能力（AX5 才显示网络配置）与 LuCI 密码状态，再渲染首屏 */
   await Promise.allSettled([
     initNetWifiCap(),
-    Promise.race([ loadAuthStatus(), new Promise(r=>setTimeout(r, 1500)) ])
+    Promise.race([
+      loadAuthStatus(),
+      /* 1.5 秒只作为等待兜底：未知按锁定处理，不 abort 原请求，后续成功仍会纠错 */
+      new Promise(r=>setTimeout(()=>{
+        if(authRequired === null) authRequired = !STATIC_PREVIEW;
+        applyNavLockUI();
+      }, 1500))
+    ])
   ]);
   applyNavLockUI();
   route();

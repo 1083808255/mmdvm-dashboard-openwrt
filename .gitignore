@@ -31,6 +31,14 @@ openwrt/luci-redirect.html
 firmware/
 firmware-build/devices/*/artifacts/
 
+# OTA 包体与固件镜像不入库；发布清单（含版本/sha）必须入库以便审计
+ota/dist/*
+!ota/dist/*.json
+!ota/dist/*.json.gh
+!ota/dist/fw/
+ota/dist/fw/*
+!ota/dist/fw/*.json
+
 # IDE/工具缓存
 .workbuddy/
 .trae/
@@ -48,9 +56,6 @@ md380-emu
 
 # 设备诊断导出（含设备信息，不入库）
 Xiaomi-Mi-Router-*.json
-
-# OTA 发布产物（提交到独立的 dashboard-ota 仓库）
-ota/dist/
 
 # 通用
 *.bak

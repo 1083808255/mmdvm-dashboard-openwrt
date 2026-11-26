@@ -22,7 +22,7 @@
 |---|---|
 | [固件多机型同步方案.md](固件多机型同步方案.md) | **发版前必读**：R3G / AX5 / 7628 / x86 / N1 的设备矩阵、包清单、发布检查清单、平台坑（MIPS16 等） |
 | [固件编译方案.md](固件编译方案.md) | 总览：环境、固件组成、CH341A、各机型入口 |
-| ├ [x86/64](firmware-build/devices/x86/编译方案.md) | x86/64 编译流程与产物校验（已发布 V0.660 修复版镜像 + 源码仪表盘 V0.665，经独立 OTA 升级） |
+| ├ [x86/64](firmware-build/devices/x86/编译方案.md) | x86/64 编译流程与产物校验（已发布 V0.660 修复版镜像 + 源码仪表盘 V0.666，经独立 OTA 升级） |
 | ├ [R3G](firmware-build/devices/r3g/编译方案.md) | 小米路由器 3G 编译与发布 |
 | ├ [AX5](firmware-build/devices/ax5/编译方案.md) | 红米 AX5 编译与发布 |
 | ├ [7628](firmware-build/devices/mt7628/编译方案.md) | HLK-7628N 编译与发布 |

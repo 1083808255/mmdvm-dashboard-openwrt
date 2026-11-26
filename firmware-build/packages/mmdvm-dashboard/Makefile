@@ -41,6 +41,7 @@ define Package/mmdvm-dashboard/install
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/www-dash/index.html $(1)/www-dash/index.html
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/www-dash/VERSION $(1)/www-dash/VERSION
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/www-dash/api/api.uc $(1)/www-dash/api/api.uc
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/www-dash/api/api.uc.src $(1)/www-dash/api/api.uc.src
 	$(foreach e,$(DASH_ENDPOINTS),$(LN) api.uc $(1)/www-dash/api/$(e);)
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/usr/bin/mmdvm-ids-sync $(1)/usr/bin/mmdvm-ids-sync
