@@ -1,8 +1,8 @@
 {
-  "version": "V0.666",
-  "url": "https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main/dashboard-V0.666.tar.gz",
-  "sha256": "58715135fba06b28e55ca149c7db6d2f7aaa80abec6e773fce5e1e4c94866bb3",
-  "size": 186042,
-  "notes": "修复服务端写鉴权；会话过期自动锁定；通联记录刷新不再显示预览或空列表；7628 性能优化；安装与同步脚本加固",
+  "version": "V0.667",
+  "url": "https://ghproxy.net/https://raw.githubusercontent.com/1083808255/dashboard-ota/main/dashboard-V0.667.tar.gz",
+  "sha256": "07535be293970d2d915672e4eb30dd649aa2b40867ae70743dc19e96b4411b0b",
+  "size": 191246,
+  "notes": "修复实时接口在高负载时兜底帧误报单工、导致通联界面时隙1偶发消失的问题；修复刷新误触发 WiFi 扫描；最近通联按结束时间排序并即时更新",
   "endpoints": ["auth","basic","calibration","configs","fw","lastheard","lhclear","live","livecfg","log","luci","ota","page","ports","services","status","system","tg","wifi","xlxhosts"]
 }
