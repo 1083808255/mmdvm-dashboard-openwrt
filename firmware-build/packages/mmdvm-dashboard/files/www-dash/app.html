@@ -3046,7 +3046,8 @@ let lastRoute = '';
 /* 高级页进入确认后的一次性放行标记 */
 let advGate = false;
 let cfgMode = 'mmdvmhost';
-let netSupported = false;   /* 设备能力：仅 AX5 支持网络配置 */
+let netSupported = false;   /* 设备能力：AX5 / 7628 支持网络配置 */
+let netProbed = false;      /* 能力探测是否完成：未完成前不按“不支持”跳转，避免刷新时误回通联页 */
 function applyNavActive(sel, view, persistOpen){
   const nav = $(sel); if(!nav) return;
   $$(sel+' a').forEach(a=>{
@@ -3078,7 +3079,7 @@ function route(){
   let view = seg[0];
   if(!['qso','config','basic','services','adv','cal','tg','radio','system','livetool','netcfg'].includes(view)) view = 'qso';
   /* 网络配置为设备差异化功能：不支持的设备隐藏菜单并阻止直达 */
-  if(view === 'netcfg' && !netSupported){ location.hash = '#/qso'; return; }
+  if(view === 'netcfg' && netProbed && !netSupported){ location.hash = '#/qso'; return; }
   /* 菜单未解锁且需要密码时，只能停留在通联信息页，阻止直达其它视图（手机/电脑一致） */
   if(authRequired && !menuUnlocked && view !== 'qso'){
     location.hash = '#/qso';
@@ -3347,10 +3348,10 @@ let netScanning = false;
 let ncMode = 'wired';
 let ncEditCtx = null;
 async function netWifiGet(){ return await api('/api/wifi?act=get') || {}; }
-async function netWifiPost(body){
+async function netWifiPost(body, timeoutMs){
   try{
     if(!netSupported && body.act !== 'get' && body.act !== 'status') throw new Error('当前设备不支持网络配置');
-    const j = await apiFetch('/api/wifi', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) }, 8000);
+    const j = await apiFetch('/api/wifi', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) }, timeoutMs || 8000);
     if(!j || j.ok === false) throw new Error((j && j.error) || '操作失败');
     return j;
   }catch(e){ toast('操作失败：'+(e.message||e), true); throw e; }
@@ -3361,6 +3362,7 @@ async function initNetWifiCap(){
     netSupported = !!(j.capability && j.capability.supported);
     if(netSupported) window._netCap = j.capability;
   }catch(e){ netSupported = false; }
+  netProbed = true;
   const show = netSupported ? '' : 'none';
   $$('.netcfg-entry').forEach(el=>{ el.style.display = show; });
   if(!netSupported && location.hash.startsWith('#/netcfg')) location.hash = '#/qso';
@@ -3378,8 +3380,9 @@ function ncApplyCap(){
     const ok = k === 'wired' ? hasWired : (k === 'lte' ? hasLte : true);
     btn.style.display = ok ? '' : 'none';
   });
-  /* 当前模式被裁掉时回落到 WiFi 连接 */
-  if((ncMode === 'wired' && !hasWired) || (ncMode === 'lte' && !hasLte)) ncSetMode('sta');
+  /* 当前模式被裁掉时只调整内部状态；真正切页签由 renderNetCfg()/用户点击触发，
+     不能在这里调用 ncSetMode('sta')，否则 7628 每次刷新都会在后台自动扫描 WiFi */
+  if((ncMode === 'wired' && !hasWired) || (ncMode === 'lte' && !hasLte)) ncMode = 'sta';
 }
 function ncSetBandOptions(cap, preferred){
   const sel = $('#nc-ap-width'); if(!sel || !cap || !cap.widths) return;
@@ -3599,7 +3602,8 @@ async function ncDoScan(){
   const btn = $('#nc-sta-scan'); if(btn) btn.disabled = true;
   const tbody = $('#nc-sta-list tbody'); if(tbody) tbody.innerHTML = '<tr><td colspan="4">正在扫描…</td></tr>';
   try{
-    const j = await netWifiPost({ act:'scan' });
+    /* 7628 单核扫描实测约 20 秒，超时不能沿用普通写操作的 8 秒 */
+    const j = await netWifiPost({ act:'scan' }, 40000);
     const st = (await netWifiGet()).status || null;
     ncRenderScan(j.networks || [], st);
     toast('扫描完成，共 '+(j.networks||[]).length+' 个结果');
@@ -6254,6 +6258,9 @@ let liveTimer = null, liveStart = {}, idleTimer = null, idleDots = 0, liveIdle =
 let qsoTimer = null, lhSnapshot = '', qsoActive = false;
 /* 最近通联节流：仅在通联结束/首次进入/超过 15s 时拉取 */
 let lhLastFetch = 0, lhDirty = true, prevActive = false;
+/* lhForce：后端 7628 解析一次要 8~13 秒，平时允许复用旧缓存；
+   只有「刚有通话结束」才要求后端跳过缓存立刻重算，保证新记录及时出现 */
+let lhForce = false, lhInFlight = false, lhQueued = false;
 /* 槽位差分渲染缓存：内容未变时不重写 DOM */
 const slotPrev = {};
 /* 每个时隙当前呼叫的身份（呼号/目标/是否结束），用于在“上一笔↔下一笔”切换时立即刷新最近通联 */
@@ -6294,16 +6301,29 @@ async function qsoOnce(){
     /* 请求失败（返回 null）时保留上一次画面，避免抖动成假数据 */
     if(x) renderLive(x);
     const now = Date.now();
-    /* 最近通联只在通联结束、首次进入或超 15s 时请求，避免每秒拉取 10KB 列表 */
+    /* 最近通联只在通联结束、首次进入或超 15s 时请求，避免每秒拉取 10KB 列表。
+       这里不能 await：7628 解析一次要 8~13 秒，会卡住 1 秒的实时轮询，
+       表现为通话信息整页停住不动。改为后台并行刷新。 */
     if(lhDirty || now - lhLastFetch > 15000){
-      lhLastFetch = now; lhDirty = false;
-      if(gen !== qsoGen) return;
-      await renderLastheardLog();
+      const force = lhForce;
+      lhLastFetch = now; lhDirty = false; lhForce = false;
+      if(gen === qsoGen) lhRefresh(force);
     }
   })();
   qsoInFlight = job;
   try{ return await job; }
   finally{ if(qsoInFlight === job) qsoInFlight = null; }
+}
+/* 最近通联单独排队：与 1 秒实时轮询解耦；期间若又有通话结束，完成后立即再刷一次 */
+async function lhRefresh(force){
+  if(lhInFlight){ if(force) lhQueued = true; return; }
+  lhInFlight = true;
+  try{ await renderLastheardLog(force); }
+  catch(e){ console.warn('[qso] 最近通联刷新失败', e); }
+  finally{
+    lhInFlight = false;
+    if(lhQueued){ lhQueued = false; lhDirty = true; lhForce = true; }
+  }
 }
 /* 从后台切回前台时立即刷新一次 */
 document.addEventListener('visibilitychange', ()=>{
@@ -6324,11 +6344,15 @@ function renderLive(l){
   for(const n of ['1','2']){
     const s = slots[n] || {};
     const k = s.active ? [s.callsign||s.id||'', s.target||'', s.ended?'E':'A'].join('|') : '';
-    if(k && k !== liveCallKey[n]) lhDirty = true;
+    const old = liveCallKey[n] || '';
+    if(k && k !== old) lhDirty = true;
+    /* 只有通话结束（active→结束/消失）才值得让后端跳过缓存立刻重算；
+       通话刚开始时日志里还没有这条记录，强制刷新只会白等一次慢解析 */
+    if(old && (!k || (k.slice(-2) === '|E' && old.slice(-2) !== '|E'))) lhForce = true;
     liveCallKey[n] = k;
   }
   const nowActive = !!(slots['1'] && slots['1'].active) || !!(slots['2'] && slots['2'].active);
-  if(prevActive && !nowActive) lhDirty = true; /* 有通联刚结束 → 下次刷新最近通联 */
+  if(prevActive && !nowActive){ lhDirty = true; lhForce = true; } /* 有通联刚结束 → 立刻重算最近通联 */
   prevActive = nowActive;
   qsoActive = nowActive;
   renderSlot('1', slots['1'], l.mode);
@@ -6449,8 +6473,9 @@ function startIdleTick(){
 }
 function stopIdleTick(){ if(idleTimer){ clearInterval(idleTimer); idleTimer=null; } }
 function fmtDur(s){ s=Math.floor(s); const m=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return m+':'+ss; }
-async function renderLastheardLog(){
-  const lh = await api('/api/lastheard');
+async function renderLastheardLog(force){
+  /* 通话刚结束时必须绕过后端 30 秒复用窗口，否则前端看到的是上一帧 */
+  const lh = await api('/api/lastheard' + (force ? '?fresh=1' : ''));
   if(lh == null) return;   /* 请求失败时保留上一次列表，不显示预览记录 */
   const list = (lh||[]).slice(0, 50);
   const snap = JSON.stringify(list);
@@ -6538,9 +6563,9 @@ function stopCalMon(){
   if(sw) sw.checked = false;
   setCalBadge('已停止', 'off');
 }
-const UI_VER = '20261126a666';
+const UI_VER = '20261126a667';
 /* 界面显示的版本号：V0.<构建序号>，小数位最多 4 位；稳定前主版本保持 0 */
-function dashVer(){ return 'V0.666'; }
+function dashVer(){ return 'V0.667'; }
 /* forceMs：指定固定刷新周期（自动校准用 3000ms），省略则跟随下拉框 */
 function startCalMon(forceMs){
   stopCalTimer();

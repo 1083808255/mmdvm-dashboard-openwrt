@@ -173,6 +173,12 @@ function staleGet(path, maxAge) {
    单核进程越积越多」雪崩的最后一道闸。锁用时间戳，进程崩溃后最多 stale 秒自动释放。 */
 function lockDir(name) { return "/tmp/dashboard_" + name + ".lockd"; }
 function inFlightDone(name) { sh("rm -rf " + sq(lockDir(name))); }
+/* 只读检查：实时轮询用它避开正在跑的 lastheard 全量重算，
+   不会像 inFlight() 那样顺手抢到锁把对方挡住。 */
+function lockHeld(name, stale) {
+	let t = trim(sh("cat " + sq(lockDir(name) + "/t") + " 2>/dev/null"));
+	return length(t) && (time() - int(t)) < stale;
+}
 /* 原子锁：mkdir 只有一个进程能成功，避免 read-then-write 的竞态。
    锁目录里的时间戳只作进程崩溃后的兜底；正常完成时由调用方 inFlightDone 立即释放。 */
 function inFlight(name, stale) {
@@ -1731,21 +1737,53 @@ function lhLoad() {
 }
 function lhSave(st) { writeCache(LH_STORE, st); }
 
+/* 最近通联的排序/淘汰水位统一用「通话结束时间」，不能用开始时间：
+   同一 ID 的长通话可能比后开始的短通话更晚结束，按开始时间会把长通话排到后面。
+   旧存储没有 lastEnd，用 rec 的 ts + dur 推算。 */
+function lhEndOf(e) {
+	if (e == null || type(e) != "object") return 0;
+	let end = +e.lastEnd || 0;
+	if (end > 0) return end;
+	let rec = e.rec;
+	if (rec != null && type(rec) == "object") {
+		let ts = epochOf(rec.ts);
+		if (ts > 0) return ts + (+rec.dur || 0);
+	}
+	return +e.last || 0;
+}
+/* 旧存储没有 lastEnd：一次性补齐，避免排序比较时反复做日期解析。
+   7628 上 200 个 ID 的冒泡排序若每次比较都解析时间戳，会从 3 秒涨到 22 秒。 */
+function lhEnsureEnds(st) {
+	let fixed = false;
+	for (let k in st.ids) {
+		let e = st.ids[k];
+		if (e != null && type(e) == "object" && !(+e.lastEnd > 0)) {
+			e.lastEnd = lhEndOf(e);
+			fixed = true;
+		}
+	}
+	return fixed;
+}
 /* 并入一条记录。key 为聚合键（DMR ID；纯呼号记录用 "C:呼号"）。
-   用「该 ID 最后通联时间」做水位去重：日志重启后会重新解析旧内容，
-   旧记录的时间不会超过水位，因此不会重复入库。返回是否有新增 */
+   用「该 ID 最后结束时间」做水位去重：日志重启后会重新解析旧内容，
+   旧记录的结束时间不会超过水位，因此不会重复入库。返回是否有新增 */
 function lhTouch(st, key, id, call, q) {
 	let ts = epochOf(q.ts);
+	let end = +q.end || 0;
+	if (!(end > 0)) end = ts + (+q.dur || 0);
 	if (!ts || ts < st.since) return false;
 	let e = st.ids[key];
-	if (e != null && type(e) == "object" && ts <= (+e.last || 0)) return false;
+	let prevEnd = lhEndOf(e);
+	if (e != null && type(e) == "object" && end > 0 && end <= prevEnd) return false;
 	if (e == null || type(e) != "object") {
 		e = { id: id, call: "", last: 0, rec: null, hist: [], gps: null, gpsLeft: 0, gpsTs: 0 };
 		st.ids[key] = e;
 	}
 	e.id = id;
 	if (length(call)) e.call = call;
-	e.last = ts;
+	/* last 保留开始时间水位，兼容旧存储；lastEnd 才是最近通联排序依据 */
+	if (ts > (+e.last || 0)) e.last = ts;
+	if (end > prevEnd) e.lastEnd = end;
 	/* 同一呼号的最新 GPS 最多保留 5 次通联，且坐标有效期只有 30 分钟：
 	   有坐标的本次算第 1 次，后续无坐标记录再沿用 4 次；新坐标重置次数与时间 */
 	if (q.gps != null && q.gps.lat && q.gps.lon) {
@@ -1787,65 +1825,62 @@ function lhTouch(st, key, id, call, q) {
 	e.hist = nh;
 	return true;
 }
-/* 超过上限时按最后通联时间淘汰最旧的 ID，避免文件无限增长 */
+/* 超过上限时按最后结束时间淘汰最旧的 ID，避免文件无限增长 */
 function lhTrim(st) {
 	let arr = [];
 	for (let k in st.ids) push(arr, k);
 	if (length(arr) <= LH_MAX_IDS) return;
 	for (let i = 0; i < length(arr); i++)
 		for (let j = i + 1; j < length(arr); j++)
-			if ((+st.ids[arr[j]].last || 0) < (+st.ids[arr[i]].last || 0)) {
+			if ((+st.ids[arr[j]].lastEnd || 0) < (+st.ids[arr[i]].lastEnd || 0)) {
 				let t = arr[i]; arr[i] = arr[j]; arr[j] = t;
 			}
 	for (let i = 0; i < length(arr) - LH_MAX_IDS; i++) delete st.ids[arr[i]];
 }
 
-function cmdLastheard() {
-	let file = logFileFor("MMDVM");
-	/* 日志与呼号库都没变化时直接返回上次结果（最长 2 分钟刷新一次） */
-	let sig = fileSig(file) + "#" + fileSig(INI_DIR + "DMRIds.dat") + "#" +
-	          fileSig(BG_CSV) + "#" + fileSig(RW_CSV) + "#" + fileSig(ID_CACHE) + "#" + int(time() / 120);
-	let cc = FS.readfile(LH_CACHE);
-	let cachedBody = null, cachedAge = 9999;
-	if (cc != null && substr(trim(cc), 0, 1) == "{") {
-		let v = json(cc);
-		if (type(v) == "object" && type(v.body) == "array") {
-			cachedBody = v.body;
-			cachedAge = time() - (v.t ?? 0);
-			/* 签名匹配（日志/库都没变）直接用；签名变了但结果在 15 秒内也复用，
-			   避免通话时日志变化导致每次都全量解析 + 查呼号库，逼近超时后堆积雪崩 */
-			if (v.sig == sig || cachedAge <= 15) { out(v.body); return; }
-		}
+/* 历史缓存只按呼号库签名判断有效性；日志变化由 /api/live 增量入库后主动改写缓存，
+   这样通话结束时前端的 ?fresh=1 直接命中缓存，不用再等一次 5~13 秒全量解析。 */
+function lhDbSig() {
+	return fileSig(INI_DIR + "DMRIds.dat") + "#" + fileSig(BG_CSV) + "#" +
+	       fileSig(RW_CSV) + "#" + fileSig(ID_CACHE);
+}
+function lhSig(file) { return fileSig(file) + "#" + lhDbSig(); }
+/* 记录去重签名：日志重启/轮转后会重复解析旧内容，用结束时间+身份做水位，
+   避免 300 条记录每次都在实时轮询里重新走 epochOf 解析。 */
+function lhRecSig(q) {
+	/* 只用原始时间字符串，避免实时轮询里为 300 条记录反复做 epochOf 解析 */
+	return (q.ts ?? "") + "|" + (+q.dur || 0) + "|" + (q.callsign ?? "") + "|" +
+	       (q.slot ?? "") + "|" + (q.target ?? "") + "|" + (q.data ? 1 : 0);
+}
+function lhSeenSet(st) {
+	let m = {};
+	for (let s in (type(st.seen) == "array" ? st.seen : [])) m[s] = 1;
+	return m;
+}
+function lhSeenAdd(st, seen, sig) {
+	if (seen[sig]) return;
+	seen[sig] = 1;
+	if (type(st.seen) != "array") st.seen = [];
+	push(st.seen, sig);
+	if (length(st.seen) > 300) {
+		let n = [];
+		for (let i = length(st.seen) - 300; i < length(st.seen); i++) push(n, st.seen[i]);
+		st.seen = n;
 	}
-	/* 需要重算：先拿单飞锁，拿不到说明已有实例在跑。这里宁可返回旧列表也不能返回空列表——
-	   7628 单核全量解析要 10 秒左右，空列表会让前端把真实通联记录误判成「暂无」。
-	   绝不再启动第二个重算进程——lastheard 单次解析+查库最重，是堆积雪崩的主要来源 */
-	let gotLhLock = !inFlight("lastheard", 30);
-	if (!gotLhLock) {
-		if (cachedBody != null) out(cachedBody);
-		else out({ ok: false, pending: true });
-		return;
-	}
-	let recs = parseQsoSafe().recs;
-	/* 合并阶段只解析 ID：ID 记录用呼号本身，纯呼号记录才查 DMRIds.dat。
-	   地址/呼号全表扫描留到展示阶段，只对最终 50 条做，避免每次刷新都扫库 */
-	let st = lhLoad();
-	let nidCalls = [], seenC = {};
-	for (let q in recs) {
-		if (q.isId || seenC[q.callsign]) continue;
-		seenC[q.callsign] = true;
-		push(nidCalls, q.callsign);
-	}
-	let c2id = length(nidCalls) ? idFor(nidCalls) : {};
-	/* 旧数据迁移：以前 ID 反查不到时按 "C:呼号" 聚合，现在能查到 ID 就并入 ID 键，
-	   否则同一条通联会同时以「呼号键」和「ID 键」出现两次 */
+}
+function lhKeyFor(q, c2id) {
+	let id = q.isId ? q.callsign : ((c2id != null ? c2id[q.callsign] : null) ?? "");
+	return { id: id, key: length(id) ? id : ("C:" + q.callsign) };
+}
+/* 旧数据迁移：以前 ID 反查不到时按 "C:呼号" 聚合，现在能查到 ID 就并入 ID 键 */
+function lhMigrate(st, c2id) {
 	let lhk = [];
 	for (let k in st.ids) push(lhk, k);
-	let mergedOld = false;
+	let merged = false;
 	for (let k in lhk) {
 		if (substr(k, 0, 2) != "C:") continue;
 		let cs = substr(k, 2);
-		let nid = c2id[cs] ?? "";
+		let nid = (c2id != null ? c2id[cs] : null) ?? "";
 		if (!length(nid)) continue;
 		let e = st.ids[k];
 		if (e == null || type(e) != "object") continue;
@@ -1861,22 +1896,34 @@ function cmdLastheard() {
 			for (let h in (type(e.hist) == "array") ? e.hist : [])
 				if (h != null && h.ts != null && !seenTs[h.ts]) { push(hs, h); seenTs[h.ts] = 1; }
 			d.hist = hs;
-			if ((+e.last || 0) > (+d.last || 0)) { d.last = e.last; d.rec = e.rec; }
+			/* 合并时按结束时间取较新的记录，并把 lastEnd 一并继承 */
+			if (lhEndOf(e) > lhEndOf(d)) {
+				d.last = Math.max(+d.last || 0, +e.last || 0);
+				d.lastEnd = lhEndOf(e);
+				d.rec = e.rec;
+			}
 			if (!length(d.id)) d.id = nid;
 		}
 		delete st.ids[k];
-		mergedOld = true;
+		merged = true;
 	}
-	if (mergedOld) lhSave(st);
-	let added = false;
+	return merged;
+}
+/* 把解析出的结束记录并入持久化状态。recs 里旧记录靠 seen 水位跳过；
+   GPS 后补与 data 标记仍逐条检查（没有额外解析开销），避免坐标晚到被漏掉。
+   返回 { added, fresh }，fresh 是本次真正新增的记录，供实时接口直接更新展示缓存。 */
+function lhMergeRecs(st, recs, c2id) {
+	let added = false, fresh = [], seenChanged = false, seen = lhSeenSet(st);
 	for (let q in recs) {
-		let id = q.isId ? q.callsign : (c2id[q.callsign] ?? "");
-		let key = length(id) ? id : ("C:" + q.callsign);
-		if (lhTouch(st, key, id, "", q)) { added = true; continue; }
+		let sig = lhRecSig(q), isNew = !seen[sig];
+		if (isNew) { lhSeenAdd(st, seen, sig); seenChanged = true; }
+		let k = lhKeyFor(q, c2id);
+		let touched = isNew ? lhTouch(st, k.key, k.id, "", q) : false;
+		if (touched) { added = true; push(fresh, q); continue; }
 		/* GPS 可能在通话结束入库后才解析到：只回填当前这条同时间戳记录，
 		   不用旧记录的坐标覆盖更新的通联 */
 		if (q.gps != null && q.gps.lat && q.gps.lon) {
-			let e = st.ids[key];
+			let e = st.ids[k.key];
 			if (e != null && type(e) == "object" && e.rec != null && type(e.rec) == "object"
 				&& epochOf(e.rec.ts) == epochOf(q.ts)) {
 				let eg = e.rec.gps;
@@ -1893,7 +1940,7 @@ function cmdLastheard() {
 		}
 		/* 旧数据迁移：已入库的同一时间戳记录补上 data（APRS 等数据突发）标记 */
 		if (!q.data) continue;
-		let e = st.ids[key];
+		let e = st.ids[k.key];
 		if (e == null || type(e) != "object") continue;
 		let qts = epochOf(q.ts), hit = false;
 		if (e.rec != null && type(e.rec) == "object" && epochOf(e.rec.ts) == qts && !e.rec.data) {
@@ -1905,13 +1952,63 @@ function cmdLastheard() {
 		}
 		if (hit) added = true;
 	}
-	if (added) { lhTrim(st); lhSave(st); }
-	/* 按最后通联时间倒序取前 50 个 ID */
+	return { added: added, fresh: fresh, seenChanged: seenChanged };
+}
+/* 单条展示行：实时增量入库与全量重算共用，保证两处字段完全一致 */
+function lhRowOf(q, e, ctx) {
+	let call = q.callsign, id = "";
+	if (q.isId) { call = ctx.id2call[q.callsign] ?? e.call ?? ""; id = q.callsign; }
+	else id = ctx.ids[q.callsign] ?? ctx.call2id[q.callsign] ?? (e.id ?? "");
+	let g4 = null;
+	/* 即使一直停留在同一条通联，GPS 超过 30 分钟未更新也不再显示 */
+	let qg = q.gps;
+	let gts = +e.gpsTs || 0;
+	if (!(gts > 0) && qg != null) {
+		gts = epochOf(qg.ts ?? "");
+		if (!gts) gts = epochOf(q.ts);
+	}
+	if (qg == null || !(gts > 0) || time() - gts > LH_GPS_TTL) qg = null;
+	if (qg != null && qg.lat && qg.lon) {
+		let a = addrCached(qg.lat, qg.lon);
+		if (!length(a)) addrPrefetch(qg.lat, qg.lon);
+		let km = ctx.hasMe ? distKm(ctx.myLat, ctx.myLon, qg.lat, qg.lon) : null;
+		g4 = { lat: qg.lat, lon: qg.lon, addr: a,
+			dist: (km != null) ? ((km < 10) ? (rnd(km * 10) / 10) : rnd(km)) : null,
+			base: ctx.gpsBase };
+	}
+	/* 历史只回传通话组与时间戳（时间由前端按 ts 格式化），减小响应体积 */
+	let hist = (type(e.hist) == "array") ? e.hist : [];
+	let hout = [];
+	for (let h in hist) {
+		let o = { tg: h.tg ?? "", ts: h.ts ?? 0 };
+		if (h.d) o.d = 1;
+		push(hout, o);
+	}
+	return {
+		callsign: call,
+		id: id,
+		addr: (length(id) && ctx.addrMap[id]) ? ctx.addrMap[id] : (ctx.addrCall[call] ?? ""),
+		dir: q.dir,
+		mode: q.data ? "DATA" : "DMR",
+		slot: q.slot,
+		target: q.target,
+		rssi: (q.dir == "TX" && q.rssi != null) ? sprintf("%d dBm", q.rssi) : "",
+		ber: sprintf("%.1f%%", q.ber),
+		dur: sprintf("%.1f", q.dur),
+		time: hhmmss(q.ts),
+		ts: epochOf(q.ts),
+		gps: g4,
+		hist: hout
+	};
+}
+/* 由持久化状态生成前端列表。/api/lastheard 全量重算与 /api/live 增量入库共用同一段逻辑。 */
+function lhBuildBody(st, file, c2id) {
+	/* 按最后结束时间倒序取前 50 个 ID */
 	let keys = [];
 	for (let k in st.ids) push(keys, k);
 	for (let i = 0; i < length(keys); i++)
 		for (let j = i + 1; j < length(keys); j++)
-			if ((+st.ids[keys[j]].last || 0) > (+st.ids[keys[i]].last || 0)) {
+			if ((+st.ids[keys[j]].lastEnd || 0) > (+st.ids[keys[i]].lastEnd || 0)) {
 				let t = keys[i]; keys[i] = keys[j]; keys[j] = t;
 			}
 	let pick = [];
@@ -1927,8 +2024,15 @@ function cmdLastheard() {
 			if (!seenId[q.callsign]) { seenId[q.callsign] = true; push(idlist, q.callsign); }
 		} else if (!seen[q.callsign]) { seen[q.callsign] = true; push(calls, q.callsign); }
 	}
-	/* 展示阶段：多数呼号已在合并阶段解析，只有旧记录里未覆盖的呼号才补查一次 */
-	let ids = c2id;
+	/* 纯呼号记录的 ID 在并入时已写入 st.ids，直接复用，避免每次都 grep 呼号库 */
+	let ids = (type(c2id) == "object" && c2id != null) ? c2id : {};
+	for (let k in st.ids) {
+		let e = st.ids[k];
+		if (e == null || type(e) != "object" || !length(e.id)) continue;
+		if (substr(k, 0, 2) == "C:") ids[substr(k, 2)] = e.id;
+		else if (e.rec != null && type(e.rec) == "object" && !e.rec.isId && length(e.rec.callsign))
+			ids[e.rec.callsign] = e.id;
+	}
 	let miss = [];
 	for (let c in calls) if (ids[c] == null) push(miss, c);
 	if (length(miss)) {
@@ -1942,9 +2046,6 @@ function cmdLastheard() {
 		else push(otherIds, x);
 	}
 	let id2call = resolveCalls(otherIds);
-	let allids = [];
-	for (let x in idlist) push(allids, x);
-	for (let c in ids) push(allids, ids[c]);
 	/* 46 开头用 BG4ESI，86 开头用 radiowo */
 	let bg = bgLookup(ids46, calls);
 	let rw = rwLookup(ids86, calls);
@@ -1961,61 +2062,63 @@ function cmdLastheard() {
 	let call2id = {};
 	for (let k in bg.call2id) call2id[k] = bg.call2id[k];
 	for (let k in rw.call2id) call2id[k] = rw.call2id[k];
-	let r = [];
-	/* 通联记录里的内嵌 GPS：地址只读缓存，未命中交给后台进程查，下一次刷新补上 */
 	let inf = (ini(INI_DIR + "MMDVM.ini")["Info"] ?? {});
-	/* 1 小时内收到过本机手台上报的 GPS 就以它为基准，否则用配置 [Info] 的经纬度 */
 	let lg1 = localGps(file);
 	let myLat = lg1 ? +lg1.lat : +trim(inf.Latitude ?? ""), myLon = lg1 ? +lg1.lon : +trim(inf.Longitude ?? "");
-	let hasMe = ((myLat < 0 ? -myLat : myLat) > 0.0001 || (myLon < 0 ? -myLon : myLon) > 0.0001);
-	for (let e in pick) {
-		let q = e.rec;
-		let call = q.callsign, id = "";
-		if (q.isId) { call = id2call[q.callsign] ?? e.call ?? ""; id = q.callsign; }
-		else id = ids[q.callsign] ?? call2id[q.callsign] ?? (e.id ?? "");
-		let g4 = null;
-		/* 即使一直停留在同一条通联，GPS 超过 30 分钟未更新也不再显示 */
-		let qg = q.gps;
-		let gts = +e.gpsTs || 0;
-		if (!(gts > 0) && qg != null) {
-			gts = epochOf(qg.ts ?? "");
-			if (!gts) gts = epochOf(q.ts);
+	let ctx = { id2call: id2call, ids: ids, call2id: call2id, addrMap: addrMap, addrCall: addrCall,
+		gpsBase: lg1 ? "radio" : "config", hasMe: ((myLat < 0 ? -myLat : myLat) > 0.0001 || (myLon < 0 ? -myLon : myLon) > 0.0001),
+		myLat: myLat, myLon: myLon };
+	let r = [];
+	for (let e in pick) push(r, lhRowOf(e.rec, e, ctx));
+	return r;
+}
+
+function cmdLastheard() {
+	let file = logFileFor("MMDVM");
+	/* 呼号库变化才必须全量重算；日志变化由 /api/live 增量入库并直接改写展示缓存。
+	   实时页面没开着时，普通轮询仍会在 30 秒后按日志签名重算一次。 */
+	let dbSig = lhDbSig(), sig = lhSig(file);
+	let fresh = (qs().fresh ?? "") == "1";
+	let cc = FS.readfile(LH_CACHE);
+	let cachedBody = null, cachedAge = 9999;
+	if (cc != null && substr(trim(cc), 0, 1) == "{") {
+		let v = json(cc);
+		if (type(v) == "object" && type(v.body) == "array") {
+			cachedBody = v.body;
+			cachedAge = time() - (v.t ?? 0);
+			/* live 写入的缓存带 live=1：其中的记录已由实时轮询增量并入，日志后续变化
+			   只是通话中的音频行，不会改变历史列表；页面关掉后再回来也会先跑一次 live
+			   把新记录并进来，所以这里无需按时间作废。 */
+			let dbOk = (v.dbSig != null) ? (v.dbSig == dbSig) : (v.sig == sig || cachedAge <= 30);
+			let liveFresh = (+v.live || 0) == 1;
+			if (dbOk && (liveFresh || v.sig == sig || (!fresh && cachedAge <= 30))) { out(v.body); return; }
 		}
-		if (qg == null || !(gts > 0) || time() - gts > LH_GPS_TTL) qg = null;
-		if (qg != null && qg.lat && qg.lon) {
-			let a = addrCached(qg.lat, qg.lon);
-			if (!length(a)) addrPrefetch(qg.lat, qg.lon);
-			let km = hasMe ? distKm(myLat, myLon, qg.lat, qg.lon) : null;
-			g4 = { lat: qg.lat, lon: qg.lon, addr: a,
-				dist: (km != null) ? ((km < 10) ? (rnd(km * 10) / 10) : rnd(km)) : null,
-				base: lg1 ? "radio" : "config" };
-		}
-		/* 历史只回传通话组与时间戳（时间由前端按 ts 格式化），减小响应体积 */
-		let hist = (type(e.hist) == "array") ? e.hist : [];
-		let hout = [];
-		for (let h in hist) {
-			let o = { tg: h.tg ?? "", ts: h.ts ?? 0 };
-			if (h.d) o.d = 1;
-			push(hout, o);
-		}
-		push(r, {
-			callsign: call,
-			id: id,
-			addr: (length(id) && addrMap[id]) ? addrMap[id] : (addrCall[call] ?? ""),
-			dir: q.dir,
-			mode: q.data ? "DATA" : "DMR",
-			slot: q.slot,
-			target: q.target,
-			rssi: (q.dir == "TX" && q.rssi != null) ? sprintf("%d dBm", q.rssi) : "",
-			ber: sprintf("%.1f%%", q.ber),
-			dur: sprintf("%.1f", q.dur),
-			time: hhmmss(q.ts),
-			ts: epochOf(q.ts),
-			gps: g4,
-			hist: hout
-		});
 	}
-	writeCache(LH_CACHE, { sig: sig, t: time(), body: r });
+	/* 需要重算：先拿单飞锁，拿不到说明已有实例在跑。这里宁可返回旧列表也不能返回空列表——
+	   7628 单核全量解析要 10 秒左右，空列表会让前端把真实通联记录误判成「暂无」。 */
+	let gotLhLock = !inFlight("lastheard", 30);
+	if (!gotLhLock) {
+		if (cachedBody != null) out(cachedBody);
+		else out({ ok: false, pending: true });
+		return;
+	}
+	let recs = parseQsoSafe(file).recs;
+	let st = lhLoad();
+	let endsFixed = lhEnsureEnds(st);
+	/* 合并阶段只解析 ID：ID 记录用呼号本身，纯呼号记录才查 DMRIds.dat。
+	   地址/呼号全表扫描留到展示阶段，只对最终 50 条做，避免每次刷新都扫库 */
+	let nidCalls = [], seenC = {};
+	for (let q in recs) {
+		if (q.isId || seenC[q.callsign]) continue;
+		seenC[q.callsign] = true;
+		push(nidCalls, q.callsign);
+	}
+	let c2id = length(nidCalls) ? idFor(nidCalls) : {};
+	let merged = lhMigrate(st, c2id);
+	let mres = lhMergeRecs(st, recs, c2id);
+	if (mres.added || mres.seenChanged || endsFixed || merged) { lhTrim(st); lhSave(st); }
+	let r = lhBuildBody(st, file, c2id);
+	writeCache(LH_CACHE, { sig: sig, dbSig: dbSig, live: 0, t: time(), body: r });
 	inFlightDone("lastheard");
 	out(r);
 }
@@ -2210,6 +2313,28 @@ function cmdLive() {
 	let now = time();
 	let slots = { "1": { active: false }, "2": { active: false } };
 	let act = {}, startTs = {};
+	/* 通话一结束就把新记录并入持久化状态，并使用本轮已解析的呼号/地址直接补全展示缓存。
+	   前端随后发来的 /api/lastheard?fresh=1 会立即命中，不再等一次全量重算。
+	   全量重算正在跑时跳过，避免两边同时写缓存。 */
+	let lhIng = null;
+	if (!lockHeld("lastheard", 30)) {
+		let st = lhLoad();
+		let endsFixed = lhEnsureEnds(st);
+		let seenSig = lhSeenSet(st), need = [];
+		for (let r in q.recs) if (!seenSig[lhRecSig(r)]) push(need, r);
+		if (length(need) || endsFixed) {
+			let nc = [], ns = {};
+			for (let r in need) {
+				if (r.isId || ns[r.callsign]) continue;
+				ns[r.callsign] = 1; push(nc, r.callsign);
+			}
+			let c2id = length(nc) ? idFor(nc) : {};
+			let merged = lhMigrate(st, c2id);
+			let mres = lhMergeRecs(st, need, c2id);
+			if (mres.added || mres.seenChanged || endsFixed || merged) { lhTrim(st); lhSave(st); }
+			lhIng = { st: st, need: need, c2id: c2id, mres: mres };
+		}
+	}
 
 	/* 正在发射/接收（有 header 尚未 end）；APRS 等数据突发只在通联记录里显示 */
 	for (let k in q.pend) {
@@ -2254,6 +2379,13 @@ function cmdLive() {
 		let c = last[k].r;
 		if (c.isId) { if (!seenId[c.callsign]) { seenId[c.callsign] = 1; push(idlist, c.callsign); } }
 		else if (!seen[c.callsign]) { seen[c.callsign] = 1; push(calls, c.callsign); }
+	}
+	/* 本轮刚入库的结束记录也参与批量反查，供下面直接生成历史列表行 */
+	if (lhIng != null) {
+		for (let r in lhIng.need) {
+			if (r.isId) { if (!seenId[r.callsign]) { seenId[r.callsign] = 1; push(idlist, r.callsign); } }
+			else if (!seen[r.callsign]) { seen[r.callsign] = 1; push(calls, r.callsign); }
+		}
 	}
 	let ids = idFor(calls);
 	let ids46 = [], ids86 = [], otherIds = [];
@@ -2334,6 +2466,42 @@ function cmdLive() {
 		let a = addrCached(g.lat, g.lon);
 		if (!length(a)) addrPrefetch(g.lat, g.lon);
 		slots[k].gps = { lat: g.lat, lon: g.lon, addr: a, dist: d, base: lg2 ? "radio" : "config" };
+	}
+	/* 把本轮新增的结束记录直接补进最近通联展示缓存。
+	   用本轮已经查到的呼号/ID/地址，不再重复 grep 呼号库，所以几乎不增加实时接口耗时。 */
+	if (lhIng != null && length(lhIng.mres.fresh)) {
+		let ctx = { id2call: id2call, ids: ids, call2id: {}, addrMap: addrMap, addrCall: addrCall,
+			gpsBase: lg2 ? "radio" : "config", hasMe: hasMe, myLat: myLat, myLon: myLon };
+		for (let k in bg.call2id) ctx.call2id[k] = bg.call2id[k];
+		for (let k in rw.call2id) ctx.call2id[k] = rw.call2id[k];
+		let rows = [];
+		for (let r in lhIng.mres.fresh) {
+			let kk = lhKeyFor(r, lhIng.c2id);
+			let e = lhIng.st.ids[kk.key];
+			if (e != null && type(e) == "object") push(rows, lhRowOf(r, e, ctx));
+		}
+		if (length(rows)) {
+			let cc = FS.readfile(LH_CACHE), cacheBody = null;
+			if (cc != null && substr(trim(cc), 0, 1) == "{") {
+				let v = json(cc);
+				if (type(v) == "object" && type(v.body) == "array") cacheBody = v.body;
+			}
+			if (cacheBody == null) cacheBody = [];
+			let uniq = {}, mergedBody = [];
+			/* 新记录按日志倒序放前面；同一时间+身份只保留一条 */
+			for (let i = length(rows) - 1; i >= 0; i--) {
+				let r = rows[i], k = (r.callsign ?? "") + "|" + (r.id ?? "") + "|" + r.ts + "|" + (r.target ?? "");
+				if (uniq[k]) continue;
+				uniq[k] = 1; push(mergedBody, r);
+			}
+			for (let r in cacheBody) {
+				let k = (r.callsign ?? "") + "|" + (r.id ?? "") + "|" + r.ts + "|" + (r.target ?? "");
+				if (uniq[k]) continue;
+				uniq[k] = 1; push(mergedBody, r);
+				if (length(mergedBody) >= 50) break;
+			}
+			writeCache(LH_CACHE, { sig: lhSig(file), dbSig: lhDbSig(), live: 1, t: time(), body: mergedBody });
+		}
 	}
 	let body = { duplex: duplex, mode: length(modes) ? modes[0] : "DMR", slots: slots };
 	shortPut(LIVE_CACHE, body, null);
