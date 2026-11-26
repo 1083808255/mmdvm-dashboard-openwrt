@@ -2424,14 +2424,8 @@ function cmdLive() {
 	if (cached != null) return cached;
 	/* 1 秒轮询下，单次解析一旦跨秒就会被第二个 CGI 重复执行。拿不到锁时直接返回
 	   上一帧（30 秒内），绝不并发重算；首次没有缓存才返回空闲帧。 */
-	let gotLiveLock = !inFlight("live", 30);
-	if (!gotLiveLock) {
-		let old = staleGet(LIVE_CACHE, 30);
-		if (old != null) return old;
-		return { duplex: false, mode: "DMR", slots: {
-			"1": { active: false }, "2": { active: false }
-		} };
-	}
+	/* MMDVM.ini 解析放在锁判断之前：锁冲突兜底帧也要带真实的 duplex/mode，
+	   否则前端会按单工渲染、错误隐藏时隙1（弱机上锁冲突时偶发）。 */
 	let m = ini(INI_DIR + "MMDVM.ini");
 	let duplex = (m["General"] ?? {}).Duplex == "1";
 	let modes = [];
@@ -2439,6 +2433,14 @@ function cmdLive() {
 	if ((m["System Fusion"] ?? {}).Enable == "1") push(modes, "YSF");
 	if ((m["P25"] ?? {}).Enable == "1") push(modes, "P25");
 	if ((m["NXDN"] ?? {}).Enable == "1") push(modes, "NXDN");
+	let gotLiveLock = !inFlight("live", 30);
+	if (!gotLiveLock) {
+		let old = staleGet(LIVE_CACHE, 30);
+		if (old != null) return old;
+		return { duplex: duplex, mode: modes[0] ?? "DMR", slots: {
+			"1": { active: false }, "2": { active: false }
+		} };
+	}
 	let q = parseQsoSafe(file);
 	let now = time();
 	let slots = { "1": { active: false }, "2": { active: false } };
@@ -2828,7 +2830,23 @@ function otaConf() {
 	try { v = json(d); } catch (e) { v = null; }
 	return (type(v) == "object" && v != null) ? v : {};
 }
-function otaSource() { return trim(otaConf().url ?? "") || OTA_DEFAULT_SRC; }
+/* 机型专用清单：仪表盘已按机型编译（菜单显隐为编译期常量），
+   OTA 必须按 board_name 选择对应清单，避免给不匹配机型推错的前端。
+   hlk-7628n → dashboard-hlk7628.json；ax5 → dashboard-ax5.json；其余通用 dashboard.json */
+function otaModelName() {
+	let b = lc(trim(FS.readfile("/tmp/sysinfo/board_name") ?? ""));
+	if (index(b, "ax5") >= 0) return "ax5";
+	if (index(b, "hlk") >= 0) return "hlk7628";
+	return "";
+}
+function otaSource() {
+	let u = trim(otaConf().url ?? "") || OTA_DEFAULT_SRC;
+	let m = otaModelName();
+	if (!length(m)) return u;
+	/* 把清单 URL 末段文件名替换为机型专用版本；自定义 URL 不含 .json 结尾时保持原样 */
+	let nu = replace(u, /[^\/]+\.json$/, "dashboard-" + m + ".json");
+	return (nu == u) ? u : nu;
+}
 function dashVersion() {
 	let v = FS.readfile("/www-dash/VERSION");
 	return (v == null) ? "unknown" : (trim(v) || "unknown");

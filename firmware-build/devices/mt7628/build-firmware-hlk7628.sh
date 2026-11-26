@@ -52,7 +52,7 @@ for p in mmdvmhost dmrgateway dmrstream mmdvm-board-7628 air780e-monitor; do
 	rm -rf "$WORKDIR/package/$p"
 	cp -a "$SCRIPT_DIR/packages/$p" "$WORKDIR/package/$p"
 done
-# 仪表盘为全机型共用单一源码，机型差异用 dashboard-override/ 叠加
+# 仪表盘单一源码 + 构建期机型注入（make-dashboard-model.sh 写入 DASH_MODEL 常量）
 FW_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 if [ ! -d "$FW_ROOT/packages/mmdvm-dashboard" ]; then
 	FW_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -62,6 +62,8 @@ cp -a "$FW_ROOT/packages/mmdvm-dashboard" "$WORKDIR/package/mmdvm-dashboard"
 if [ -d "$SCRIPT_DIR/dashboard-override" ]; then
 	cp -a "$SCRIPT_DIR/dashboard-override/." "$WORKDIR/package/mmdvm-dashboard/"
 fi
+# 机型专用仪表盘：注入 DASH_MODEL 编译期常量
+sh "$FW_ROOT/tools/make-dashboard-model.sh" "$WORKDIR/package/mmdvm-dashboard" hlk7628
 
 echo "==> 生成整机固件版本号"
 # 固件版本与仪表盘版本保持一致（如 V0.607）

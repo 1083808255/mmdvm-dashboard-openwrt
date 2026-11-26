@@ -2830,7 +2830,23 @@ function otaConf() {
 	try { v = json(d); } catch (e) { v = null; }
 	return (type(v) == "object" && v != null) ? v : {};
 }
-function otaSource() { return trim(otaConf().url ?? "") || OTA_DEFAULT_SRC; }
+/* 机型专用清单：仪表盘已按机型编译（菜单显隐为编译期常量），
+   OTA 必须按 board_name 选择对应清单，避免给不匹配机型推错的前端。
+   hlk-7628n → dashboard-hlk7628.json；ax5 → dashboard-ax5.json；其余通用 dashboard.json */
+function otaModelName() {
+	let b = lc(trim(FS.readfile("/tmp/sysinfo/board_name") ?? ""));
+	if (index(b, "ax5") >= 0) return "ax5";
+	if (index(b, "hlk") >= 0) return "hlk7628";
+	return "";
+}
+function otaSource() {
+	let u = trim(otaConf().url ?? "") || OTA_DEFAULT_SRC;
+	let m = otaModelName();
+	if (!length(m)) return u;
+	/* 把清单 URL 末段文件名替换为机型专用版本；自定义 URL 不含 .json 结尾时保持原样 */
+	let nu = replace(u, /[^\/]+\.json$/, "dashboard-" + m + ".json");
+	return (nu == u) ? u : nu;
+}
 function dashVersion() {
 	let v = FS.readfile("/www-dash/VERSION");
 	return (v == null) ? "unknown" : (trim(v) || "unknown");

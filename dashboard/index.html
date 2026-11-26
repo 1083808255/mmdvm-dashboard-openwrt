@@ -3046,7 +3046,14 @@ let lastRoute = '';
 /* 高级页进入确认后的一次性放行标记 */
 let advGate = false;
 let cfgMode = 'mmdvmhost';
-let netSupported = false;   /* 设备能力：AX5 / 7628 支持网络配置 */
+/* 机型常量：构建时按目标机型替换（hlk7628 / ax5 / r3g / n1 / x86），源码直开默认 x86。
+   机型专用固件：菜单显隐全部由该编译期常量决定，不再运行时探测。 */
+const DASH_MODEL = 'x86';
+/* 网络配置（WiFi/热点/有线/4G）：仅 hlk7628 与 ax5 提供 */
+const IS_NETCFG = (DASH_MODEL === 'hlk7628' || DASH_MODEL === 'ax5');
+/* 实时语音开关（单核低功耗机型）：仅 hlk7628 提供 */
+const IS_LIVE_TOOL = (DASH_MODEL === 'hlk7628');
+let netSupported = false;   /* 设备能力：AX5 / 7628 支持网络配置（由 DASH_MODEL 常量决定） */
 let netProbed = false;      /* 能力探测是否完成：未完成前不按“不支持”跳转，避免刷新时误回通联页 */
 function applyNavActive(sel, view, persistOpen){
   const nav = $(sel); if(!nav) return;
@@ -3357,23 +3364,25 @@ async function netWifiPost(body, timeoutMs){
   }catch(e){ toast('操作失败：'+(e.message||e), true); throw e; }
 }
 async function initNetWifiCap(){
-  try{
-    const j = await netWifiGet();
-    netSupported = !!(j.capability && j.capability.supported);
-    if(netSupported) window._netCap = j.capability;
-  }catch(e){ netSupported = false; }
   netProbed = true;
+  /* 机型专用：菜单显隐由编译期常量决定，不再依赖 /api/netwifi 探测结果 */
+  netSupported = IS_NETCFG;
   const show = netSupported ? '' : 'none';
   $$('.netcfg-entry').forEach(el=>{ el.style.display = show; });
   if(!netSupported && location.hash.startsWith('#/netcfg')) location.hash = '#/qso';
+  if(!netSupported) return false;
+  /* 仅获取频段/带宽等能力细节用于渲染，失败不影响菜单显示 */
+  try{
+    const j = await netWifiGet();
+    if(j && j.capability && j.capability.supported) window._netCap = j.capability;
+  }catch(e){}
   ncApplyCap();
   return netSupported;
 }
-/* 按机型能力显隐页签：7628 无有线 WAN（wired=false），只有 WiFi 与 4G */
+/* 按机型常量显隐页签：hlk7628 无有线 WAN（只有 WiFi 与 4G），ax5 有线 + WiFi */
 function ncApplyCap(){
-  const cap = window._netCap || {};
-  const hasWired = cap.wired !== false;
-  const hasLte = !!cap.lte;
+  const hasWired = DASH_MODEL !== 'hlk7628';
+  const hasLte = DASH_MODEL === 'hlk7628';
   const tabs = $$('.nc-mode-tabs [data-nc-mode]');
   tabs.forEach(btn=>{
     const k = btn.dataset.ncMode;
@@ -3509,6 +3518,8 @@ function ncRenderLte(st){
 }
 /* 本机是否具备 5G 射频：单频机型（如 7628）不显示任何 5G 相关选项 */
 function ncHas5g(){
+  if(DASH_MODEL === 'hlk7628') return false;
+  if(DASH_MODEL === 'ax5') return true;
   const cap = window._netCap || {};
   return Array.isArray(cap.bands) ? cap.bands.includes('5g') : true;
 }
@@ -3582,7 +3593,7 @@ function ncShowJoin(ssid, bands){
 }
 async function ncRefreshStatus(){
   const j = await netWifiGet();
-  if(!j.capability || !j.capability.supported){ netSupported = false; initNetWifiCap(); return; }
+  if(!j || !j.capability || !j.capability.supported) return;  /* 接口异常时保持菜单，不因一次失败隐藏 */
   window._netCap = j.capability;
   window._netStatus = j.status;
   ncRenderAp(j.capability, j.status);
@@ -3709,12 +3720,9 @@ async function ncSaveNet(){
 async function renderNetCfg(){
   if(!netWifiInit){ await initNetWifiCap(); netWifiInit = true; }
   if(!netSupported){ toast('当前设备不支持网络配置', true); return; }
-  /* 默认页签：有有线网络时进“有线网络”，否则进“WiFi连接” */
-  const cap = window._netCap || {};
-  /* 先取状态再切页签，避免自动扫描时能力信息还没到位 */
-  const j = await ncRefreshStatus();
-  if(!j) return;
-  ncSetMode(cap.wired === false ? 'sta' : 'wired');
+  /* 默认页签：有有线网络时进“有线网络”，否则进“WiFi连接”（机型常量决定） */
+  ncSetMode(DASH_MODEL === 'hlk7628' ? 'sta' : 'wired');
+  await ncRefreshStatus();
 }
 document.addEventListener('click', async e=>{
   const tab = e.target.closest && e.target.closest('.nc-mode-tabs [data-nc-mode]');
@@ -3837,6 +3845,16 @@ async function renderRadio(){
 
 /* ---- 电台信息：仪表盘 OTA 状态与更新弹窗 ---- */
 let radioOtaCache = { t: 0, data: null };
+/* 版本比较：a 更新返回正数；'V0.668' vs 'v0.57' 这类不齐位数也可靠 */
+function verCmp(a, b){
+  const p = s => String(s||'').toLowerCase().replace(/^v/, '').split('.').map(n=>parseInt(n,10)||0);
+  const pa = p(a), pb = p(b);
+  for(let i=0; i<Math.max(pa.length, pb.length); i++){
+    const d = (pa[i]||0) - (pb[i]||0);
+    if(d) return d;
+  }
+  return 0;
+}
 async function radioCheckOta(){
   if(!radioOtaCache.data || Date.now() - radioOtaCache.t > 10 * 60 * 1000){
     try{
@@ -3848,8 +3866,8 @@ async function radioCheckOta(){
   if(!st || !b) return;
   const j = radioOtaCache.data;
   const verEl = $('#radio-ota-ver');
-  /* 当前版本只显示 OTA 版本（即原括号内的版本号） */
-  if(verEl && j && j.current) verEl.textContent = j.current;
+  /* 当前版本以页面内置 dashVer() 为准（离线也正确）；仅当 OTA 报告的版本不旧于内置值时才采用 */
+  if(verEl && j && j.current && verCmp(j.current, dashVer()) >= 0) verEl.textContent = j.current;
   if(j && j.updateAvailable){
     st.textContent = '有更新';
     st.style.color = 'var(--amber)';
@@ -6565,7 +6583,7 @@ function stopCalMon(){
 }
 const UI_VER = '20261126a667';
 /* 界面显示的版本号：V0.<构建序号>，小数位最多 4 位；稳定前主版本保持 0 */
-function dashVer(){ return 'V0.667'; }
+function dashVer(){ return 'V0.669'; }
 /* forceMs：指定固定刷新周期（自动校准用 3000ms），省略则跟随下拉框 */
 function startCalMon(forceMs){
   stopCalTimer();
@@ -8109,6 +8127,8 @@ function dmrAudioConnect(){
 /* 实时语音开关只对 7628（单核低性能）提供；其它机型固定开启、不显示入口 */
 let liveCfg = { enabled:true, lowPower:false, loaded:false };
 async function loadLiveCfg(){
+  /* 机型专用：非 7628 固定开启、无开关，不发请求 */
+  if(!IS_LIVE_TOOL){ liveCfg = { enabled:true, lowPower:false, loaded:true }; applyLiveUi(); return liveCfg; }
   const j = await api('/api/livecfg');
   if(j && typeof j.enabled !== 'undefined')
     liveCfg = { enabled: j.lowPower ? !!j.enabled : true, lowPower: !!j.lowPower, loaded: true };
@@ -8123,14 +8143,14 @@ function applyLiveUi(){
   if(card) card.style.display = liveCfg.enabled ? '' : 'none';
   /* 「工具 → 实时语音」菜单仅 7628 显示 */
   document.querySelectorAll('[data-view="livetool"]').forEach(el=>{
-    el.style.display = liveCfg.lowPower ? '' : 'none';
+    el.style.display = IS_LIVE_TOOL ? '' : 'none';
   });
   if(!liveCfg.enabled && dmrAudioEnabled) dmrAudioDisable();
 }
 async function renderLiveTool(){
-  await loadLiveCfg();
   /* 非 7628 机型不提供该开关，直接回首页（防止手动输入地址进入） */
-  if(!liveCfg.lowPower){ location.hash = '#/qso'; return; }
+  if(!IS_LIVE_TOOL){ location.hash = '#/qso'; return; }
+  await loadLiveCfg();
   const cb = $('#liveEnable');
   if(cb) cb.checked = liveCfg.enabled;
   const st = $('#liveState');
@@ -8321,7 +8341,7 @@ async function loadDeviceModel(){
 }
 loadDeviceModel();
 window.addEventListener('DOMContentLoaded', async ()=>{
-  /* 先探测设备能力（AX5 才显示网络配置）与 LuCI 密码状态，再渲染首屏 */
+  /* 菜单显隐由机型常量决定（无需等待）；此处同步 LuCI 密码状态后渲染首屏 */
   await Promise.allSettled([
     initNetWifiCap(),
     Promise.race([

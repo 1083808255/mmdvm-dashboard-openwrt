@@ -59,6 +59,8 @@ cp -a "$FW_ROOT/packages/mmdvm-dashboard" package/mmdvm-dashboard
 if [ -d "$SCRIPT_DIR/dashboard-override" ]; then
     cp -a "$SCRIPT_DIR/dashboard-override/." package/mmdvm-dashboard/
 fi
+# 机型专用仪表盘：注入 DASH_MODEL 编译期常量
+sh "$FW_ROOT/tools/make-dashboard-model.sh" package/mmdvm-dashboard n1
 rm -rf package/kernel/i2c-ch341
 mkdir -p package/kernel
 cp -a "$SCRIPT_DIR/packages/i2c-ch341" package/kernel/i2c-ch341
