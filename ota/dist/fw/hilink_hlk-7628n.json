@@ -3,8 +3,8 @@
   "versionName": "V0.660",
   "board": "hilink,hlk-7628n",
   "target": "ramips/mt76x8",
-  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/openwrt-ramips-mt76x8-hilink_hlk-7628n-squashfs-sysupgrade.bin",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/7628-V0.660-squashfs-sysupgrade.bin",
   "sha256": "09092196a0d2d3a4a7f27c54e4d0b2ddedbc7ce70a4b51fd0473adce9befa08c",
   "size": 10289957,
-  "notes": "HLK-7628N 整机固件 V0.660"
+  "notes": "修复实时语音开关页面不显示（/api/livecfg 接口未注册）\n整机 OTA 升级保留用户配置：BM API Key、仪表盘设置、实时语音开关、MMDVM/DMRGateway 自定义"
 }

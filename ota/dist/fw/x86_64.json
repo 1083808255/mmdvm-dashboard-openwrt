@@ -2,8 +2,8 @@
   "version": "V0.660",
   "versionName": "V0.660",
   "target": "x86/64",
-  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/openwrt-x86-64-generic-squashfs-combined.img.gz",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/openwrt-x86-64-generic-squashfs-combined-v660fix.img.gz",
   "sha256": "e6e6954eac620324ab67a8bd22125c0068ae6d1aa83edf804e63ea0b2a309965",
   "size": 16414010,
-  "notes": "x86/64 整机固件 V0.660"
+  "notes": "x86/64 整机固件 V0.660 修复版：内置 dmrstream 实时语音 + V0.661 仪表盘（运行时 api 静态缓存）"
 }

@@ -1,10 +1,10 @@
 {
-  "version": "V0.661",
-  "versionName": "V0.661",
+  "version": "V0.660",
+  "versionName": "V0.660",
   "board": "redmi,ax5-jdcloud",
   "target": "qualcommax/ipq60xx",
-  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.661/openwrt-qualcommax-ipq60xx-redmi_ax5-jdcloud-squashfs-sysupgrade.bin",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/ax5-V0.660-squashfs-sysupgrade.bin",
   "sha256": "e5efe13909a527e19b7387542da49849849d4a78e827f01c1738ab68d38b68a8",
   "size": 33997629,
-  "notes": "红米 AX5 京东云版整机固件 V0.661"
+  "notes": "AX5 京东云版整机固件 V0.660\n修复仪表盘实时语音开关接口缺失（livecfg 未注册）\n整机 OTA 保留仪表盘配置与 BM Key\n统一单源仪表盘"
 }

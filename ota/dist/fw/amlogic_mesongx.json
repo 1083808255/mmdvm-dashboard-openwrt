@@ -3,8 +3,8 @@
   "versionName": "V0.660",
   "board": "phicomm,n1",
   "target": "amlogic/mesongx",
-  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/openwrt-amlogic-mesongx-phicomm_n1-squashfs-sysupgrade.img.gz",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/n1-V0.660-squashfs-sysupgrade.img.gz",
   "sha256": "a5e875f4f9619234e2e6c4d7801c194b476840892f47d95f7ec5bd42630ee327",
   "size": 21693534,
-  "notes": "Amlogic mesongx（斐讯 N1）整机固件 V0.660"
+  "notes": "斐讯 N1 整机固件 V0.660\n修复仪表盘实时语音开关接口缺失（livecfg 未注册）\n整机 OTA 保留仪表盘配置与 BM Key\n统一单源仪表盘"
 }

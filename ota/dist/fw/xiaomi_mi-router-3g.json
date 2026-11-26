@@ -3,8 +3,8 @@
   "versionName": "V0.660",
   "board": "xiaomi,mi-router-3g",
   "target": "ramips/mt7621",
-  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/openwrt-ramips-mt7621-xiaomi_mi-router-3g-squashfs-sysupgrade.bin",
+  "url": "https://gitee.com/xyinmaster/mmdvm-openwrt-ota/releases/download/fw-V0.660/r3g-V0.660-squashfs-sysupgrade.bin",
   "sha256": "912cb461a79c3b36b67c7ac84f3de9d7cf39e962befa1edcbd7dc1eb9f77dacb",
   "size": 11019386,
-  "notes": "R3G 整机固件 V0.660"
+  "notes": "修复实时语音开关页面不显示（/api/livecfg 接口未注册）\n整机 OTA 升级保留用户配置：仪表盘设置、实时语音开关、MMDVM/DMRGateway 自定义"
 }
