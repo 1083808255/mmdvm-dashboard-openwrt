@@ -3813,7 +3813,29 @@ function wifiDoScan() {
 	   遍历所有接口可同时覆盖 2.4G/5G，避免把 UCI 段名 radio0/1 当设备名 */
 	let ifs = sh("iw dev 2>/dev/null | awk '/Interface/{printf \"%s \", $2}' || true");
 	let scan = "";
-	for (let ifn in words(ifs)) scan += sh("iw dev " + sq(ifn) + " scan 2>/dev/null");
+	/* 单射频设备（7628：单 phy，硬件 #channels<=1）扫描必须离开 AP 工作信道。
+	   一次性 burst 跳完 13 个 2.4G 信道，射频连续离频约 4 秒：期间 AP 无法收发，
+	   状态页和客户端都可能被判为断开，扫描的 HTTP 请求也常在离频窗口内被掐断。
+	   改为串行逐信道扫描，每扫完一个信道回到 AP 信道停留 1 秒再扫下一个：
+	   单次离频压到约 0.5 秒，AP 每秒都能完整发一轮 beacon，客户端不会掉线，
+	   HTTP 请求也能在间隙里重传成功。全 13 信道总耗时约 20 秒，实测 ping 零中断。
+	   多射频设备（2.4G/5G 各自独立）保持一次性全扫，不受影响。 */
+	let phyN = length(words(replace(sh("ls /sys/class/ieee80211 2>/dev/null"), "\n", " ")));
+	for (let ifn in words(ifs)) {
+		let chs = trim(sh("iw dev " + sq(ifn) + " info 2>/dev/null | sed -n 's/.*channel \\([0-9]*\\).*/\\1/p'"));
+		let cn = length(chs) ? int(chs) : 0;
+		if (phyN <= 1 && cn >= 1 && cn <= 13) {
+			let freqs = [ 2412, 2417, 2422, 2427, 2432, 2437, 2442, 2447, 2452, 2457, 2462, 2467, 2472 ];
+			let cmd = "";
+			for (let f in freqs) {
+				if (length(cmd)) cmd += "sleep 1; ";
+				cmd += "iw dev " + sq(ifn) + " scan freq " + f + " 2>/dev/null; ";
+			}
+			scan += sh(cmd);
+		} else {
+			scan += sh("iw dev " + sq(ifn) + " scan 2>/dev/null");
+		}
+	}
 	/* 5G 热点关闭时其 radio 上没有任何 netdev，iw dev 不列出该 phy，扫描会漏掉整个 5G 频段；
 	   对没有 netdev 的 phy 临时挂一个 managed 探测口扫描，扫完立即删除（不动 UCI） */
 	/* 注意：words() 只按空格切分，须先把换行归一化成空格 */

@@ -3611,10 +3611,12 @@ async function ncDoScan(){
   if(netScanning) return;
   netScanning = true;
   const btn = $('#nc-sta-scan'); if(btn) btn.disabled = true;
-  const tbody = $('#nc-sta-list tbody'); if(tbody) tbody.innerHTML = '<tr><td colspan="4">正在扫描…</td></tr>';
+  /* 7628 单射频必须逐信道串行扫描（每次离频约 0.6 秒，扫完回热点信道停 1 秒），
+     全 13 个 2.4G 信道约 20 秒；期间热点不掉线，但等待时间较长需明确提示 */
+  const tbody = $('#nc-sta-list tbody'); if(tbody) tbody.innerHTML = '<tr><td colspan="4">正在扫描（全信道，约 20 秒）…</td></tr>';
   try{
-    /* 7628 单核扫描实测约 20 秒，超时不能沿用普通写操作的 8 秒 */
-    const j = await netWifiPost({ act:'scan' }, 40000);
+    /* 7628 串行全信道扫描实测约 20 秒，超时不能沿用普通写操作的 8 秒 */
+    const j = await netWifiPost({ act:'scan' }, 60000);
     const st = (await netWifiGet()).status || null;
     ncRenderScan(j.networks || [], st);
     toast('扫描完成，共 '+(j.networks||[]).length+' 个结果');
